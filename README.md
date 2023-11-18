@@ -4,6 +4,8 @@
 
 TinyVision - A Tiny Linux Board / IPC / Server / Router / And so on...
 
+[OS Release](https://github.com/YuzukiHD/TinyVision/releases) — [Documents](https://yuzukihd.top/TinyVision/#/) — [Tools](https://github.com/YuzukiHD/TinyVision/blob/main/docs/tools/) 
+
 ## Feature
 
 - Based on Allwinner V851se / V851s3 
