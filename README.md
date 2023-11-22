@@ -6,7 +6,7 @@ TinyVision - A Tiny Linux Board / IPC / Server / Router / And so on...
 
 [OS Release](https://github.com/YuzukiHD/TinyVision/releases) — [Documents](https://yuzukihd.top/TinyVision/#/) — [Tools](https://github.com/YuzukiHD/TinyVision/blob/main/docs/tools/) 
 
-![image](https://github.com/YuzukiHD/TinyVision/assets/12003087/a95086d7-3a81-422a-a255-e2a852075c2b)
+![image](https://github.com/YuzukiHD/TinyVision/assets/12003087/2ace3c9f-f9e0-4670-8d4c-b11dd3ef262a)
 
 ## Feature
 
