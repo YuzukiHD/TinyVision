@@ -50,7 +50,6 @@ TinyVision supports a variety of kernels to choose from, and the following is a 
 | 6.1.62             | IoT                                     | Cortex-A7 Core | `kernel\linux-6.1`  |
 | Mainline Linux 6.7 | Mainline                                | Cortex-A7 Core | Coming Soon         |
 | RT-Thread          | Real-Time Control, Fast                 | RISC-V E907    | `kernel\rtos`       |
-| Xboot              | Baremetal, Mini SYS                     | Cortex-A7 Core | [Xboot](xboot.org)  |
 | Baremetal          | Baremetal ASM Code                      | Cortex-A7 Core | Coming Soon         |
 
 ### Bootloader Support
