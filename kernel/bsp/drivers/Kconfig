@@ -1,0 +1,71 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
+menu "Device Drivers"
+
+# Minimal System
+source "bsp/drivers/clk/Kconfig"
+source "bsp/drivers/pinctrl/Kconfig"
+source "bsp/drivers/uart/Kconfig"
+source "bsp/drivers/timer/Kconfig"
+
+# Basic System
+source "bsp/drivers/dma/Kconfig"
+source "bsp/drivers/rtc/Kconfig"
+source "bsp/drivers/dumpreg/Kconfig"
+source "bsp/drivers/watchdog/Kconfig"
+source "bsp/drivers/iommu/Kconfig"
+source "bsp/drivers/mbus/Kconfig"
+
+# Storage
+source "bsp/drivers/mmc/Kconfig"
+source "bsp/drivers/redeposit/Kconfig"
+
+# Graphics
+source "bsp/drivers/video/Kconfig"
+source "bsp/drivers/g2d/Kconfig"
+source "bsp/drivers/di/Kconfig"
+
+# Multi-Media
+source "bsp/drivers/ve/Kconfig"
+
+# Security
+source "bsp/drivers/ce/Kconfig"
+source "bsp/drivers/smc/Kconfig"
+source "bsp/drivers/sid/Kconfig"
+
+# I/O Connectivity
+source "bsp/drivers/gmac/Kconfig"
+source "bsp/drivers/usb/Kconfig"
+source "bsp/drivers/twi/Kconfig"
+source "bsp/drivers/spi/Kconfig"
+source "bsp/drivers/spi-ng/Kconfig"
+source "bsp/drivers/pwm/Kconfig"
+
+# Wireless
+source "bsp/drivers/net/Kconfig"
+source "bsp/drivers/bluetooth/Kconfig"
+
+# Power Management
+source "bsp/drivers/irqchip/Kconfig"
+source "bsp/drivers/standby/Kconfig"
+source "bsp/drivers/thermal/Kconfig"
+source "bsp/drivers/nvmem/Kconfig"
+source "bsp/drivers/pm_domain/Kconfig"
+source "bsp/drivers/power/Kconfig"
+source "bsp/drivers/cpufreq/Kconfig"
+
+# AMP/XPU
+source "bsp/drivers/msgbox/Kconfig"
+source "bsp/drivers/hwspinlock/Kconfig"
+source "bsp/drivers/remoteproc/Kconfig"
+source "bsp/drivers/rpmsg/Kconfig"
+source "bsp/drivers/rpbuf/Kconfig"
+source "bsp/drivers/npu/Kconfig"
+
+# Misc
+source "bsp/drivers/misc/Kconfig"
+
+# pstore
+source "bsp/drivers/pstore/Kconfig"
+
+endmenu

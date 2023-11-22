@@ -1,0 +1,45 @@
+# SPDX-License-Identifier: GPL-2.0-only
+config AW_CCU
+	tristate "Clock Support for Allwinner SoCs"
+	depends on AW_BSP
+	default y
+	select RESET_CONTROLLER
+	select AW_RTC_CCU
+
+config AW_DDR_CCU
+	tristate "DDR_CCU"
+	default AW_CCU
+	depends on AW_CCU
+
+config AW_SUN8IW20_CCU
+	tristate "SUN8IW20 CCU"
+	default ARCH_SUN8IW20
+	depends on AW_CCU
+
+config AW_SUN8IW20_R_CCU
+	tristate "SUN8IW20 PRCM CCU"
+	default ARCH_SUN8IW20
+	depends on AW_CCU
+
+config AW_SUN8IW20_TEST
+	tristate "SUN8IW20 TEST CCU"
+	default n
+	depends on AW_CCU
+
+config AW_SUN8IW21_CCU
+	tristate "SUN8IW21 CCU"
+	default ARCH_SUN8IW21
+	depends on AW_CCU
+
+config AW_SUN8IW21_R_CCU
+	tristate "SUN8IW21 PRCM CCU"
+	default ARCH_SUN8IW21
+	depends on AW_CCU
+
+config AW_RTC_CCU
+	tristate "RTC domain clocks"
+	default y
+	help
+	  sunxi clock provider in RTC domain, which provides clocks such as
+	  dcxo24M-out, iosc, osc32k, osc32k-out and rtc-1k. This module is
+	  mandatory for sunxi SoCs. Say 'Y' here.

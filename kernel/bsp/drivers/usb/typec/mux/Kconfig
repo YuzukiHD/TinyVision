@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: GPL-2.0
+
+menu "USB Type-C Multiplexer/DeMultiplexer Switch support"
+
+config TYPEC_MUX_PS8743
+	tristate "Parade PS8743 Type-C cross switch driver"
+	depends on USB_SUNXI_TYPEC
+	depends on I2C
+	help
+	  Say Y or M if your system has a Parade PS8743 Type-C cross
+	  switch / mux chip found on some devices with a Type-C port.
+
+          If unsure, say N.
+
+endmenu

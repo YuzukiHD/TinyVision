@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: GPL-2.0
+
+config AW_NNA_VIP
+	depends on (ARCH_SUNXI)
+	tristate "aw nna vip driver"
+	default m
+	select DMA_SHARED_BUFFER
+	help
+	 Choose Y to enable aw nna vip driver
+

@@ -1,0 +1,72 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
+source "bsp/platform/Kconfig.common"
+
+menu "Platform Selection"
+
+config AW_BSP
+	bool "Allwinner Platform"
+	select ARCH_SUNXI
+	select ARCH_HAS_RESET_CONTROLLER
+	select GENERIC_IRQ_CHIP
+	select PINCTRL
+	select RESET_CONTROLLER
+	help
+	  This enables support for Allwinner sunxi based SoCs like the A64.
+
+choice
+
+	prompt "Select SoC Family"
+	default ARCH_SUN8I  if ARM
+	depends on AW_BSP
+	help
+	  Select the Family for SoC
+
+config ARCH_SUN8I
+	bool "Allwinner SUN8I"
+	depends on AW_BSP && ARM
+	help
+	  Allwinner SUN8I SoC Family
+
+endchoice
+
+choice
+	prompt "Select the Wafer"
+	default ARCH_SUN8IW21
+	depends on AW_BSP
+	help
+	  Select the wafer
+
+config ARCH_SUN8IW20
+	bool "SUN8IW20"
+	depends on ARCH_SUN8I
+	help
+	  Support for Allwinner SUN8IW20 SoC
+
+config ARCH_SUN8IW21
+	bool "SUN8IW21"
+	depends on ARCH_SUN8I
+	help
+	  Support for Allwinner SUN8IW21 SoC
+
+endchoice
+
+choice
+	prompt "Select the Board"
+	depends on AW_BSP
+	default AW_IC_BOARD
+
+config AW_IC_BOARD
+	bool "IC Board"
+	help
+	  Support for Allwinner IC board
+endchoice
+
+config AW_SOC_NAME
+	string "SoC Name"
+	default ""
+	depends on AW_BSP
+	help
+	  Used by sysfs: /sys/.../sysinfo
+
+endmenu

@@ -1,0 +1,45 @@
+# SPDX-License-Identifier: GPL-2.0-only
+menu "Pinctrl Drivers"
+	depends on AW_BSP
+
+config AW_PINCTRL
+	tristate "Pinctrl Support for Allwinner SoCs"
+	depends on AW_BSP
+	select PINMUX
+	select GENERIC_PINCONF
+	select IRQ_DOMAIN_HIERARCHY
+	select GPIOLIB
+	default y
+
+config AW_PINCTRL_DEBUGFS
+	tristate "Pinctrl Debugfs Driver"
+	depends on AW_PINCTRL && DEBUG_FS
+	default n
+
+config AW_PINCTRL_SUN8IW20
+	tristate "SUN8IW20 PIO"
+	depends on AW_PINCTRL
+	default ARCH_SUN8IW20 || ARCH_SUN20IW1
+
+config AW_PINCTRL_SUN8IW21
+	tristate "SUN8IW21 PIO"
+	depends on AW_PINCTRL
+	default ARCH_SUN8IW21
+
+config AW_PINCTRL_AXP22X
+	tristate "X-Powers AXP221s/223 PMIC pinctrl and GPIO Support"
+	depends on AW_PINCTRL
+	depends on AW_MFD_AXP2101
+	help
+	  AXP PMICs provides multiple GPIOs that can be muxed for different
+	  functions. This driver bundles a pinctrl driver to select the function
+	  muxing and a GPIO driver to handle the GPIO when the GPIO function is
+	  selected.
+	  Say yes to enable pinctrl and GPIO support for the AXP221s/223 PMIC
+
+config AW_PINCTRL_LEDS
+        tristate "Support GPIO leds for sunxi socs"
+	help
+	  This enables support for GPIO LEDs on Allwinner SoCs.
+
+endmenu
