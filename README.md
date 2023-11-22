@@ -52,14 +52,6 @@ TinyVision supports a variety of kernels to choose from, and the following is a 
 | RT-Thread          | Real-Time Control, Fast                 | RISC-V E907    | `kernel\rtos`       |
 | Baremetal          | Baremetal ASM Code                      | Cortex-A7 Core | Coming Soon         |
 
-### Bootloader Support
-
-| Bootloader  | Supported Kernel     | Path               |
-| ----------- | -------------------- | ------------------ |
-| U-Boot 2023 | `5.15.138`, `6.1.62` | `boot\u-boot-2023` |
-| U-Boot 2018 | `4.9.191`            | `boot\u-boot-2018` |
-| AWboot      | `Mainline Linux`     | `boot\awboot`      |
-
 ## NPU
 
 ### NPU Operators
