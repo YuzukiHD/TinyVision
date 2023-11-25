@@ -37,8 +37,8 @@ jobs:
           
       - name: Build SyterKit Test
         run: |
-          mkdir -p SyterKit/build
-          cd SyterKit/build
+          mkdir -p kernel/SyterKit/build
+          cd kernel/SyterKit/build
           cmake  ..
           make -j$(nproc)
           cd -
