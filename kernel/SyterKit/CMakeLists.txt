@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.10)
 
-set(CROSS_COMPILE "arm-none-eabi-")
+set(CROSS_COMPILE "arm-linux-gnueabihf-")
 
 set(CROSS_COMPILE ${CROSS_COMPILE} CACHE STRING "CROSS_COMPILE Toolchain")
 
