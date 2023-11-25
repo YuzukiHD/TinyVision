@@ -1,6 +1,6 @@
 # This is a basic workflow to help you get started with Actions
 
-name: CI-Linux-5.15-Build-Test
+name: CI-Build-Test
 
 # Controls when the workflow will run
 on:
@@ -24,13 +24,22 @@ jobs:
     steps:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v3
+
+      - name: Setup env
+        run: sudo apt-get install -y gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf build-essential libncurses5-dev zlib1g-dev gawk flex bison quilt libssl-dev xsltproc libxml-parser-perl mercurial bzr ecj cvs unzip lsof
       
-      # Runs a set of commands using the runners shell
       - name: Build Linux 5.15 Kernel Test
         run: |
-          sudo apt-get install -y gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf build-essential libncurses5-dev zlib1g-dev gawk flex bison quilt libssl-dev xsltproc libxml-parser-perl mercurial bzr ecj cvs unzip lsof
           cd kernel/linux-5.15
           make CROSS_COMPILE=arm-linux-gnueabihf- ARCH=arm tinyvision_defconfig
           make CROSS_COMPILE=arm-linux-gnueabihf- ARCH=arm -j$(nproc)
+          cd -
           
+      - name: Build SyterKit Test
+        run: |
+          mkdir -p SyterKit/build
+          cd SyterKit/build
+          cmake -DCROSS_COMPILE=arm-linux-gnueabihf- ..
+          make CROSS_COMPILE=arm-linux-gnueabihf- -j$(nproc)
+          cd -
           
