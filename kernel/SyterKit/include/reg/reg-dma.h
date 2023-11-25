@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 #ifndef __REG_DMA_H__
 #define __REG_DMA_H__
 

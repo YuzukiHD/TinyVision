@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 #ifndef __ARM32_ATOMIC_H__
 #define __ARM32_ATOMIC_H__
 

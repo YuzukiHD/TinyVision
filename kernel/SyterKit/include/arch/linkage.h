@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 #ifndef __ARM32_LINKAGE_H__
 #define __ARM32_LINKAGE_H__
 

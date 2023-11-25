@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 #ifndef __SYS_TIMER_H__
 #define __SYS_TIMER_H__
 

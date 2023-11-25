@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 #ifndef __SUNXI_SPI_H__
 #define __SUNXI_SPI_H__
 

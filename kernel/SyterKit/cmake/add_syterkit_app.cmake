@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+
 function(add_syterkit_app target_name)
     add_executable(${target_name}_fel ${ARGN})
 

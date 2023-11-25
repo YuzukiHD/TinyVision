@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 #ifndef __SDCARD_H__
 #define __SDCARD_H__
 

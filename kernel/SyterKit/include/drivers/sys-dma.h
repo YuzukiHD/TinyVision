@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 #ifndef _SUNXI_DMA_H
 #define _SUNXI_DMA_H
 

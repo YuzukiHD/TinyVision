@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 #ifndef __ARM32_BARRIER_H__
 #define __ARM32_BARRIER_H__
 

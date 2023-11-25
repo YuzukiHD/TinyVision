@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 #ifndef __SUNXI_CLK_H__
 #define __SUNXI_CLK_H__
 

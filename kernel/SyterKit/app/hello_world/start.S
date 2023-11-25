@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 #include <linkage.h>
 
 #define  ARMV7_USR_MODE        0x10
