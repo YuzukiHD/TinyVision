@@ -366,9 +366,15 @@ _boot:
     printk(LOG_LEVEL_INFO, "booting linux...\r\n");
 
     arm32_mmu_disable();
+    printk(LOG_LEVEL_INFO, "disable mmu ok...\r\n");
     arm32_dcache_disable();
+    printk(LOG_LEVEL_INFO, "disable dcache ok...\r\n");
     arm32_icache_disable();
+    printk(LOG_LEVEL_INFO, "disable icache ok...\r\n");
     arm32_interrupt_disable();
+    printk(LOG_LEVEL_INFO, "free interrupt ok...\r\n");
+
+    printk(LOG_LEVEL_INFO, "jump to kernel address: 0x%x\r\n", image.dest);
 
     kernel_entry = (void (*)(int, int, unsigned int))entry_point;
     kernel_entry(0, ~0, (unsigned int)image.of_dest);
