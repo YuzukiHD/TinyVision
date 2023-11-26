@@ -96,9 +96,9 @@
 };
 
 &spi0 {
-		pinctrl-0 = <&spi0_pins>;
-		pinctrl-names = "default";
-		status = "okay";
+	pinctrl-0 = <&spi0_pins>;
+	pinctrl-names = "default";
+	status = "okay";
 };
 
 &i2c2 {
@@ -155,12 +155,12 @@
 };
 
 &gpadc {
-		status = "okay";
+	status = "okay";
 
-		#address-cells = <1>;
-		#size-cells = <0>;
+	#address-cells = <1>;
+	#size-cells = <0>;
 
-		channel@0 {
-			reg = <0>;
-		};
+	channel@0 {
+		reg = <0>;
+	};
 };

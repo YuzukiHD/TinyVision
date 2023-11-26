@@ -80,7 +80,7 @@
 		#size-cells = <1>;
 		dma-noncoherent;
 
-/* A (B) C D E F (G) H */
+		/* A (B) C D E F (G) H */
 
 		pio: pinctrl@2000000 {
 			compatible = "allwinner,sun8i-v851s-pinctrl";
