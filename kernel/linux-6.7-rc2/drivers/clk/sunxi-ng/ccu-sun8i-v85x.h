@@ -1,0 +1,15 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+/*
+ * Copyright (c) 2020 frank@allwinnertech.com
+ * Copyright (C) 2021 Samuel Holland <samuel@sholland.org>
+ */
+
+#ifndef _CCU_SUN8I_V85X_H_
+#define _CCU_SUN8I_V85X_H_
+
+#include <dt-bindings/clock/sun8i-v85x-ccu.h>
+#include <dt-bindings/reset/sun8i-v85x-ccu.h>
+
+#define CLK_NUMBER		(CLK_FANOUT2 + 1)
+
+#endif /* _CCU_SUN8I_V85X_H_ */

@@ -22,6 +22,11 @@ config SUN20I_D1_R_CCU
 	default y
 	depends on MACH_SUN8I || RISCV || COMPILE_TEST
 
+config SUN8I_V85X_CCU
+	tristate "Support for the Allwinner V853/V851s CCU"
+	default MACH_SUN8I
+	depends on MACH_SUN8I || COMPILE_TEST
+
 config SUN50I_A64_CCU
 	tristate "Support for the Allwinner A64 CCU"
 	default y
