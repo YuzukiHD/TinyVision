@@ -72,11 +72,19 @@ TinyVision supports a variety of kernels to choose from, and the following is a 
 
 ### NPU Operators
 
-For machine learning, 0.5Tops NPU is provided as a computational accelerator, supporting the following 140+ operators
+For machine learning tasks, the TinyVision board offers a powerful computational accelerator in the form of a 0.5Tops NPU (Neural Processing Unit). This NPU supports over 140 operators, making it suitable for a wide range of machine learning algorithms and models.
 
-```
-abs, add, addn, argmin, argmax, batch2space, batchnormalize, cast, clipbyvalue, concat, conv1d, convolution, conv3d, cropsandresize, deconvolution, depth2space, equal, exp, elu, embedding_lookup, erf, eltwise(MAX), floor, fullconnect, floor_div, gathernd, gather, gelu, gru, gru_cell, greater, greater_equal, image_resize, instancenormalize, localresponsenormalization_ tf, l2normalize, lstm, lstm_unit, less, less_equal, logical_or, logical_and, logical_xor, leakyrelu, multiply, moments, minimum, matmul, not_equal, neg, one_hot, pad, permute, pooling, poolwithargmax, pool3d, pow, reduceany, reducemax, reducemean, reducesum, reverse, relu, relun, rsqrt, real_div, repeat, reshape, round, stridedslice, sqrt, square, subtract, scatternd, stack, sigmoid, signalframe, slice, softmax, space2batch, space2depth, split, swish, tile, tanh, unstack, where, batch_matmul, expand_broadcast, cumsum, dequantize, divide, expanddims, hard_swish, localresponsenormalization, lstmunit, l2pooling, logical_not, log_softmax, maximum, nms, prelu, rank, reducemin, reverse_sequence, reverse_v2, segment_sum, shapelayer, sin, sparse_to_dense, svdf, squared_difference, topk, unique, conv2d_lstm, depthwise_convolution, relu_keras, keras_rnn_lstm, lstm_keras, ceil, celu, dropout, einsum, gather_elements, hard_sigmoid, log, roipooling, eltwise(MEAN), eltwise(MIN), mish, mod, nonzero, onehot, quantize, abs + reducesum, reducesum + multiply + sqrt, reducesum + log, exp + reducesum + log, reduceprod, multiply + reducesum, variable + divide, scatter_nd_update, sign, size, softrelu, abs + add + divide + variable, squeeze, eltwise(SUM), a_times_b_plus_c, eltwise, flatten, l2normalizescale, premute, priorbox, proposal, reorg, shuffle, region, upsampling, yolo
-```
+Here are some of the supported operators:
 
+- Mathematical operations: abs, add, subtract, multiply, divide, sqrt, pow, exp, log, round, ceil, floor, mod, sin, cos, tan, erf, rsqrt, square, sign, non-zero
+- Activation functions: relu, sigmoid, tanh, elu, leakyrelu, softrelu, hard_sigmoid, mish
+- Pooling operations: pooling, poolwithargmax, pool3d, l2pooling
+- Convolution and deconvolution: convolution, deconvolution, depthwise_convolution, conv1d, conv3d, conv2d_lstm
+- Normalization: batchnormalize, instancenormalize, l2normalize, localresponsenormalization_tf, localresponsenormalization, l2normalizescale
+- LSTM and GRU operations: lstm, gru, lstm_cell, gru_cell, lstmunit, keras_rnn_lstm, lstm_keras
+- Tensor manipulation: reshape, transpose, permute, squeeze, expanddims, flatten, stack, unstack, gather, scatternd, scatter_nd_update
+- Other operations: argmin, argmax, clipbyvalue, concat, slice, split, tile, where, einsum, unique, reduceany, reducemax, reducemean, reducesum, reduceprod, reducemin, moments
+
+These operators enable various functionalities such as data preprocessing, feature extraction, model training, and predictions. With the TinyVision board's NPU capabilities, you can accelerate your machine learning workflows and achieve faster results.
 
 
