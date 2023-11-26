@@ -24,16 +24,16 @@
 	};
 
 	cpus {
-			#address-cells = <1>;
-			#size-cells = <0>;
+		#address-cells = <1>;
+		#size-cells = <0>;
 
-			cpu0: cpu@0 {
-				device_type = "cpu";
-				compatible = "arm,cortex-a7";
-				reg = <0>;
-				clocks = <&ccu CLK_CPU>;
-				clock-names = "cpu";
-			};
+		cpu0: cpu@0 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a7";
+			reg = <0>;
+			clocks = <&ccu CLK_CPU>;
+			clock-names = "cpu";
+		};
 	};
 
 	memory {
