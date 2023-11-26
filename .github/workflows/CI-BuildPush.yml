@@ -34,7 +34,21 @@ jobs:
           make CROSS_COMPILE=arm-linux-gnueabihf- ARCH=arm tinyvision_defconfig
           make CROSS_COMPILE=arm-linux-gnueabihf- ARCH=arm -j$(nproc)
           cd -
-          
+
+      - name: Build Linux 6.1 Kernel Test
+        run: |
+          cd kernel/linux-6.1
+          make CROSS_COMPILE=arm-linux-gnueabihf- ARCH=arm tinyvision_defconfig
+          make CROSS_COMPILE=arm-linux-gnueabihf- ARCH=arm -j$(nproc)
+          cd -
+
+      - name: Build Linux 6.7 Kernel Test
+        run: |
+          cd kernel/linux-6.7-rc2
+          make CROSS_COMPILE=arm-linux-gnueabihf- ARCH=arm sunxi_defconfig
+          make CROSS_COMPILE=arm-linux-gnueabihf- ARCH=arm -j$(nproc)
+          cd -
+      
       - name: Build SyterKit Test
         run: |
           mkdir -p kernel/SyterKit/build
