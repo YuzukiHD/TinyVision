@@ -10,6 +10,20 @@ TinyVision - A Tiny Linux Board / IPC / Server / Router / And so on...
 
 ## Feature
 
+Introducing TinyVision, the ultimate all-in-one solution for your Linux board, IPC, server, router, and more. Powered by the advanced Allwinner V851se or V851s3 processors, TinyVision offers exceptional performance and versatility in a compact form factor.
+
+With its Cortex-A7 core running at up to 1200MHz and RISC-V E907GC@600MHz, TinyVision delivers powerful processing capabilities while maintaining energy efficiency. The integrated 0.5Tops@int8 NPU enables efficient AI inference for various applications.
+
+TinyVision comes with built-in memory options of 64M DDR2 (V851se) or 128M DDR3L (V851s3), ensuring smooth and seamless operations. The TF card slot supports UHS-SDR104, providing expandable storage for your data needs. Additionally, the onboard SD NAND and USB&UART Combo interfaces offer convenient connectivity options.
+
+Enhance your vision-based applications with TinyVision's support for one 2-lane MIPI CSI input, allowing seamless integration of advanced camera functionalities. The individual ISP enables high-resolution image processing, supporting resolutions of up to 2560 x 1440.
+
+Enjoy immersive video experiences with TinyVision's H.264/H.265 decoding capabilities at up to 4096x4096 resolution. Capture and encode stunning moments with the H.264/H.265 encoder, supporting resolutions up to 3840x2160@20fps. And with online video encoding support, you can easily share and stream your content.
+
+For reliable real-time operating system support, TinyVision harnesses the power of the RISC-V E907 RTOS based on RT-Thread + RTOS-HAL, ensuring optimal performance and stability.
+
+Unlock endless possibilities with TinyVision, the compact yet powerful solution for your Linux board, IPC, server, router, and beyond. Experience unrivaled performance, enhanced capabilities, and seamless integration. Choose TinyVision and transform the way you innovate.
+
 - Based on Allwinner V851se / V851s3 
 - Cortex-A7 Core up to 1200MHz 
 - RISC-V E907GC@600MHz
