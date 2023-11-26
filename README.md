@@ -48,9 +48,9 @@ TinyVision supports a variety of kernels to choose from, and the following is a 
 | 4.9.191            | CV, Camera, NPU, MP, Video Encode, RTSP | Cortex-A7 Core | `kernel\linux-4.9`  |
 | 5.15.138           | IoT, NPU, Router                        | Cortex-A7 Core | `kernel\linux-5.15` |
 | 6.1.62             | IoT                                     | Cortex-A7 Core | `kernel\linux-6.1`  |
-| Mainline Linux 6.7 | Mainline                                | Cortex-A7 Core | Coming Soon         |
+| Mainline Linux 6.7 | Mainline                                | Cortex-A7 Core | `kernel\linux-6.7`  |
 | RT-Thread          | Real-Time Control, Fast                 | RISC-V E907    | `kernel\rtos`       |
-| Baremetal          | Baremetal ASM Code                      | Cortex-A7 Core | Coming Soon         |
+| SyterKit           | Baremetal ASM Code                      | Cortex-A7 Core | `kernel\SyterKit`   |
 
 ## NPU
 
