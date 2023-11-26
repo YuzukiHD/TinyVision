@@ -1,5 +1,5 @@
 /*
- * Allwinner Technology CO., Ltd. sun8iw18p1 soc board.
+ * Allwinner Technology CO., Ltd. sun8iw21p1 soc board.
  *
  * soc board support.
  */
@@ -8,9 +8,11 @@
 #include "sun8iw21p1.dtsi"
 
 /{
-	board = "V853", "V853-PERF1";
-	compatible = "allwinner,v851s", "arm,sun8iw21p1";
+	model = "TinyVision";
+	board = "V851se", "V851se-TinyVision";
+	compatible = "allwinner,v851se", "arm,sun8iw21p1";
 	aliases {
+		serial0 = &uart0;
 	};
 };
 

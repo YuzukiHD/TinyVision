@@ -9,7 +9,7 @@ source "scripts/Kconfig.include"
 
 source "init/Kconfig"
 
-source "bsp/drivers/Kconfig"
+source "bsp/Kconfig"
 
 source "kernel/Kconfig.freezer"
 
