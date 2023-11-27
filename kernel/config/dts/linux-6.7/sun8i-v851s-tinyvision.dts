@@ -5,7 +5,7 @@
 
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/leds/common.h>
-#include "sun8iw21p1.dtsi"
+#include "sun8i-v851s.dtsi"
 
 / {
 	model = "TinyVision";
@@ -17,7 +17,7 @@
 
 	chosen {
 		stdout-path = "serial0:115200n8"; 
-		bootargs = "mem=64M cma=4M root=/dev/mmcblk0p2 init=/sbin/init console=ttyS0,115200 earlyprintk=sunxi-uart,0x02500000 rootwait clk_ignore_unused"; */
+		bootargs = "mem=64M cma=4M root=/dev/mmcblk0p2 init=/sbin/init console=ttyS0,115200 earlyprintk=sunxi-uart,0x02500000 rootwait clk_ignore_unused";
 	};
 
 	reg_vcc: vcc {
@@ -126,13 +126,12 @@
 
 &mmc1 {
 	bus-width = <4>;
-	mmc-pwrseq = <&wifi_pwrseq>;
 	non-removable;
 	vmmc-supply = <&reg_vcc_3v3>;
 	vqmmc-supply = <&reg_vcc_3v3>;
 	pinctrl-0 = <&mmc1_pins>;
 	pinctrl-names = "default";
-	status = "okay";
+	status = "disabled";
 };
 
 &usb_otg {
