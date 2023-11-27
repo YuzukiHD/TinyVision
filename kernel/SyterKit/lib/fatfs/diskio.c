@@ -10,6 +10,7 @@
 #include "diskio.h"
 
 #include <sys-dma.h>
+#include <sys-dram.h>
 #include <sys-sdcard.h>
 
 static DSTATUS Stat = STA_NOINIT; /* Disk status */
