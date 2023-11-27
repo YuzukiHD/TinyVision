@@ -6,6 +6,7 @@
 #include <types.h>
 
 #include <log.h>
+#include <config.h>
 
 #include <common.h>
 #include <arm32.h>
@@ -283,14 +284,14 @@ void abort(void)
 
 void show_banner(void)
 {
-    printk(LOG_LEVEL_MUTE, "\r\n\r\n\r\n\r\n");
+    printk(LOG_LEVEL_MUTE, "\r\n");
     printk(LOG_LEVEL_INFO, " _____     _           _____ _ _   \r\n");
     printk(LOG_LEVEL_INFO, "|   __|_ _| |_ ___ ___|  |  |_| |_ \r\n");
     printk(LOG_LEVEL_INFO, "|__   | | |  _| -_|  _|    -| | _| \r\n");
     printk(LOG_LEVEL_INFO, "|_____|_  |_| |___|_| |__|__|_|_|  \r\n");
     printk(LOG_LEVEL_INFO, "      |___|                        \r\n");
     printk(LOG_LEVEL_INFO, "***********************************\r\n");
-    printk(LOG_LEVEL_INFO, "                SterKit V0.1.1     \r\n");
+    printk(LOG_LEVEL_INFO, " %s V0.1.1 Commit: %s\r\n", PROJECT_NAME, PROJECT_GIT_HASH);
     printk(LOG_LEVEL_INFO, "***********************************\r\n");
 }
 
@@ -373,10 +374,10 @@ _boot:
     printk(LOG_LEVEL_INFO, "disable icache ok...\r\n");
     arm32_interrupt_disable();
     printk(LOG_LEVEL_INFO, "free interrupt ok...\r\n");
+    enable_kernel_smp();
+    printk(LOG_LEVEL_INFO, "enable kernel smp ok...\r\n");
 
     printk(LOG_LEVEL_INFO, "jump to kernel address: 0x%x\r\n", image.dest);
-
-    enable_kernel_smp();
 
     kernel_entry = (void (*)(int, int, unsigned int))entry_point;
     kernel_entry(0, ~0, (unsigned int)image.of_dest);

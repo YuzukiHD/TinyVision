@@ -86,6 +86,8 @@ reset:
 	ldr r0, =24000000
 	mcr p15, 0, r0, c14, c0, 0
 
+	bl set_timer_count
+
 	bl main
 
 	clear_bss:

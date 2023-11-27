@@ -5,6 +5,6 @@
 
 // Project Info
 #define PROJECT_NAME "@PROJECT_NAME@"
-#define PROJECT_GIT_HASH  0x@PROJECT_GIT_HASH@
+#define PROJECT_GIT_HASH  "@PROJECT_GIT_HASH@"
 
 #endif // _CONFIG_H_

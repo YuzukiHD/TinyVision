@@ -43,8 +43,8 @@ void udelay(uint64_t us)
 	uint64_t now;
 
 	now = time_us();
-	while (time_us() - now < us) {
-	};
+	while (time_us() - now < us)
+		{};
 }
 
 void mdelay(uint32_t ms)
@@ -53,8 +53,8 @@ void mdelay(uint32_t ms)
 	uint32_t now;
 
 	now = time_ms();
-	while (time_ms() - now < ms) {
-	};
+	while (time_ms() - now < ms) 
+		{};
 }
 
 void sdelay(uint32_t loops)

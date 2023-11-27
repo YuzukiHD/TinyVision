@@ -26,6 +26,8 @@ enum {
 #define LOG_LEVEL_DEFAULT LOG_LEVEL_DEBUG
 #endif
 
+void set_timer_count();
+
 void printk(int level, const char* fmt, ...);
 
 void uart_printf(const char *fmt, ...);
