@@ -28,7 +28,7 @@ extern uint32_t __stack_ddr_srv_start;
 extern uint32_t __stack_ddr_srv_end;
 
 #define CONFIG_KERNEL_FILENAME "zImage"
-#define CONFIG_DTB_FILENAME "sunxi.dtb"
+#define CONFIG_DTB_FILENAME "sun8i-v851s-tinyvision.dtb"
 
 #define CONFIG_SDMMC_SPEED_TEST_SIZE 1024 // (unit: 512B sectors)
 
