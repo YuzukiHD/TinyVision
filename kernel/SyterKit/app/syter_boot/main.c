@@ -9,6 +9,7 @@
 
 #include <common.h>
 #include <arm32.h>
+#include <jmp.h>
 
 #include "sys-dram.h"
 #include "sys-spi.h"
@@ -29,11 +30,10 @@ extern uint32_t __stack_ddr_srv_end;
 #define CONFIG_KERNEL_FILENAME "zImage"
 #define CONFIG_DTB_FILENAME "sunxi.dtb"
 
-#define CONFIG_FATFS_CACHE_SIZE 16 * 1024 // (unit: 512B sectors) needs to be bigger than both DTB + kernel
 #define CONFIG_SDMMC_SPEED_TEST_SIZE 1024 // (unit: 512B sectors)
 
-#define CONFIG_KERNEL_LOAD_ADDR (SDRAM_BASE + (72 * 1024 * 1024))
-#define CONFIG_DTB_LOAD_ADDR (SDRAM_BASE + (32 * 1024 * 1024))
+#define CONFIG_DTB_LOAD_ADDR    (0x41008000)
+#define CONFIG_KERNEL_LOAD_ADDR (0x41800000)
 
 // 128KB erase sectors, so place them starting from 2nd sector
 #define CONFIG_SPINAND_DTB_ADDR (128 * 2048)
@@ -375,6 +375,8 @@ _boot:
     printk(LOG_LEVEL_INFO, "free interrupt ok...\r\n");
 
     printk(LOG_LEVEL_INFO, "jump to kernel address: 0x%x\r\n", image.dest);
+
+    enable_kernel_smp();
 
     kernel_entry = (void (*)(int, int, unsigned int))entry_point;
     kernel_entry(0, ~0, (unsigned int)image.of_dest);

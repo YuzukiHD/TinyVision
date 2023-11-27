@@ -77,6 +77,7 @@ add_library(SyterKit
     # exception & common
     src/exception.c
     src/common.c
+    src/jmp.c
     # deiver
     drivers/sys-clk.c
     drivers/sys-dma.c
