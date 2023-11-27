@@ -86,6 +86,7 @@ add_library(SyterKit
     drivers/sys-sdcard.c
     drivers/sys-sdhci.c
     drivers/sys-spi.c
+    drivers/sys-sid.c
     drivers/sys-timer.c
     drivers/sys-uart.c
 )
