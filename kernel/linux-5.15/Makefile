@@ -677,7 +677,7 @@ drivers-y	:= drivers/ sound/
 drivers-$(CONFIG_SAMPLES) += samples/
 drivers-$(CONFIG_NET) += net/
 drivers-y	+= virt/
-drivers-y	+= bsp/drivers/
+drivers-y	+= bsp/
 libs-y		:= lib/
 endif # KBUILD_EXTMOD
 
