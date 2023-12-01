@@ -1,0 +1,3 @@
+[submodule "kernel/SyterKit"]
+	path = kernel/SyterKit
+	url = https://github.com/YuzukiHD/SyterKit
