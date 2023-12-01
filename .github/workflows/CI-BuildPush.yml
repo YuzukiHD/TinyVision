@@ -49,11 +49,3 @@ jobs:
           make CROSS_COMPILE=arm-linux-gnueabihf- ARCH=arm -j$(nproc)
           cd -
       
-      - name: Build SyterKit Test
-        run: |
-          mkdir -p kernel/SyterKit/build
-          cd kernel/SyterKit/build
-          cmake  ..
-          make -j$(nproc)
-          cd -
-          
