@@ -33,6 +33,7 @@
 | V851s    | 64M DDR2   | 无          | 2-lane MIPI + RGB + MIPI DBI TypeC, 1280x720@60 |
 | V851se   | 64M DDR2   | 10/100M     | MIPI DBI TypeC, 320x240@30                      |
 | V851s3   | 128M DDR3L | 无          | 2-lane MIPI + RGB + MIPI DBI TypeC, 1280x720@60 |
+| V851s4   | 256M DDR3L | 无          | 2-lane MIPI + RGB + MIPI DBI TypeC, 1280x720@60 |
 
 # 内核驱动支持情况
 
