@@ -49,7 +49,7 @@
 	};
 
 	chosen {
-		bootargs = "earlyprintk=sunxi-uart,0x02500000 loglevel=8 initcall_debug=0 console=ttyS0 init=/init";
+		bootargs = "earlyprintk=sunxi-uart,0x02500000 root=/dev/mmcblk0p2 rootwait loglevel=8 initcall_debug=0 console=ttyS0 init=/init";
 		linux,initrd-start = <0x0 0x0>;
 		linux,initrd-end = <0x0 0x0>;
 	};
@@ -363,14 +363,16 @@
 		};
 	};
 
-	pmu: power-management@ff000000 {
+	pmu: power-management@7001000 {
 		compatible = "allwinner,v853-pmu", "syscon", "simple-mfd";
 		reg = <0x0 0x07001000 0x0 0x400>;
 
 		pd: power-controller {
 			compatible = "allwinner,v853-power-controller";
-			clocks = <&clk_cpurppu>;
+			clocks = <&r_ccu CLK_R_PPU>;
 			clock-names = "ppu";
+			resets = <&r_ccu RST_BUS_R_PPU>;
+			reset-names = "ppu_rst";
 			#power-domain-cells = <1>;
 			#address-cells = <1>;
 			#size-cells = <0>;
@@ -663,9 +665,11 @@
 			dev_name = "npu";
 			interrupts = <GIC_SPI 65 IRQ_TYPE_LEVEL_HIGH>;
 			clocks = <&ccu CLK_NPU>, <&ccu CLK_PLL_NPU_4X>;
-			clock-frequency = <504000000>;
+			clock-names = "npu", "parent";
+			clock-frequency = <384000000>;
+			resets = <&ccu RST_BUS_NPU>;
+			reset-names = "npu_rst";
 			interrupt-names = "npu";
-			iommus = <&mmu_aw 6 1>;
 			status = "okay";
 			power-domains = <&pd V853_PD_NPU>;
 		};
@@ -807,6 +811,36 @@
 			resets = <&ccu RST_USB_OHCI0>, <&ccu RST_USB_PHY0_RSTN>;
 			reset-names = "hci", "phy";
 			hci_ctrl_no = <0>;
+		};
+
+		mdio0: mdio0@4500048 {
+			compatible = "allwinner,sunxi-mdio";
+			#address-cells = <1>;
+			#size-cells = <0>;
+			reg = <0x0 0x04500048 0x0 0x8>;
+			status = "disabled";
+			ac300: ac300-phy@10 {
+				reg = <0x10>;
+			};
+
+			gmac0_phy0: ethernet-phy@0 {
+				reg = <0x0>;
+				max-speed = <100>;  /* Max speed capability */
+			};
+		};
+
+		gmac0: gmac0@4500000 {
+			compatible = "allwinner,sunxi-gmac-ephy-v1";
+			reg = <0x0 0x04500000 0x0 0x10000>,
+			      <0x0 0x03000030 0x0 0x4>;
+			interrupts = <GIC_SPI 46 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-names = "gmacirq";
+			clocks = <&ccu CLK_GMAC>, <&ccu CLK_GMAC_25M>;
+			clock-names = "gmac", "phy25m";
+			resets = <&ccu RST_BUS_GMAC>;
+			phy-handle = <&gmac0_phy0>;
+			ac300-phy-handle = <&ac300>;
+			status = "disabled";
 		};
 
 		sdc2: sdmmc@4022000 {
@@ -990,17 +1024,18 @@
 				offset = <0xa0>;
 				size = <0x4>;
 			};
+
 			chipid {
 				reg = <0x0 0>;
 				offset = <0x200>;
 				size = <0x10>;
 			};
+
 			rotpk {
 				reg = <0x0 0>;
 				offset = <0x140>;
 				size = <0x20>;
 			};
-
 		};
 
 		sram_ctrl: sram_ctrl@3000000 {
@@ -1128,6 +1163,7 @@
 			resets = <&ccu RST_BUS_PWM>;
 			pwm-number = <12>;
 			pwm-base = <0x0>;
+			ephy-channel = <11>;
 			sunxi-pwms = <&pwm0>, <&pwm1>, <&pwm2>, <&pwm3>,
 				<&pwm4>, <&pwm5>, <&pwm6>, <&pwm7>, <&pwm8>, <&pwm9>,
 				<&pwm10>, <&pwm11>;

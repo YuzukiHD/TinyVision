@@ -115,7 +115,7 @@
 
 &mmc0 {
 	bus-width = <4>;
-	cd-gpios = <&pio 5 6 (GPIO_ACTIVE_HIGH)>;
+	cd-gpios = <&pio 5 6 (GPIO_ACTIVE_LOW)>;
 	disable-wp;
 	vmmc-supply = <&reg_vcc_3v3>;
 	vqmmc-supply = <&reg_vcc_3v3>;

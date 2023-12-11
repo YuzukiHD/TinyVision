@@ -147,20 +147,31 @@ static struct ccu_nkmp pll_csi_4x_clk = {
 };
 
 #define SUN8IW21_PLL_AUDIO_CTRL_REG   0x0078
-static struct ccu_nkmp pll_audio_div2_clk = {
+static struct ccu_sdm_setting pll_audio_div5_sdm_table[] = {
+	{ .rate = 196608000, .pattern = 0xC001EB85, .m = 5, .n = 40 }, /* 24.576 */
+	{ .rate = 67737600, .pattern = 0xC001288D, .m = 8, .n = 22 }, /* 22.5792 */
+};
+
+static struct ccu_nm pll_audio_div5_clk = {
 	.enable		= BIT(27) | BIT(30) | BIT(31),
-	.lock		= BIT(28),
-	.n		= _SUNXI_CCU_MULT_MIN(8, 8, 12),
-	.m		= _SUNXI_CCU_DIV(1, 1), /* input divider */
-	.p		= _SUNXI_CCU_DIV(16, 3), /* output divider */
-	.common		= {
-		.reg		= 0x0078,
-		.hw.init	= CLK_HW_INIT("pll-audio-div2", "dcxo24M",
-				&ccu_nkmp_ops,
-				CLK_SET_RATE_UNGATE |
-				CLK_IS_CRITICAL),
+	.lock           = BIT(28),
+	.n              = _SUNXI_CCU_MULT_MIN(8, 8, 12),
+	.m              = _SUNXI_CCU_DIV(20, 3),
+	.sdm            = _SUNXI_CCU_SDM(pll_audio_div5_sdm_table, BIT(24),
+			0x0178, BIT(31)),
+	.common         = {
+		.reg            = 0x0078,
+		.features       = CCU_FEATURE_SIGMA_DELTA_MOD,
+		.hw.init        = CLK_HW_INIT("pll-audio-div5", "dcxo24M",
+				&ccu_nm_ops,
+				CLK_SET_RATE_UNGATE),
 	},
 };
+static SUNXI_CCU_M(pll_audio_1x_clk, "pll-audio-1x", "pll-audio-div5", 0xE00, 0, 3, CLK_SET_RATE_PARENT);
+
+/* pll-audio-div2 and pll-aduio-4x not used, because audio-1x can cover 22.5792M and 24.576M */
+static SUNXI_CCU_M(pll_audio_div2_clk, "pll-audio-div2", "pll-audio", 0x078, 16, 3, CLK_SET_RATE_PARENT);
+static SUNXI_CCU_M(pll_audio_4x_clk, "pll-audio-4x", "pll-audio-div2", 0xE00, 5, 5, CLK_SET_RATE_PARENT);
 
 #define SUN8IW21_PLL_NPU_CTRL_REG   0x0080
 static struct ccu_nkmp pll_npu_4x_clk = {
@@ -264,7 +275,7 @@ static SUNXI_CCU_GATE(ce_sys_clk, "ce-sys",
 static SUNXI_CCU_GATE(ce_bus_clk, "ce-bus", "dcxo24M",
 		0x068C, BIT(0), 0);
 
-static const char * const ve_parents[] = { "pll-peri-300m", "pll-peri-400m", "pll-peri-480m", "npupll4x", "pll-video-4x", "pll-csi-4x" };
+static const char * const ve_parents[] = { "pll-peri-300m", "pll-peri-400m", "pll-peri-480m", "pll-npu-4x", "pll-video-4x", "pll-csi-4x" };
 
 static SUNXI_CCU_M_WITH_MUX_GATE(ve_clk, "ve",
 		ve_parents, 0x0690,
@@ -279,7 +290,7 @@ static SUNXI_CCU_GATE_ASSOC(ve_bus_clk, "ve-bus",
 		0x0E04, BIT(1),
 		0);
 
-static const char * const npu_parents[] = { "pll-peri-480m", "pll-peri-600m", "pll-peri-800m", "npupll4x" };
+static const char * const npu_parents[] = { "pll-peri-480m", "pll-peri-600m", "pll-peri-800m", "pll-npu-4x" };
 
 static SUNXI_CCU_M_WITH_MUX_GATE(npu_clk, "npu",
 		npu_parents, 0x06E0,
@@ -343,13 +354,17 @@ static SUNXI_CCU_GATE(npu_mbus_gate_clk, "npu-mbus-gate",
 		"dcxo24M",
 		0x0804, BIT(21), 0);
 
+/*
+ * vid_in can effect csi/isp, vid_out can effect de/di/g2d/tcan/comp.
+ * for simplicity, we will keep these two clocks normally open.
+ */
 static SUNXI_CCU_GATE(vid_in_mbus_gate_clk, "vid-in-mbus-gate",
 		"dcxo24M",
-		0x0804, BIT(20), 0);
+		0x0804, BIT(20), CLK_IGNORE_UNUSED);
 
 static SUNXI_CCU_GATE(vid_out_mbus_gate_clk, "vid-out-mbus-gate",
 		"dcxo24M",
-		0x0804, BIT(19), 0);
+		0x0804, BIT(19), CLK_IGNORE_UNUSED);
 
 static SUNXI_CCU_GATE(g2d_mbus_clk, "g2d-mbus",
 		"dcxo24M",
@@ -554,7 +569,7 @@ static SUNXI_CCU_GATE(ths_clk, "ths",
 		"dcxo24M",
 		0x09FC, BIT(0), 0);
 
-static const char * const i2s0_parents[] = { "audiopll1x", "audiopll4x" };
+static const char * const i2s0_parents[] = { "pll-audio-1x", "pll-audio-4x" };
 
 static SUNXI_CCU_M_WITH_MUX_GATE(i2s0_clk, "i2s0",
 		i2s0_parents, 0x0A10,
@@ -563,7 +578,7 @@ static SUNXI_CCU_M_WITH_MUX_GATE(i2s0_clk, "i2s0",
 		BIT(31),	/* gate */
 		CLK_SET_RATE_PARENT);
 
-static const char * const i2s1_parents[] = { "audiopll1x", "audiopll4x" };
+static const char * const i2s1_parents[] = { "pll-audio-1x", "pll-audio-4x" };
 
 static SUNXI_CCU_M_WITH_MUX_GATE(i2s1_clk, "i2s1",
 		i2s1_parents, 0x0A14,
@@ -580,7 +595,7 @@ static SUNXI_CCU_GATE(i2s0_bus_clk, "i2s0-bus",
 		"dcxo24M",
 		0x0A20, BIT(0), 0);
 
-static const char * const dmic_parents[] = { "audiopll1x", "audiopll4x" };
+static const char * const dmic_parents[] = { "pll-audio-1x", "pll-audio-4x" };
 
 static SUNXI_CCU_M_WITH_MUX_GATE(dmic_clk, "dmic",
 		dmic_parents, 0x0A40,
@@ -593,7 +608,7 @@ static SUNXI_CCU_GATE(dmic_bus_clk, "dmic-bus",
 		"dcxo24M",
 		0x0A4C, BIT(0), 0);
 
-static const char * const audio_codec_dac_parents[] = { "audiopll1x", "audiopll4x" };
+static const char * const audio_codec_dac_parents[] = { "pll-audio-1x", "pll-audio-4x" };
 
 static SUNXI_CCU_M_WITH_MUX_GATE(audio_codec_dac_clk, "audio-codec-dac",
 		audio_codec_dac_parents, 0x0A50,
@@ -602,7 +617,7 @@ static SUNXI_CCU_M_WITH_MUX_GATE(audio_codec_dac_clk, "audio-codec-dac",
 		BIT(31),	/* gate */
 		CLK_SET_RATE_PARENT);
 
-static const char * const audio_codec_adc_parents[] = { "audiopll1x", "audiopll4x" };
+static const char * const audio_codec_adc_parents[] = { "pll-audio-1x", "pll-audio-4x" };
 
 static SUNXI_CCU_M_WITH_MUX_GATE(audio_codec_adc_clk, "audio-codec-adc",
 		audio_codec_adc_parents, 0x0A54,
@@ -705,13 +720,37 @@ static SUNXI_CCU_GATE(wiegand_clk, "wiegand",
 		"dcxo24M",
 		0x0C7C, BIT(0), 0);
 
-static SUNXI_CCU_GATE(e907_gating_rs_clk, "e907-gating-rs",
-		"dcxo24M",
-		0x0D04, BIT(16), 0);
+static const char * const e907_core_div_clk_parents[] = {
+	"dcxo24M", "osc32k", "rc-16m", "pll-peri-600m", "pll-peri-400m", "pll-cpu"
+};
 
-static SUNXI_CCU_GATE(e907_clk, "e907",
-		"dcxo24M",
-		0x0D04, BIT(0), 0);
+static SUNXI_CCU_M_WITH_MUX(e907_core_div_clk, "e907-core-div",
+		e907_core_div_clk_parents, 0x0D00,
+		0, 5,	/* M */
+		24, 3,	/* mux */
+		0);
+
+#define E907_CFG_KEY_VALUE     0x16AA0000
+static SUNXI_CCU_GATE_WITH_KEY(e907_core_rst_clk, "e907-core-rst",
+		"dcxo24M", 0x0D04,
+		E907_CFG_KEY_VALUE,
+		BIT(1),
+		0);
+
+static SUNXI_CCU_GATE_WITH_KEY(e907_dbg_rst_clk, "e907-dbg-rst",
+		"dcxo24M", 0x0D04,
+		E907_CFG_KEY_VALUE,
+		BIT(2),
+		0);
+
+static SUNXI_CCU_GATE_WITH_KEY(e907_core_gate_clk, "e907-core-gate",
+		"e907-core-div", 0x0D04,
+		E907_CFG_KEY_VALUE,
+		BIT(0),
+		0);
+
+static SUNXI_CCU_M(e907_axi_div_clk, "e907-axi-div",
+		"e907-core-gate", 0x0020, 8, 2, 0);
 
 static SUNXI_CCU_GATE(riscv_cfg_clk, "riscv-cfg",
 		"dcxo24M",
@@ -817,8 +856,6 @@ static struct ccu_reset_map sun8iw21_ccu_resets[] = {
 	[RST_BUS_TCONLCD]		= { 0x0b7c, BIT(16) },
 	[RST_BUS_CSI]			= { 0x0c2c, BIT(16) },
 	[RST_BUS_WIEGAND]		= { 0x0c7c, BIT(16) },
-	[RST_BUS_RISCV_SYS_APB_SOFT_RSTN]	= { 0x0d04, BIT(2) },
-	[RST_BUS_E907_SOFT_RSTN]		= { 0x0d04, BIT(1) },
 	[RST_BUS_RISCV_CFG]		= { 0x0d0c, BIT(16) },
 };
 /* rst_def_end */
@@ -844,6 +881,9 @@ static struct clk_hw_onecell_data sun8iw21_hw_clks = {
 		[CLK_PLL_VIDEO_1X]		= &pll_video_1x_clk.hw,
 		[CLK_PLL_CSI_4X]		= &pll_csi_4x_clk.common.hw,
 		[CLK_PLL_AUDIO_DIV2]		= &pll_audio_div2_clk.common.hw,
+		[CLK_PLL_AUDIO_DIV5]		= &pll_audio_div5_clk.common.hw,
+		[CLK_PLL_AUDIO_4X]		= &pll_audio_4x_clk.common.hw,
+		[CLK_PLL_AUDIO_1X]		= &pll_audio_1x_clk.common.hw,
 		[CLK_PLL_NPU_4X]		= &pll_npu_4x_clk.common.hw,
 		[CLK_CPU]			= &cpu_clk.common.hw,
 		[CLK_CPU_AXI]			= &cpu_axi_clk.common.hw,
@@ -937,8 +977,11 @@ static struct clk_hw_onecell_data sun8iw21_hw_clks = {
 		[CLK_CSI_MASTER2]		= &csi_master2_clk.common.hw,
 		[CLK_BUS_CSI]			= &csi_bus_clk.common.hw,
 		[CLK_WIEGAND]			= &wiegand_clk.common.hw,
-		[CLK_E907_GATING_RS]		= &e907_gating_rs_clk.common.hw,
-		[CLK_E907]			= &e907_clk.common.hw,
+		[CLK_E907_CORE_DIV]		= &e907_core_div_clk.common.hw,
+		[CLK_E907_AXI_DIV]		= &e907_axi_div_clk.common.hw,
+		[CLK_E907_CORE_RST]		= &e907_core_rst_clk.common.hw,
+		[CLK_E907_DBG_RST]		= &e907_dbg_rst_clk.common.hw,
+		[CLK_E907_CORE_GATE]	= &e907_core_gate_clk.common.hw,
 		[CLK_RISCV_CFG]			= &riscv_cfg_clk.common.hw,
 		[CLK_CPUS_HCLK_GATE]		= &cpus_hclk_gate_clk.common.hw,
 		[CLK_RES_DCAP_24M]		= &res_dcap_24m_clk.common.hw,
@@ -961,6 +1004,9 @@ static struct ccu_common *sun8iw21_ccu_clks[] = {
 	&pll_video_4x_clk.common,
 	&pll_csi_4x_clk.common,
 	&pll_audio_div2_clk.common,
+	&pll_audio_div5_clk.common,
+	&pll_audio_4x_clk.common,
+	&pll_audio_1x_clk.common,
 	&pll_npu_4x_clk.common,
 	&cpu_clk.common,
 	&cpu_axi_clk.common,
@@ -1054,8 +1100,11 @@ static struct ccu_common *sun8iw21_ccu_clks[] = {
 	&csi_master2_clk.common,
 	&csi_bus_clk.common,
 	&wiegand_clk.common,
-	&e907_gating_rs_clk.common,
-	&e907_clk.common,
+	&e907_core_div_clk.common,
+	&e907_axi_div_clk.common,
+	&e907_core_rst_clk.common,
+	&e907_dbg_rst_clk.common,
+	&e907_core_gate_clk.common,
 	&riscv_cfg_clk.common,
 	&cpus_hclk_gate_clk.common,
 	&res_dcap_24m_clk.common,
@@ -1172,4 +1221,4 @@ module_exit(sun8iw21_ccu_exit);
 MODULE_DESCRIPTION("Allwinner sun8iw21 clk driver");
 MODULE_AUTHOR("rengaomin<rengaomin@allwinnertech.com>");
 MODULE_LICENSE("GPL v2");
-MODULE_VERSION("0.1.1");
+MODULE_VERSION("0.1.5");

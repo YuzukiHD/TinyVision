@@ -22,6 +22,7 @@
 #include <linux/crc32.h>
 #include <linux/skbuff.h>
 #include <linux/module.h>
+#include <linux/of_device.h>
 #include <linux/interrupt.h>
 #include <linux/dma-mapping.h>
 #include <linux/platform_device.h>
@@ -38,9 +39,9 @@
 #include <linux/of_mdio.h>
 #include <linux/version.h>
 #include <sunxi-sid.h>
-#ifdef CONFIG_AW_EPHY_AC300
+#if IS_ENABLED(CONFIG_AW_EPHY)
 #include <linux/pwm.h>
-#endif /* CONFIG_AW_EPHY_AC300 */
+#endif /* CONFIG_AW_EPHY */
 
 /* All sunxi-gmac tracepoints are defined by the include below, which
  * must be included exactly once across the whole kernel with
@@ -49,7 +50,7 @@
 #define CREATE_TRACE_POINTS
 #include "sunxi-gmac-trace.h"
 
-#define SUNXI_GMAC_MODULE_VERSION	"2.2.4"
+#define SUNXI_GMAC_MODULE_VERSION	"2.3.1"
 
 #define SUNXI_GMAC_DMA_DESC_RX		256
 #define SUNXI_GMAC_DMA_DESC_TX		256
@@ -58,6 +59,8 @@
 
 #define SUNXI_GMAC_HASH_TABLE_SIZE	64
 #define SUNXI_GMAC_MAX_BUF_SZ		(SZ_2K - 1)
+/* Under the premise that each descriptor currently transmits 2k data, jumbo frame max is 8100 */
+#define SUNXI_GMAC_MAX_MTU_SZ		8100
 
 /* SUNXI_GMAC_FRAME_FILTER  register value */
 #define SUNXI_GMAC_FRAME_FILTER_PR	0x80000000	/* Promiscuous Mode */
@@ -386,6 +389,7 @@ enum rx_frame_status { /* IPC status */
 	good_frame = 0,
 	discard_frame = 1,
 	csum_none = 2,
+	incomplete_frame = 3, /* use for jumbo frame */
 	llc_snap = 4,
 };
 
@@ -447,6 +451,15 @@ struct sunxi_gmac_extra_stats {
 	unsigned long normal_irq_n;
 };
 
+struct sunxi_gmac;
+
+struct sunxi_gmac_ephy_ops {
+	int (*resource_get)(struct platform_device *pdev);
+	void (*resource_put)(struct platform_device *pdev);
+	int (*hardware_init)(struct sunxi_gmac *chip);
+	void (*hardware_deinit)(struct sunxi_gmac *chip);
+};
+
 struct sunxi_gmac {
 	struct sunxi_gmac_dma_desc *dma_tx;	/* Tx dma descriptor */
 	struct sk_buff **tx_skb;		/* Tx socket buffer array */
@@ -503,20 +516,23 @@ struct sunxi_gmac {
 
 	struct device_node *phy_node;
 
-#ifdef CONFIG_AW_EPHY_AC300
+#if IS_ENABLED(CONFIG_AW_EPHY)
 	struct device_node *ac300_np;
 	struct phy_device *ac300_dev;
 	struct pwm_device *ac300_pwm;
 	u32 pwm_channel;
 #define PWM_DUTY_NS		205
 #define PWM_PERIOD_NS		410
-#endif /* CONFIG_AW_EPHY_AC300 */
+	struct sunxi_gmac_ephy_ops *ephy_ops;
+#endif /* CONFIG_AW_EPHY */
 
 	/* loopback test */
 	int loopback_pkt_len;
 	int loopback_test_rx_idx;
 	bool is_loopback_test;
 	u8 *loopback_test_rx_buf;
+
+	struct sk_buff *skb;	/* for jumbo frame */
 };
 
 /**
@@ -1058,7 +1074,7 @@ static int sunxi_gmac_desc_get_rx_status(struct sunxi_gmac_dma_desc *desc, struc
 	int ret = good_frame;
 
 	if (desc->desc0.rx.last_desc == 0)
-		return discard_frame;
+		return incomplete_frame;
 
 	if (desc->desc0.rx.err_sum) {
 		if (desc->desc0.rx.desc_err)
@@ -1755,7 +1771,7 @@ static int sunxi_gmac_open(struct net_device *ndev)
 	 */
 	netif_carrier_off(ndev);
 
-#ifdef CONFIG_AW_EPHY_AC300
+#if IS_ENABLED(CONFIG_AW_EPHY)
 	if (chip->ac300_np) {
 		chip->ac300_dev = of_phy_find_device(chip->ac300_np);
 		if (!chip->ac300_dev) {
@@ -1765,7 +1781,7 @@ static int sunxi_gmac_open(struct net_device *ndev)
 		}
 		phy_init_hw(chip->ac300_dev);
 	}
-#endif	/* CONFIG_AW_EPHY_AC300 */
+#endif	/* CONFIG_AW_EPHY */
 
 	if (chip->phy_node) {
 		ndev->phydev = of_phy_connect(ndev, chip->phy_node,
@@ -1817,8 +1833,10 @@ static int sunxi_gmac_open(struct net_device *ndev)
 	/* Start the Rx/Tx */
 	sunxi_gmac_dma_start(chip->base);
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)
 	/* Indicate that the MAC is responsible for managing PHY PM */
 	ndev->phydev->mac_managed_pm = true;
+#endif
 
 	return 0;
 
@@ -1910,6 +1928,17 @@ static const struct dev_pm_ops sunxi_gmac_pm_ops = {
 #else
 static const struct dev_pm_ops sunxi_gmac_pm_ops;
 #endif /* CONFIG_PM */
+
+#if IS_ENABLED(CONFIG_AW_EPHY)
+static void sunxi_gmac_shutdown(struct platform_device *pdev)
+{
+	struct net_device *ndev = platform_get_drvdata(pdev);
+	struct sunxi_gmac *chip = netdev_priv(ndev);
+
+	if (chip->ac300_dev)
+		phy_detach(chip->ac300_dev);
+}
+#endif /* CONFIG_AW_EPHY */
 
 static void sunxi_gmac_check_addr(struct net_device *ndev, unsigned char *mac)
 {
@@ -2121,6 +2150,7 @@ static netdev_tx_t sunxi_gmac_xmit(struct sk_buff *skb, struct net_device *ndev)
 	struct sunxi_gmac *chip = netdev_priv(ndev);
 	struct sunxi_gmac_dma_desc *desc, *first;
 	unsigned int entry, len, tmp_len = 0;
+	unsigned char *data_addr = skb->data;
 	int i, csum_insert;
 	int nfrags = skb_shinfo(skb)->nr_frags;
 	dma_addr_t dma_addr;
@@ -2152,7 +2182,7 @@ static netdev_tx_t sunxi_gmac_xmit(struct sk_buff *skb, struct net_device *ndev)
 		desc = chip->dma_tx + entry;
 		tmp_len = ((len > SUNXI_GMAC_MAX_BUF_SZ) ?  SUNXI_GMAC_MAX_BUF_SZ : len);
 
-		dma_addr = dma_map_single(chip->dev, skb->data, tmp_len, DMA_TO_DEVICE);
+		dma_addr = dma_map_single(chip->dev, data_addr, tmp_len, DMA_TO_DEVICE);
 		if (dma_mapping_error(chip->dev, dma_addr)) {
 			ndev->stats.tx_dropped++;
 			dev_kfree_skb(skb);
@@ -2171,6 +2201,7 @@ static netdev_tx_t sunxi_gmac_xmit(struct sk_buff *skb, struct net_device *ndev)
 		}
 
 		entry = circ_inc(entry, sunxi_gmac_dma_desc_tx);
+		data_addr += tmp_len;
 		len -= tmp_len;
 	}
 
@@ -2264,12 +2295,11 @@ static void sunxi_gmac_copy_loopback_data(struct sunxi_gmac *chip,
 
 static int sunxi_gmac_rx(struct sunxi_gmac *chip, int limit)
 {
-	unsigned int rxcount = 0;
+	unsigned int rxcount = 0, offset = 0;
 	unsigned int entry;
-	struct sunxi_gmac_dma_desc *desc;
-	struct sk_buff *skb;
+	struct sunxi_gmac_dma_desc *desc = NULL;
 	int status;
-	int frame_len;
+	u32 frame_len;
 
 	while (rxcount < limit) {
 		entry = chip->rx_dirty;
@@ -2288,40 +2318,86 @@ static int sunxi_gmac_rx(struct sunxi_gmac *chip, int limit)
 		netdev_dbg(chip->ndev, "Rx frame size %d, status: %d\n",
 			   frame_len, status);
 
-		skb = chip->rx_skb[entry];
-		if (unlikely(!skb)) {
+		if (unlikely(!chip->rx_skb[entry])) {
 			netdev_err(chip->ndev, "Skb is null\n");
 			chip->ndev->stats.rx_dropped++;
 			break;
 		}
 
-		trace_sunxi_gmac_skb_dump(skb, chip->ndev->name, 0);
-
-		if (status == discard_frame) {
+		if (status == discard_frame || frame_len > SUNXI_GMAC_MAX_MTU_SZ) {
 			netdev_err(chip->ndev, "Get error pkt\n");
 			chip->ndev->stats.rx_errors++;
+			if (chip->rx_skb[entry]) {
+				dev_kfree_skb_any(chip->rx_skb[entry]);
+				chip->rx_skb[entry] = NULL;
+			}
+
+			if (chip->skb) {
+				dev_kfree_skb_any(chip->skb);
+				chip->skb = NULL;
+			}
 			continue;
+		}
+
+		dma_unmap_single(chip->dev, (u32)sunxi_gmac_desc_buf_get_addr(desc),
+				 sunxi_gmac_desc_buf_get_len(desc), DMA_FROM_DEVICE);
+
+		/* jumbo frame */
+		if (status == incomplete_frame) {
+			if (!chip->skb)
+				chip->skb = netdev_alloc_skb_ip_align(chip->ndev, SUNXI_GMAC_MAX_MTU_SZ);
+
+			if (!chip->skb) {
+				netdev_err(chip->ndev, "Failed to alloc skb\n");
+				if (chip->rx_skb[entry]) {
+					dev_kfree_skb_any(chip->rx_skb[entry]);
+					chip->rx_skb[entry] = NULL;
+				}
+				continue;
+			}
+
+			skb_copy_to_linear_data_offset(chip->skb, offset, chip->rx_skb[entry]->data, frame_len - offset);
+			/* after copy, release tmp skb */
+			dev_kfree_skb_any(chip->rx_skb[entry]);
+			chip->rx_skb[entry] = NULL;
+			offset = frame_len;
+			continue;
+		} else {
+			if (!chip->skb) {
+				/*
+				 * no need to copy skb,
+				 * pass it to protocol stack,
+				 * and protocol stack will release skb
+				 */
+				chip->skb = chip->rx_skb[entry];
+				chip->rx_skb[entry] = NULL;
+			} else {
+				skb_copy_to_linear_data_offset(chip->skb, offset, chip->rx_skb[entry]->data, frame_len - offset);
+				/* after copy, release tmp skb */
+				dev_kfree_skb_any(chip->rx_skb[entry]);
+				chip->rx_skb[entry] = NULL;
+			}
+			offset = 0;
 		}
 
 		if (likely(status != llc_snap))
 			frame_len -= ETH_FCS_LEN;
 
-		chip->rx_skb[entry] = NULL;
+		trace_sunxi_gmac_skb_dump(chip->skb, chip->ndev->name, 0);
 
-		skb_put(skb, frame_len);
-		dma_unmap_single(chip->dev, (u32)sunxi_gmac_desc_buf_get_addr(desc),
-				 sunxi_gmac_desc_buf_get_len(desc), DMA_FROM_DEVICE);
+		skb_put(chip->skb, frame_len);
 
 		if (unlikely(chip->is_loopback_test))
-			sunxi_gmac_copy_loopback_data(chip, skb);
+			sunxi_gmac_copy_loopback_data(chip, chip->skb);
 
-		skb->protocol = eth_type_trans(skb, chip->ndev);
-		skb->ip_summed = CHECKSUM_UNNECESSARY;
+		chip->skb->protocol = eth_type_trans(chip->skb, chip->ndev);
+		chip->skb->ip_summed = CHECKSUM_UNNECESSARY;
 
-		napi_gro_receive(&chip->napi, skb);
+		napi_gro_receive(&chip->napi, chip->skb);
 
 		chip->ndev->stats.rx_packets++;
 		chip->ndev->stats.rx_bytes += frame_len;
+		chip->skb = NULL;
 	}
 
 	if (rxcount > 0) {
@@ -2353,17 +2429,13 @@ static int sunxi_gmac_poll(struct napi_struct *napi, int budget)
 
 static int sunxi_gmac_change_mtu(struct net_device *ndev, int new_mtu)
 {
-	int max_mtu;
-
 	if (netif_running(ndev)) {
 		netdev_err(ndev, "Error: Nic must be stopped to change its MTU\n");
 		return -EBUSY;
 	}
 
-	max_mtu = SKB_MAX_HEAD(NET_SKB_PAD + NET_IP_ALIGN);
-
-	if ((new_mtu < 46) || (new_mtu > max_mtu)) {
-		netdev_err(ndev, "Error: Invalid MTU, max MTU is: %d\n", max_mtu);
+	if (new_mtu < 46) {
+		netdev_err(ndev, "Error: Invalid MTU\n");
 		return -EINVAL;
 	}
 
@@ -2852,6 +2924,27 @@ static const struct ethtool_ops sunxi_gmac_ethtool_ops = {
 	.self_test = sunxi_gmac_self_test,
 };
 
+#if IS_ENABLED(CONFIG_AW_EPHY)
+static int sunxi_gmac_ephy_v1_hardware_init(struct sunxi_gmac *chip)
+{
+	int ret;
+
+	ret = pwm_config(chip->ac300_pwm, PWM_DUTY_NS, PWM_PERIOD_NS);
+	if (ret) {
+		netdev_err(chip->ndev, "Error: Config ac300 pwm failed\n");
+		return ret;
+	}
+
+	ret = pwm_enable(chip->ac300_pwm);
+	if (ret) {
+		netdev_err(chip->ndev, "Error: Enable ac300 pwm failed\n");
+		ret = -EINVAL;
+	}
+
+	return ret;
+}
+#endif /* CONFIG_AW_EPHY */
+
 static int sunxi_gmac_hardware_init(struct platform_device *pdev)
 {
 	struct net_device *ndev = platform_get_drvdata(pdev);
@@ -2872,34 +2965,31 @@ static int sunxi_gmac_hardware_init(struct platform_device *pdev)
 		goto clk_enable_err;
 	}
 
-#ifdef CONFIG_AW_EPHY_AC300
-	ret = pwm_config(chip->ac300_pwm, PWM_DUTY_NS, PWM_PERIOD_NS);
+#if IS_ENABLED(CONFIG_AW_EPHY)
+	ret = chip->ephy_ops->hardware_init(chip);
 	if (ret) {
-		netdev_err(ndev, "Error: Config ac300 pwm failed\n");
+		netdev_err(ndev, "Error: ephy init failed\n");
 		ret = -EINVAL;
-		goto pwm_config_err;
+		goto ephy_init_err;
 	}
-
-	ret = pwm_enable(chip->ac300_pwm);
-	if (ret) {
-		netdev_err(ndev, "Error: Enable ac300 pwm failed\n");
-		ret = -EINVAL;
-		goto pwm_enable_err;
-	}
-#endif /* CONFIG_AW_EPHY_AC300 */
 
 	return 0;
 
-#ifdef CONFIG_AW_EPHY_AC300
-pwm_enable_err:
-pwm_config_err:
+ephy_init_err:
 	sunxi_gmac_clk_disable(chip);
-#endif	/* CONFIG_AW_EPHY_AC300 */
+#endif /* CONFIG_AW_EPHY */
 clk_enable_err:
 	sunxi_gmac_power_off(chip);
 power_on_err:
 	return ret;
 }
+
+#if IS_ENABLED(CONFIG_AW_EPHY)
+static void sunxi_gmac_ephy_v1_hardware_deinit(struct sunxi_gmac *chip)
+{
+	pwm_disable(chip->ac300_pwm);
+}
+#endif /* CONFIG_AW_EPHY */
 
 static void sunxi_gmac_hardware_deinit(struct platform_device *pdev)
 {
@@ -2910,9 +3000,9 @@ static void sunxi_gmac_hardware_deinit(struct platform_device *pdev)
 
 	sunxi_gmac_clk_disable(chip);
 
-#ifdef CONFIG_AW_EPHY_AC300
-	pwm_disable(chip->ac300_pwm);
-#endif /* CONFIG_AW_EPHY_AC300 */
+#if IS_ENABLED(CONFIG_AW_EPHY)
+	chip->ephy_ops->hardware_deinit(chip);
+#endif /* CONFIG_AW_EPHY */
 }
 
 static void sunxi_gmac_parse_delay_maps(struct sunxi_gmac *chip)
@@ -2953,6 +3043,30 @@ static void sunxi_gmac_parse_delay_maps(struct sunxi_gmac *chip)
 err_parse_maps:
 	devm_kfree(&pdev->dev, maps);
 }
+
+#if IS_ENABLED(CONFIG_AW_EPHY)
+static int sunxi_gmac_ephy_v1_resource_get(struct platform_device *pdev)
+{
+	struct net_device *ndev = platform_get_drvdata(pdev);
+	struct sunxi_gmac *chip = netdev_priv(ndev);
+	struct device_node *np = pdev->dev.of_node;
+	int ret;
+
+	ret = of_property_read_u32(np, "sunxi,pwm-channel", &chip->pwm_channel);
+	if (ret) {
+		dev_err(&pdev->dev, "Error: Get ac300 pwm failed\n");
+		return -EINVAL;
+	}
+
+	chip->ac300_pwm = pwm_request(chip->pwm_channel, NULL);
+	if (IS_ERR_OR_NULL(chip->ac300_pwm)) {
+		dev_err(&pdev->dev, "Error: Get ac300 pwm failed\n");
+		return -EINVAL;
+	}
+
+	return 0;
+}
+#endif /* CONFIG_AW_EPHY */
 
 static int sunxi_gmac_resource_get(struct platform_device *pdev)
 {
@@ -3063,42 +3177,30 @@ static int sunxi_gmac_resource_get(struct platform_device *pdev)
 
 	sunxi_gmac_parse_delay_maps(chip);
 
-	chip->phy_node = of_parse_phandle(np, "phy-handle", 0);
-	if (!chip->phy_node) {
-		dev_err(&pdev->dev, "Error: Get gmac phy-handle failed\n");
-		return -EINVAL;
-	}
-
-#ifdef CONFIG_AW_EPHY_AC300
-	/*
-	 * If use Internal phy such as ac300,
-	 * change the phy_type to internal phy
-	 */
-	chip->phy_type = SUNXI_INTERNAL_PHY;
+#if IS_ENABLED(CONFIG_AW_EPHY)
 	chip->ac300_np = of_parse_phandle(np, "ac300-phy-handle", 0);
 	if (!chip->ac300_np) {
 		dev_err(&pdev->dev, "Error: Get gmac ac300-phy-handle failed\n");
 		return -EINVAL;
 	}
 
-	ret = of_property_read_u32(np, "sunxi,pwm-channel", &chip->pwm_channel);
-	if (ret) {
-		dev_err(&pdev->dev, "Error: Get ac300 pwm failed\n");
+	ret = chip->ephy_ops->resource_get(pdev);
+	if (ret)
 		return -EINVAL;
-	}
 
-	chip->ac300_pwm = pwm_request(chip->pwm_channel, NULL);
-	if (IS_ERR_OR_NULL(chip->ac300_pwm)) {
-		dev_err(&pdev->dev, "Error: Get ac300 pwm failed\n");
+#endif /* CONFIG_AW_EPHY */
+
+	chip->phy_node = of_parse_phandle(np, "phy-handle", 0);
+	if (!chip->phy_node) {
+		dev_err(&pdev->dev, "Error: Get gmac phy-handle failed\n");
 		return -EINVAL;
 	}
-#endif /* CONFIG_AW_EPHY_AC300 */
 
 	ret = of_property_read_u32(np, "sunxi,phy-clk-type", &chip->phy_clk_type);
 	if (ret) {
-		dev_err(&pdev->dev, "Error: Get gmac phy-clk-type failed\n");
-		return -EINVAL;
-	}
+		dev_warn(&pdev->dev, "Warning: Get gmac phy-clk-type failed, use default OSC or pwm\n");
+		chip->phy_clk_type = SUNXI_PHY_USE_EXT_OSC;
+	};
 
 	if (chip->phy_clk_type == SUNXI_PHY_USE_CLK25M) {
 		chip->phy25m_clk = devm_clk_get(&pdev->dev, "phy25m");
@@ -3129,14 +3231,24 @@ static int sunxi_gmac_resource_get(struct platform_device *pdev)
 	return 0;
 }
 
-static void sunxi_gmac_resource_put(struct platform_device *pdev)
+#if IS_ENABLED(CONFIG_AW_EPHY)
+static void sunxi_gmac_ephy_v1_resource_put(struct platform_device *pdev)
 {
-#ifdef CONFIG_AW_EPHY_AC300
 	struct net_device *ndev = platform_get_drvdata(pdev);
 	struct sunxi_gmac *chip = netdev_priv(ndev);
 
 	pwm_free(chip->ac300_pwm);
-#endif /* CONFIG_AW_EPHY_AC300 */
+}
+#endif /* CONFIG_AW_EPHY */
+
+static void sunxi_gmac_resource_put(struct platform_device *pdev)
+{
+#if IS_ENABLED(CONFIG_AW_EPHY)
+	struct net_device *ndev = platform_get_drvdata(pdev);
+	struct sunxi_gmac *chip = netdev_priv(ndev);
+
+	chip->ephy_ops->resource_put(pdev);
+#endif /* CONFIG_AW_EPHY */
 }
 
 static void sunxi_gmac_sysfs_create(struct device *dev)
@@ -3163,6 +3275,24 @@ static void sunxi_gmac_sysfs_destroy(struct device *dev)
 	device_remove_file(dev, &dev_attr_extra_rx_stats);
 }
 
+#if IS_ENABLED(CONFIG_AW_EPHY)
+static struct sunxi_gmac_ephy_ops sunxi_gmac_ephy_ops_v1 = {
+	.resource_get = sunxi_gmac_ephy_v1_resource_get,
+	.resource_put = sunxi_gmac_ephy_v1_resource_put,
+	.hardware_init = sunxi_gmac_ephy_v1_hardware_init,
+	.hardware_deinit = sunxi_gmac_ephy_v1_hardware_deinit,
+};
+#endif /* CONFIG_AW_EPHY */
+
+static const struct of_device_id sunxi_gmac_of_match[] = {
+	{.compatible = "allwinner,sunxi-gmac",},
+#if IS_ENABLED(CONFIG_AW_EPHY)
+	{.compatible = "allwinner,sunxi-gmac-ephy-v1", .data = &sunxi_gmac_ephy_ops_v1, },
+#endif /* CONFIG_AW_EPHY */
+	{},
+};
+MODULE_DEVICE_TABLE(of, sunxi_gmac_of_match);
+
 /**
  * sunxi_gmac_probe - GMAC device probe
  * @pdev: The SUNXI GMAC device that we are removing
@@ -3177,8 +3307,15 @@ static int sunxi_gmac_probe(struct platform_device *pdev)
 	int ret;
 	struct net_device *ndev;
 	struct sunxi_gmac *chip;
+	const struct of_device_id *match;
 
 	dev_dbg(&pdev->dev, "%s() BEGIN\n", __func__);
+
+	match = of_match_device(sunxi_gmac_of_match, &pdev->dev);
+	if (!match) {
+		dev_err(&pdev->dev, "gmac probe match device failed\n");
+		return -EINVAL;
+	}
 
 	pdev->dev.coherent_dma_mask = DMA_BIT_MASK(32);
 	pdev->dev.dma_mask = &pdev->dev.coherent_dma_mask;
@@ -3194,6 +3331,9 @@ static int sunxi_gmac_probe(struct platform_device *pdev)
 	chip = netdev_priv(ndev);
 	platform_set_drvdata(pdev, ndev);
 
+#if IS_ENABLED(CONFIG_AW_EPHY)
+	chip->ephy_ops = (struct sunxi_gmac_ephy_ops *)match->data;
+#endif /* CONFIG_AW_EPHY */
 	chip->ndev = ndev;
 	chip->dev = &pdev->dev;
 	ret = sunxi_gmac_resource_get(pdev);
@@ -3225,6 +3365,7 @@ static int sunxi_gmac_probe(struct platform_device *pdev)
 	ndev->hw_features |= NETIF_F_LOOPBACK;
 	ndev->priv_flags |= IFF_UNICAST_FLT;
 	ndev->watchdog_timeo = msecs_to_jiffies(watchdog);
+	ndev->max_mtu = SUNXI_GMAC_MAX_MTU_SZ;
 
 	/* add napi poll method */
 #if LINUX_VERSION_CODE < KERNEL_VERSION(6, 1, 0)
@@ -3294,15 +3435,12 @@ static int sunxi_gmac_remove(struct platform_device *pdev)
 	return 0;
 }
 
-static const struct of_device_id sunxi_gmac_of_match[] = {
-	{.compatible = "allwinner,sunxi-gmac",},
-	{},
-};
-MODULE_DEVICE_TABLE(of, sunxi_gmac_of_match);
-
 static struct platform_driver sunxi_gmac_driver = {
 	.probe	= sunxi_gmac_probe,
 	.remove = sunxi_gmac_remove,
+#if IS_ENABLED(CONFIG_AW_EPHY)
+	.shutdown = sunxi_gmac_shutdown,
+#endif /* CONFIG_AW_EPHY */
 	.driver = {
 			.name = "sunxi-gmac",
 			.owner = THIS_MODULE,

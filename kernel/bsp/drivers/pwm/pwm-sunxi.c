@@ -108,6 +108,9 @@ struct sunxi_pwm_chip {
 	unsigned int group_ch;
 	unsigned int group_polarity;
 	unsigned int group_period;
+#if IS_ENABLED(CONFIG_AW_EPHY)
+	unsigned int ephy_channel;
+#endif /* CONFIG_AW_EPHY */
 	struct pinctrl *pctl;
 	unsigned int cells_num;
 	bool status;
@@ -317,14 +320,18 @@ static int sunxi_pwm_regulator_request(struct sunxi_pwm_chip *chip, struct devic
 	return 0;
 }
 
-static int sunxi_pwm_regulator_release(struct sunxi_pwm_chip *chip, int index)
+static int sunxi_pwm_regulator_release(struct sunxi_pwm_chip *chip)
 {
-	if (!chip->regulator[index])
-		return 0;
+	unsigned int pwm_number, i;
 
-	regulator_put(chip->regulator[index]);
+	pwm_number = chip->pwm_chip.npwm;
+	for (i = 0; i < pwm_number; i++) {
+		if (!chip->regulator[i])
+			continue;
 
-	chip->regulator[index] = NULL;
+		regulator_put(chip->regulator[i]);
+		chip->regulator[i] = NULL;
+	}
 
 	return 0;
 }
@@ -687,6 +694,14 @@ static int sunxi_pwm_config_single(struct pwm_chip *pwm_chip, struct pwm_device 
 	if (sel == 5) {
 		sunxi_pwm_set_reg(pwm_chip, PWM_PCCR45, sel + 1, 1, 1);
 		sunxi_pwm_set_reg(pwm_chip, PWM_PCCR45, sel - 1, 1, 1);
+		}
+#endif
+
+#if IS_ENABLED(CONFIG_AW_EPHY) && IS_ENABLED(CONFIG_ARCH_SUN8IW21)
+	if (chip->ephy_channel > 0) {
+		value = sunxi_pwm_readl(pwm_chip, PWM_PCGR);
+		value |= BIT(chip->ephy_channel) << 16 | BIT(chip->ephy_channel);
+		sunxi_pwm_writel(pwm_chip, PWM_PCGR, value);
 	}
 #endif
 
@@ -994,7 +1009,7 @@ static int sunxi_pwm_enable_single(struct pwm_chip *pwm_chip, struct pwm_device 
 err1:
 	sunxi_pwm_regulator_disable(chip, index);
 err0:
-	sunxi_pwm_regulator_release(chip, index);
+	sunxi_pwm_regulator_release(chip);
 	return err;
 }
 
@@ -1083,11 +1098,11 @@ static int sunxi_pwm_enable_dual(struct pwm_chip *pwm_chip, struct pwm_device *p
 err3:
 	sunxi_pwm_regulator_disable(chip, pwm_index[1]);
 err2:
-	sunxi_pwm_regulator_release(chip, pwm_index[1]);
+	sunxi_pwm_regulator_release(chip);
 err1:
 	sunxi_pwm_regulator_disable(chip, pwm_index[0]);
 err0:
-	sunxi_pwm_regulator_disable(chip, pwm_index[0]);
+	sunxi_pwm_regulator_release(chip);
 	return err;
 }
 
@@ -1183,7 +1198,6 @@ static void sunxi_pwm_disable_single(struct pwm_chip *pwm_chip, struct pwm_devic
 	sunxi_pwm_pin_set_state(&pwm_pdevice->dev, PWM_PIN_STATE_SLEEP);
 
 	sunxi_pwm_regulator_disable(chip, index);
-	sunxi_pwm_regulator_release(chip, index);
 
 	if (chip->group_ch) {
 		group_reg_offset = PWM_PGR0 + 0x04 * (chip->group_ch - 1);
@@ -1249,12 +1263,10 @@ static void sunxi_pwm_disable_dual(struct pwm_chip *pwm_chip, struct pwm_device 
 	sunxi_pwm_pin_set_state(&pwm_pdevice[0]->dev, PWM_PIN_STATE_SLEEP);
 
 	sunxi_pwm_regulator_disable(chip, pwm_index[0]);
-	sunxi_pwm_regulator_release(chip, pwm_index[0]);
 
 	sunxi_pwm_pin_set_state(&pwm_pdevice[1]->dev, PWM_PIN_STATE_SLEEP);
 
 	sunxi_pwm_regulator_disable(chip, pwm_index[1]);
-	sunxi_pwm_regulator_release(chip, pwm_index[1]);
 }
 
 static void sunxi_pwm_disable(struct pwm_chip *pwm_chip, struct pwm_device *pwm_device)
@@ -1359,14 +1371,13 @@ static int sunxi_pwm_capture(struct pwm_chip *pwm_chip, struct pwm_device *pwm,
 	sunxi_pwm_pin_set_state(&pwm_pdevice->dev, PWM_PIN_STATE_SLEEP);
 
 	sunxi_pwm_regulator_disable(chip, index);
-	sunxi_pwm_regulator_release(chip, index);
 
 	return 0;
 
 err1:
 	sunxi_pwm_regulator_disable(chip, index);
 err0:
-	sunxi_pwm_regulator_release(chip, index);
+	sunxi_pwm_regulator_release(chip);
 	return ret;
 }
 
@@ -1529,6 +1540,15 @@ static int sunxi_pwm_resource_get(struct platform_device *pdev,
 	}
 
 	dev_dbg(&pdev->dev, "base is %d, num is %d\n", chip->pwm_chip.base, chip->pwm_chip.npwm);
+
+#if IS_ENABLED(CONFIG_AW_EPHY)
+	/* read property ephy-channel */
+	err = of_property_read_u32(np, "ephy-channel", &chip->ephy_channel);
+	if (err < 0) {
+		dev_dbg(&pdev->dev, "failed to get ephy-channel: %d, force to -1 !\n", err);
+		chip->ephy_channel = -1;
+	}
+#endif /* CONFIG_AW_EPHY */
 
 	err = of_property_read_u32(np, "#pwm-cells", &chip->cells_num);
 	if (err) {
@@ -1849,6 +1869,7 @@ static int sunxi_pwm_remove(struct platform_device *pdev)
 	sunxi_pwm_hw_exit(chip);
 
 	sunxi_pwm_resource_put(chip);
+	sunxi_pwm_regulator_release(chip);
 
 	return 0;
 }
@@ -1947,4 +1968,4 @@ MODULE_AUTHOR("lihuaxing");
 MODULE_DESCRIPTION("pwm driver");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("platform:sunxi-pwm");
-MODULE_VERSION("1.3.3");
+MODULE_VERSION("1.3.4");

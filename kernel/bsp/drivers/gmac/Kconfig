@@ -23,4 +23,11 @@ config AW_GMAC_MDIO
 	help
 	  This driver supports the GMAC MDIO interface in the network
 
+
+config AW_EPHY
+	tristate "Drivers for Allwinnertech EPHY"
+	depends on AW_GMAC
+	help
+	  Support Allwinner EPHY
+
 endmenu
