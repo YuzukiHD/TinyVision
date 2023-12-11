@@ -872,7 +872,7 @@ static const struct sunxi_desc_pin sun8iw21p1_pins[] = {
 		SUNXI_FUNCTION(0x4, "rmii"),		/* rmii_rxd1 */
 		SUNXI_FUNCTION(0x5, "dsi"),		/* dsi_d0n */
 		SUNXI_FUNCTION(0x6, "spi1"),		/* spi1_cs0/dbi_csx */
-		SUNXI_FUNCTION(0x7, "rmii"),		/* rmii_txd0 */
+		SUNXI_FUNCTION(0x7, "ephy"),		/* rmii_txd0 */
 		SUNXI_FUNCTION_IRQ_BANK(0xe, 2, 1),	/* eint */
 		SUNXI_FUNCTION(0xf, "io_disabled")),	/* io_disabled */
 	SUNXI_PIN(SUNXI_PINCTRL_PIN(D, 2),
@@ -883,7 +883,7 @@ static const struct sunxi_desc_pin sun8iw21p1_pins[] = {
 		SUNXI_FUNCTION(0x4, "rmii"),		/* rmii_rxd0 */
 		SUNXI_FUNCTION(0x5, "dsi"),		/* dsi_d0p */
 		SUNXI_FUNCTION(0x6, "spi1"),		/* spi1_clk/dbi_sclk */
-		SUNXI_FUNCTION(0x7, "rmii"),		/* rmii_txd1 */
+		SUNXI_FUNCTION(0x7, "ephy"),		/* rmii_txd1 */
 		SUNXI_FUNCTION_IRQ_BANK(0xe, 2, 2),	/* eint */
 		SUNXI_FUNCTION(0xf, "io_disabled")),	/* io_disabled */
 	SUNXI_PIN(SUNXI_PINCTRL_PIN(D, 3),
@@ -894,7 +894,7 @@ static const struct sunxi_desc_pin sun8iw21p1_pins[] = {
 		SUNXI_FUNCTION(0x4, "rmii"),		/* rmii_crs_dv */
 		SUNXI_FUNCTION(0x5, "dsi"),		/* dsi_d1n */
 		SUNXI_FUNCTION(0x6, "spi1"),		/* spi1_mosi/dbi_sdo */
-		SUNXI_FUNCTION(0x7, "rmii"),		/* rmii_rxer */
+		SUNXI_FUNCTION(0x7, "ephy"),		/* rmii_rxer */
 		SUNXI_FUNCTION_IRQ_BANK(0xe, 2, 3),	/* eint */
 		SUNXI_FUNCTION(0xf, "io_disabled")),	/* io_disabled */
 	SUNXI_PIN(SUNXI_PINCTRL_PIN(D, 4),
@@ -905,7 +905,7 @@ static const struct sunxi_desc_pin sun8iw21p1_pins[] = {
 		SUNXI_FUNCTION(0x4, "rmii"),		/* rmii_rxer */
 		SUNXI_FUNCTION(0x5, "dsi"),		/* dsi_d1p */
 		SUNXI_FUNCTION(0x6, "spi1"),		/* spi1_miso/dbi_sdi/dbi_te/dbi_dcx */
-		SUNXI_FUNCTION(0x7, "rmii"),		/* rmii_crs_dv */
+		SUNXI_FUNCTION(0x7, "ephy"),		/* rmii_crs_dv */
 		SUNXI_FUNCTION_IRQ_BANK(0xe, 2, 4),	/* eint */
 		SUNXI_FUNCTION(0xf, "io_disabled")),	/* io_disabled */
 	SUNXI_PIN(SUNXI_PINCTRL_PIN(D, 5),
@@ -916,7 +916,7 @@ static const struct sunxi_desc_pin sun8iw21p1_pins[] = {
 		SUNXI_FUNCTION(0x4, "rmii"),		/* rmii_txd1 */
 		SUNXI_FUNCTION(0x5, "dsi"),		/* dsi_ckn */
 		SUNXI_FUNCTION(0x6, "spi1"),		/* spi1_hold/dbi_dcx/dbi_wrx */
-		SUNXI_FUNCTION(0x7, "rmii"),		/* rmii_rxd1 */
+		SUNXI_FUNCTION(0x7, "ephy"),		/* rmii_rxd1 */
 		SUNXI_FUNCTION_IRQ_BANK(0xe, 2, 5),	/* eint */
 		SUNXI_FUNCTION(0xf, "io_disabled")),	/* io_disabled */
 	SUNXI_PIN(SUNXI_PINCTRL_PIN(D, 6),
@@ -927,7 +927,7 @@ static const struct sunxi_desc_pin sun8iw21p1_pins[] = {
 		SUNXI_FUNCTION(0x4, "rmii"),		/* rmii_txd0 */
 		SUNXI_FUNCTION(0x5, "dsi"),		/* dsi_ckp */
 		SUNXI_FUNCTION(0x6, "spi1"),		/* spi1_wp/dbi_te */
-		SUNXI_FUNCTION(0x7, "rmii"),		/* rmii_rxd0 */
+		SUNXI_FUNCTION(0x7, "ephy"),		/* rmii_rxd0 */
 		SUNXI_FUNCTION_IRQ_BANK(0xe, 2, 6),	/* eint */
 		SUNXI_FUNCTION(0xf, "io_disabled")),	/* io_disabled */
 	SUNXI_PIN(SUNXI_PINCTRL_PIN(D, 7),
@@ -938,7 +938,7 @@ static const struct sunxi_desc_pin sun8iw21p1_pins[] = {
 		SUNXI_FUNCTION(0x4, "rmii"),		/* rmii_txck */
 		SUNXI_FUNCTION(0x5, "dsi"),		/* dsi_d2n */
 		SUNXI_FUNCTION(0x6, "spi1"),		/* spi1_cs1 */
-		SUNXI_FUNCTION(0x7, "rmii"),		/* mdc */
+		SUNXI_FUNCTION(0x7, "ephy"),		/* mdc */
 		SUNXI_FUNCTION_IRQ_BANK(0xe, 2, 7),	/* eint */
 		SUNXI_FUNCTION(0xf, "io_disabled")),	/* io_disabled */
 	SUNXI_PIN(SUNXI_PINCTRL_PIN(D, 8),
@@ -955,7 +955,7 @@ static const struct sunxi_desc_pin sun8iw21p1_pins[] = {
 		SUNXI_FUNCTION(0x2, "lcd"),		/* lcd_d13 */
 		SUNXI_FUNCTION(0x3, "pwm8"),		/* pwm8 */
 		SUNXI_FUNCTION(0x5, "dsi"),		/* dsi_d2p */
-		SUNXI_FUNCTION(0x7, "rmii"),		/* mdio */
+		SUNXI_FUNCTION(0x7, "ephy"),		/* mdio */
 		SUNXI_FUNCTION_IRQ_BANK(0xe, 2, 9),	/* eint */
 		SUNXI_FUNCTION(0xf, "io_disabled")),	/* io_disabled */
 	SUNXI_PIN(SUNXI_PINCTRL_PIN(D, 10),
@@ -964,7 +964,7 @@ static const struct sunxi_desc_pin sun8iw21p1_pins[] = {
 		SUNXI_FUNCTION(0x2, "lcd"),		/* lcd_d14 */
 		SUNXI_FUNCTION(0x3, "i2s1"),		/* i2s1_mclk */
 		SUNXI_FUNCTION(0x5, "dsi"),		/* dsi_d3n */
-		SUNXI_FUNCTION(0x7, "rmii"),		/* rmii_txen */
+		SUNXI_FUNCTION(0x7, "ephy"),		/* rmii_txen */
 		SUNXI_FUNCTION_IRQ_BANK(0xe, 2, 10),	/* eint */
 		SUNXI_FUNCTION(0xf, "io_disabled")),	/* io_disabled */
 	SUNXI_PIN(SUNXI_PINCTRL_PIN(D, 11),
@@ -973,7 +973,7 @@ static const struct sunxi_desc_pin sun8iw21p1_pins[] = {
 		SUNXI_FUNCTION(0x2, "lcd"),		/* lcd_d15 */
 		SUNXI_FUNCTION(0x3, "i2s1"),		/* i2s1_bclk */
 		SUNXI_FUNCTION(0x5, "dsi"),		/* dsi_d3p */
-		SUNXI_FUNCTION(0x7, "rmii"),		/* rmii_txck */
+		SUNXI_FUNCTION(0x7, "ephy"),		/* rmii_txck */
 		SUNXI_FUNCTION_IRQ_BANK(0xe, 2, 11),	/* eint */
 		SUNXI_FUNCTION(0xf, "io_disabled")),	/* io_disabled */
 	SUNXI_PIN(SUNXI_PINCTRL_PIN(D, 12),
