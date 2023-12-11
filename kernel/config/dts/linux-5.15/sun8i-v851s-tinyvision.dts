@@ -634,7 +634,7 @@
 &pwm11 {
 	pinctrl-0 = <&pwm11_pin_active>;
 	pinctrl-1 = <&pwm11_pin_sleep>;
-	status = "disabled";
+	status = "okay";
 };
 
 &lcd_fb0 {
