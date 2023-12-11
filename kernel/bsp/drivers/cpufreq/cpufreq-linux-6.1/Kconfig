@@ -32,7 +32,7 @@ config AW_CPUFREQ_TEST
 	  If in doubt, say N.
 
 if ARM || ARM64
-source "bsp/drivers/cpufreq/cpufreq-linux-5.15/Kconfig.arm"
+source "bsp/drivers/cpufreq/cpufreq-linux-6.1/Kconfig.arm"
 endif
 
 endmenu
