@@ -9,8 +9,6 @@ source "scripts/Kconfig.include"
 
 source "init/Kconfig"
 
-source "bsp/Kconfig"
-
 source "kernel/Kconfig.freezer"
 
 source "fs/Kconfig.binfmt"

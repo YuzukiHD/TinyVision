@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0
 VERSION = 6
 PATCHLEVEL = 1
-SUBLEVEL = 62
+SUBLEVEL = 67
 EXTRAVERSION =
 NAME = Curry Ramen
 
@@ -563,7 +563,6 @@ LINUXINCLUDE    := \
 		-I$(objtree)/arch/$(SRCARCH)/include/generated \
 		$(if $(building_out_of_srctree),-I$(srctree)/include) \
 		-I$(objtree)/include \
-		-I$(objtree)/bsp/include \
 		$(USERINCLUDE)
 
 KBUILD_AFLAGS   := -D__ASSEMBLY__ -fno-PIE
@@ -753,7 +752,6 @@ ifeq ($(KBUILD_EXTMOD),)
 # Objects we will link into vmlinux / subdirs we need to visit
 core-y		:=
 drivers-y	:=
-drivers-y	+= bsp/
 libs-y		:= lib/
 endif # KBUILD_EXTMOD
 
