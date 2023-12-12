@@ -14,6 +14,10 @@
 	aliases {
 		serial0 = &uart0;
 	};
+
+	chosen {
+		bootargs = "root=/dev/mmcblk0p2 earlyprintk=sunxi-uart,0x02500000 loglevel=8 initcall_debug=0 rootwait console=ttyS0 init=/init";
+	};
 };
 
 &pio {
@@ -70,7 +74,19 @@
 		bias-pull-up;
 	};
 
-	spi0_pins_sleep: spi0@3 {
+	spi0_pins_lcd: spi0@2 {
+		pins = "PC0", "PC2"; /* clk, mosi */
+		function = "spi0";
+		drive-strength = <10>;
+	};
+
+	spi0_pins_lcd_cs: spi0@3 {
+		pins = "PC1"; /* cs */
+		function = "spi0";
+		drive-strength = <10>;
+	};
+
+	spi0_pins_sleep: spi0@4 {
 		pins = "PC0", "PC2", "PC3", "PC1", "PC4", "PC5";
 		function = "gpio_in";
 		drive-strength = <10>;
@@ -286,6 +302,22 @@
 		function = "gpio_in";
 		bias-pull-down;
 	};
+
+	gmac0_pins_active: gmac0@0 {
+		pins = "PD1", "PD2", "PD3", "PD4",
+			"PD5", "PD6", "PD7","PD9",
+			"PD10", "PD11";
+		function = "ephy";
+		drive-strength = <30>;
+		bias-pull-up;
+	};
+
+	gmac0_pins_sleep: gmac0@1 {
+		pins = "PD1", "PD2", "PD3", "PD4",
+			"PD5", "PD6", "PD7","PD9",
+			"PD10", "PD11";
+		function = "io_disabled";
+	};
 };
 
 &uart0 {
@@ -317,23 +349,25 @@
 };
 
 &spi0 {
-	pinctrl-0 = <&spi0_pins_default &spi0_pins_cs>;
+	pinctrl-0 = <&spi0_pins_lcd &spi0_pins_lcd_cs>;
 	pinctrl-1 = <&spi0_pins_sleep>;
 	pinctrl-names = "default", "sleep";
-	sunxi,spi-bus-mode = <SUNXI_SPI_BUS_NOR>;
-	sunxi,spi-cs-mode = <SUNXI_SPI_CS_SOFT>;
-	status = "disabled";
+	sunxi,spi-bus-mode = <SUNXI_SPI_BUS_MASTER>;
+	sunxi,spi-cs-mode = <SUNXI_SPI_CS_AUTO>;
+	status = "okay";
 
-	spi_board0: spidev@0 {
-		device_type = "spi_board0";
-		compatible = "spi-nor";
-		spi-max-frequency = <100000000>;
-		m25p,fast-read = <1>;
-		/*individual_lock;*/
-		reg = <0x0>;
-		spi-rx-bus-width = <4>;
-		spi-tx-bus-width = <4>;
-		status = "disabled";
+	st7789v@0 {
+    	status = "okay";
+    	compatible = "sitronix,st7789v";
+		reg = <0>;
+		spi-max-frequency = <32000000>;
+		rotate = <90>;
+		rgb;
+		fps = <30>;
+		buswidth = <8>;
+		reset = <&pio PC 5 GPIO_ACTIVE_LOW>;
+		dc = <&pio PC 4 GPIO_ACTIVE_LOW>;
+		debug = <1>;
 	};
 };
 
@@ -375,14 +409,14 @@
 	/*vqmmc-supply = <&reg_aldo1>;*/
 	/*emmc io vol 1.8v*/
 	/*vqmmc-supply = <&reg_eldo1>;*/
-	status = "okay";
+	status = "disabled";
 };
 
 &sdc0 {
 	bus-width = <4>;
-	cd-gpios = <&pio PF 6 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
-	/*non-removable;*/
-	/*broken-cd;*/
+	/*cd-gpios = <&pio PF 6 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;*/
+	non-removable;
+	broken-cd;
 	/*cd-inverted*/
 	/*data3-detect;*/
 	/*card-pwr-gpios = <&pio PH 0 1 1 2 0xffffffff>;*/
@@ -464,6 +498,20 @@
 
 &ohci0 {
 	/* drvvbus-supply = <&reg_drivevbus>; */
+	status = "okay";
+};
+
+&mdio0 {
+	status = "okay";
+};
+
+&gmac0 {
+	phy-mode = "rmii";
+	pinctrl-names = "default", "sleep";
+	pinctrl-0 = <&gmac0_pins_active>;
+	pinctrl-1 = <&gmac0_pins_sleep>;
+	sunxi,phy-clk-type = <0x1>;
+	sunxi,pwm-channel = <11>;
 	status = "okay";
 };
 
@@ -586,6 +634,41 @@
 &pwm11 {
 	pinctrl-0 = <&pwm11_pin_active>;
 	pinctrl-1 = <&pwm11_pin_sleep>;
-	status = "disabled";
+	status = "okay";
 };
 
+&lcd_fb0 {
+	lcd_used = <1>;
+	lcd_driver_name = "st7789v";
+	lcd_x = <240>;
+	lcd_y = <240>;
+	lcd_width = <32>;
+	lcd_height = <32>;
+	lcd_data_speed = <60>;
+
+	lcd_if = <0>;
+
+	lcd_dbi_if = <4>;
+	lcd_spi_bus_num = <0>;
+	lcd_pixel_fmt = <0>;
+	lcd_dbi_fmt = <3>;
+	lcd_rgb_order = <0>;
+
+	lcd_pwm_used = <0>;
+	lcd_pwm_ch = <6>;
+	lcd_pwm_freq = <5000>;
+	lcd_pwm_pol = <1>;
+
+	lcd_frm = <1>;
+	lcd_gamma_en = <1>;
+	fb_buffer_num = <2>;
+	lcd_backlight = <100>;
+
+	lcd_fps = <60>;
+	lcd_dbi_te = <1>;
+	lcd_dbi_clk_mode = <0>;
+
+	lcd_gpio_0 = <&pio PC 5 GPIO_ACTIVE_LOW>;
+	lcd_spi_dc_pin = <&pio PC 4 GPIO_ACTIVE_HIGH>;
+	status = "disabled";
+};

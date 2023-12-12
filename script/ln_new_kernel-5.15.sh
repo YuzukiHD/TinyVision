@@ -11,6 +11,7 @@ cd arch/arm/boot/dts/
 ln -s ../../../../../config/dts/linux-5.15/sun8iw21p1.dtsi .
 ln -s ../../../../../config/dts/linux-5.15/sun8i-v851s-tinyvision.dts .
 
+cd -
 cd ../../script/
 
 
