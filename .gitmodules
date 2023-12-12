@@ -1,3 +1,6 @@
 [submodule "kernel/SyterKit"]
 	path = kernel/SyterKit
 	url = https://github.com/YuzukiHD/SyterKit
+[submodule "OpenWrt"]
+	path = OpenWrt
+	url = https://github.com/YuzukiHD/OpenWrt
