@@ -12,6 +12,8 @@ TinyVision - A Tiny Linux Board / IPC / Server / Router / And so on...
 
 ### TinyVision
 
+- [https://item.taobao.com/item.htm?&id=756255119524](https://item.taobao.com/item.htm?&id=756255119524)
+
 ### 配套配件
 
 - GC2053摄像头: [https://item.taobao.com/item.htm?&id=736796459015](https://item.taobao.com/item.htm?&id=736796459015)
