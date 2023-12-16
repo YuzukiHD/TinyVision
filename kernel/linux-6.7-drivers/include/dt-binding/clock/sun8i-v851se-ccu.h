@@ -4,8 +4,8 @@
  * Copyright (C) 2023 Andras Szemzo <szemzo.andras@gmail.com.com>
  */
 
-#ifndef _DT_BINDINGS_CLK_SUN8I_V85X_CCU_H_
-#define _DT_BINDINGS_CLK_SUN8I_V85X_CCU_H_
+#ifndef _DT_BINDINGS_CLK_SUN8I_V851SE_CCU_H_
+#define _DT_BINDINGS_CLK_SUN8I_V851SE_CCU_H_
 
 #define CLK_PLL_CPU		0
 #define CLK_PLL_DDR		1
@@ -126,4 +126,4 @@
 #define CLK_FANOUT1		113
 #define CLK_FANOUT2		114
 
-#endif /* _DT_BINDINGS_CLK_SUN8I_V85X_CCU_H_ */
+#endif /* _DT_BINDINGS_CLK_SUN8I_V851SE_CCU_H_ */
