@@ -44,7 +44,7 @@ jobs:
 
       - name: Build Linux 6.7 Kernel Test
         run: |
-          cd kernel/linux-6.7-rc2
+          cd kernel/linux-6.7
           make CROSS_COMPILE=arm-linux-gnueabihf- ARCH=arm sunxi_defconfig
           make CROSS_COMPILE=arm-linux-gnueabihf- ARCH=arm -j$(nproc)
           cd -
