@@ -8,6 +8,15 @@ TinyVision - A Tiny Linux Board / IPC / Server / Router / And so on...
 
 ![image](https://github.com/YuzukiHD/TinyVision/assets/12003087/2ace3c9f-f9e0-4670-8d4c-b11dd3ef262a)
 
+## 购买链接
+
+### TinyVision
+
+### 配套配件
+
+- [GC2053摄像头]: [https://item.taobao.com/item.htm?&id=736796459015](https://item.taobao.com/item.htm?&id=736796459015)
+- [RJ45 百兆线]: [https://item.taobao.com/item.htm?&id=626832235333](https://item.taobao.com/item.htm?&id=626832235333)
+
 ## Feature
 
 Introducing TinyVision, the ultimate all-in-one solution for your Linux board, IPC, server, router, and more. Powered by the advanced Allwinner V851se or V851s3 processors, TinyVision offers exceptional performance and versatility in a compact form factor.
