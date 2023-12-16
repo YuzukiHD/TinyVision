@@ -8,6 +8,10 @@ TinyVision - A Tiny Linux Board / IPC / Server / Router / And so on...
 
 ![image](https://github.com/YuzukiHD/TinyVision/assets/12003087/2ace3c9f-f9e0-4670-8d4c-b11dd3ef262a)
 
+## 系统下载
+
+- [https://github.com/YuzukiHD/TinyVision/releases](https://github.com/YuzukiHD/TinyVision/releases)
+
 ## 购买链接
 
 ### TinyVision
