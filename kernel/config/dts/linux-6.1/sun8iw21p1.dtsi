@@ -531,18 +531,6 @@
 				drive-strength = <40>;
 				bias-pull-down;
 			};
-
-			test_pins_a: test_pins@0 {
-				pins = "PA0", "PA1";
-				function = "test";
-				drive-strength = <10>;
-				bias-pull-up;
-			};
-
-			test_pins_b: test_pins@1 {
-				pins = "PA0", "PA1";
-				function = "gpio_in";
-			};
 		};
 
 		rtc: rtc@7090000 {
@@ -590,20 +578,6 @@
 			reset-names = "rst";
 			num-locks = <32>;
 			status = "okay";
-		};
-
-		pinctrl_test: pinctrl_test@2000000 {
-			reg = <0x0 0x0 0x0 0x0>;
-			compatible = "allwinner,sunxi-pinctrl-test";
-			device_type = "pinctrl-test";
-			pinctrl-0 = <&test_pins_a>;
-			pinctrl-1 = <&test_pins_b>;
-			pinctrl-names = "default", "sleep";
-			test-gpios = <&pio PC 4 GPIO_ACTIVE_LOW>;
-			suspend-gpios = <&pio PC 5 GPIO_ACTIVE_LOW>;
-			wakeup-source;
-			interrupt-parent = <&pio>;
-			interrupts = <PC 6 IRQ_TYPE_LEVEL_HIGH>;
 		};
 
 		uart0: uart@2500000 {
