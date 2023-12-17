@@ -7,8 +7,18 @@ on:
   # Triggers the workflow on push or pull request events but only for the "main" branch
   push:
     branches: [ "main" ]
+    paths:
+      - 'kernel/linux-5.15/**'
+      - 'kernel/config/linux-5.15/**'
+      - 'kernel/config/dts/linux-5.15/**'
+      - 'kernel/bsp/**'
   pull_request:
     branches: [ "main" ]
+    paths:
+      - 'kernel/linux-5.15/**'
+      - 'kernel/config/linux-5.15/**'
+      - 'kernel/config/dts/linux-5.15/**'
+      - 'kernel/bsp/**'
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
@@ -32,20 +42,6 @@ jobs:
         run: |
           cd kernel/linux-5.15
           make CROSS_COMPILE=arm-linux-gnueabihf- ARCH=arm tinyvision_defconfig
-          make CROSS_COMPILE=arm-linux-gnueabihf- ARCH=arm -j$(nproc)
-          cd -
-
-      - name: Build Linux 6.1 Kernel Test
-        run: |
-          cd kernel/linux-6.1
-          make CROSS_COMPILE=arm-linux-gnueabihf- ARCH=arm tinyvision_defconfig
-          make CROSS_COMPILE=arm-linux-gnueabihf- ARCH=arm -j$(nproc)
-          cd -
-
-      - name: Build Linux 6.7 Kernel Test
-        run: |
-          cd kernel/linux-6.7
-          make CROSS_COMPILE=arm-linux-gnueabihf- ARCH=arm sunxi_defconfig
           make CROSS_COMPILE=arm-linux-gnueabihf- ARCH=arm -j$(nproc)
           cd -
       
