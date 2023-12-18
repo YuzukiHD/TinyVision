@@ -23,7 +23,7 @@ subdir-ccflags-y +=	-I$(srctree)/ekernel/arch  \
 
 subdir-ccflags-y += -DFD_SETSIZE=1024
 
-MOD_NAME := melis30
+MOD_NAME := e907
 $(MOD_NAME)-objs += built-in.o
 obj-m += $(MOD_NAME).o
 
