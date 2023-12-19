@@ -34,11 +34,11 @@ jobs:
       - uses: actions/checkout@v3
 
       - name: Setup env
-        run: sudo apt-get update && sudo apt-get install -y gcc-arm-none-eabi gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf build-essential libncurses5-dev zlib1g-dev gawk flex bison quilt libssl-dev xsltproc libxml-parser-perl mercurial bzr ecj cvs unzip lsof
+        run: sudo apt-get update && sudo apt-get install -y gcc-arm-linux-gnueabi g++-arm-linux-gnueabi build-essential libncurses5-dev zlib1g-dev gawk flex bison quilt libssl-dev xsltproc libxml-parser-perl mercurial bzr ecj cvs unzip lsof
       
       - name: Build Linux 4.9 Kernel Test
         run: |
           cd kernel/linux-4.9
-          make CROSS_COMPILE=arm-linux-gnueabihf- ARCH=arm tinyvision_defconfig
-          make CROSS_COMPILE=arm-linux-gnueabihf- ARCH=arm -j$(nproc)
+          make CROSS_COMPILE=arm-linux-gnueabi- ARCH=arm tinyvision_defconfig
+          make CROSS_COMPILE=arm-linux-gnueabi- ARCH=arm -j$(nproc)
           cd -
