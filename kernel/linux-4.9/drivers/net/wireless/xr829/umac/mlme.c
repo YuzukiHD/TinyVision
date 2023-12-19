@@ -463,7 +463,6 @@ void mac80211_chswitch_done(struct ieee80211_vif *vif, bool success)
 
 	mac80211_queue_work(&sdata->local->hw, &ifmgd->chswitch_work);
 }
-EXPORT_SYMBOL(mac80211_chswitch_done);
 
 static void ieee80211_chswitch_timer(unsigned long data)
 {
@@ -577,7 +576,6 @@ void mac80211_enable_dyn_ps(struct ieee80211_vif *vif)
 	sdata->disable_dynamic_ps = false;
 	conf->dynamic_ps_timeout = sdata->dynamic_ps_user_timeout;
 }
-EXPORT_SYMBOL(mac80211_enable_dyn_ps);
 
 void mac80211_disable_dyn_ps(struct ieee80211_vif *vif)
 {
@@ -595,7 +593,6 @@ void mac80211_disable_dyn_ps(struct ieee80211_vif *vif)
 	mac80211_queue_work(&local->hw,
 			     &sdata->dynamic_ps_enable_work);
 }
-EXPORT_SYMBOL(mac80211_disable_dyn_ps);
 
 /* powersave */
 static void ieee80211_enable_ps(struct ieee80211_local *local,
@@ -1511,7 +1508,6 @@ struct sk_buff *mac80211_ap_probereq_get(struct ieee80211_hw *hw,
 
 	return skb;
 }
-EXPORT_SYMBOL(mac80211_ap_probereq_get);
 
 static void __mac80211_connection_loss(struct ieee80211_sub_if_data *sdata)
 {
@@ -1568,7 +1564,6 @@ void mac80211_beacon_loss(struct ieee80211_vif *vif)
 	WARN_ON(hw->flags & IEEE80211_HW_CONNECTION_MONITOR);
 	mac80211_queue_work(hw, &sdata->u.mgd.beacon_connection_loss_work);
 }
-EXPORT_SYMBOL(mac80211_beacon_loss);
 
 void mac80211_connection_loss(struct ieee80211_vif *vif)
 {
@@ -1581,7 +1576,6 @@ void mac80211_connection_loss(struct ieee80211_vif *vif)
 	mac80211_queue_work(hw, &sdata->u.mgd.beacon_connection_loss_work);
 }
 EXPORT_SYMBOL(mac80211_connection_loss);
-
 
 static enum rx_mgmt_action __must_check
 ieee80211_rx_mgmt_deauth(struct ieee80211_sub_if_data *sdata,
@@ -2690,11 +2684,14 @@ int mac80211_mgd_auth(struct ieee80211_sub_if_data *sdata,
 	case NL80211_AUTHTYPE_NETWORK_EAP:
 		auth_alg = WLAN_AUTH_LEAP;
 		break;
+	case NL80211_AUTHTYPE_SAE:
+		auth_alg = WLAN_AUTH_SAE;
+		break;
 	default:
 		return -EOPNOTSUPP;
 	}
 
-	wk = kzalloc(sizeof(*wk) + req->ie_len, GFP_KERNEL);
+	wk = kzalloc(sizeof(*wk) + req->sae_data_len - 4 + req->ie_len, GFP_KERNEL);
 	if (!wk)
 		return -ENOMEM;
 
@@ -2703,6 +2700,12 @@ int mac80211_mgd_auth(struct ieee80211_sub_if_data *sdata,
 	if (req->ie && req->ie_len) {
 		memcpy(wk->ie, req->ie, req->ie_len);
 		wk->ie_len = req->ie_len;
+	}else if (req->sae_data && req->sae_data_len) {
+		__le16 *pos = (__le16 *) req->sae_data;
+		wk->probe_auth.transaction = le16_to_cpu(pos[0]);
+
+		memcpy(wk->ie, req->sae_data + 4, req->sae_data_len - 4);
+		wk->ie_len = req->sae_data_len - 4;
 	}
 
 	if (req->key && req->key_len) {
@@ -3120,7 +3123,6 @@ void ieee80211_cqm_beacon_miss_notify(struct ieee80211_vif *vif,
 
 	cfg80211_cqm_beacon_miss_notify(sdata->dev, gfp);
 }
-EXPORT_SYMBOL(ieee80211_cqm_beacon_miss_notify);
 
 void ieee80211_cqm_tx_fail_notify(struct ieee80211_vif *vif,
 				      gfp_t gfp)
@@ -3129,7 +3131,6 @@ void ieee80211_cqm_tx_fail_notify(struct ieee80211_vif *vif,
 
 	cfg80211_cqm_tx_fail_notify(sdata->dev, gfp);
 }
-EXPORT_SYMBOL(ieee80211_cqm_tx_fail_notify);
 
 void ieee80211_p2p_noa_notify(struct ieee80211_vif *vif,
 			      struct cfg80211_p2p_ps *p2p_ps,
@@ -3139,7 +3140,6 @@ void ieee80211_p2p_noa_notify(struct ieee80211_vif *vif,
 
 	cfg80211_p2p_noa_notify(sdata->dev, p2p_ps, gfp);
 }
-EXPORT_SYMBOL(ieee80211_p2p_noa_notify);
 
 void ieee80211_driver_hang_notify(struct ieee80211_vif *vif,
 					gfp_t gfp)
@@ -3148,7 +3148,6 @@ void ieee80211_driver_hang_notify(struct ieee80211_vif *vif,
 
 	cfg80211_driver_hang_notify(sdata->dev, gfp);
 }
-EXPORT_SYMBOL(ieee80211_driver_hang_notify);
 #endif
 
 unsigned char mac80211_get_operstate(struct ieee80211_vif *vif)
@@ -3156,4 +3155,3 @@ unsigned char mac80211_get_operstate(struct ieee80211_vif *vif)
 	struct ieee80211_sub_if_data *sdata = vif_to_sdata(vif);
 	return sdata->dev->operstate;
 }
-EXPORT_SYMBOL(mac80211_get_operstate);

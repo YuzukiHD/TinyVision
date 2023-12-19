@@ -55,7 +55,9 @@ MODULE_LICENSE("GPL");
 #define SENSOR_NAME "gc4663_mipi"
 #define SENSOR_NAME_2 "gc4663_mipi_2"
 
-#define HDR_RATIO 32
+//#define CG4663_1080P_15FPS_CROP
+
+//#define HDR_RATIO 32
 
 /*
  * The default register settings
@@ -64,6 +66,168 @@ MODULE_LICENSE("GPL");
 static struct regval_list sensor_default_regs[] = {
 
 };
+
+static struct regval_list sensor_1920x1088p15_regs[] = {
+//version 6.8
+//mclk 24Mhz
+//mipi_data_rate 648Mbps
+//framelength 3000
+//linelength 4800
+//pclk 216Mhz
+//rowtime 22.2222us
+//pattern grbg
+	{0x03fe, 0xf0},
+	{0x03fe, 0x00},
+	{0x0317, 0x00},
+	{0x0320, 0x77},
+	{0x0324, 0xc8},
+	{0x0325, 0x06},
+	{0x0326, 0x6c},
+	{0x0327, 0x03},
+	{0x0334, 0x40},
+	{0x0336, 0x6c},
+	{0x0337, 0x82},
+	{0x0315, 0x25},
+	{0x031c, 0xc6},
+	{0x0287, 0x18},
+	{0x0084, 0x00},
+	{0x0087, 0x50},
+	{0x029d, 0x08},
+	{0x0290, 0x00},
+	{0x0340, 0x0b},//vts=3000
+	{0x0341, 0xb8},
+	{0x0345, 0x06},
+	{0x034b, 0xb0},
+	{0x0352, 0x08},
+	{0x0354, 0x08},
+	{0x02d1, 0xe0},
+	{0x0223, 0xf2},
+	{0x0238, 0xa4},
+	{0x02ce, 0x7f},
+	{0x0232, 0xc4},
+	{0x02d3, 0x05},
+	{0x0243, 0x06},
+	{0x02ee, 0x30},
+	{0x026f, 0x70},
+	{0x0257, 0x09},
+	{0x0211, 0x02},
+	{0x0219, 0x09},
+	{0x023f, 0x2d},
+	{0x0518, 0x00},
+	{0x0519, 0x01},
+	{0x0515, 0x08},
+	{0x02d9, 0x3f},
+	{0x02da, 0x02},
+	{0x02db, 0xe8},
+	{0x02e6, 0x20},
+	{0x021b, 0x10},
+	{0x0252, 0x22},
+	{0x024e, 0x22},
+	{0x02c4, 0x01},
+	{0x021d, 0x17},
+	{0x024a, 0x01},
+	{0x02ca, 0x02},
+	{0x0262, 0x10},
+	{0x029a, 0x20},
+	{0x021c, 0x0e},
+	{0x0298, 0x03},
+	{0x029c, 0x00},
+	{0x027e, 0x14},
+	{0x02c2, 0x10},
+	{0x0540, 0x20},
+	{0x0546, 0x01},
+	{0x0548, 0x01},
+	{0x0544, 0x01},
+	{0x0242, 0x1b},
+	{0x02c0, 0x1b},
+	{0x02c3, 0x20},
+	{0x02e4, 0x10},
+	{0x022e, 0x00},
+	{0x027b, 0x3f},
+	{0x0269, 0x0f},
+	{0x02d2, 0x40},
+	{0x027c, 0x08},
+	{0x023a, 0x2e},
+	{0x0245, 0xce},
+	{0x0530, 0x20},
+	{0x0531, 0x02},
+	{0x0228, 0x50},
+	{0x02ab, 0x00},
+	{0x0250, 0x00},
+	{0x0221, 0x50},
+	{0x02ac, 0x00},
+	{0x02a5, 0x02},
+	{0x0260, 0x0b},
+	{0x0216, 0x04},
+	{0x0299, 0x1C},
+	{0x02bb, 0x0d},
+	{0x02a3, 0x02},
+	{0x02a4, 0x02},
+	{0x021e, 0x02},
+	{0x024f, 0x08},
+	{0x028c, 0x08},
+	{0x0532, 0x3f},
+	{0x0533, 0x02},
+	{0x0277, 0xc0},
+	{0x0276, 0xc0},
+	{0x0239, 0xc0},
+	{0x0202, 0x05},
+	{0x0203, 0xd0},
+	{0x0205, 0xc0},
+	{0x02b0, 0x68},
+	{0x0002, 0xa9},
+	{0x0004, 0x01},
+	{0x021a, 0x98},
+	{0x0266, 0xa0},
+	{0x0020, 0x01},
+	{0x0021, 0x03},
+	{0x0022, 0x00},
+	{0x0023, 0x04},
+	//{0x0060, 0x00},
+	{0x0342, 0x06},//hts
+	{0x0343, 0x40},
+	// window size
+	{0x034c, 0x07},
+	{0x034d, 0x80},
+	{0x034e, 0x04},
+	{0x034f, 0x40},
+	{0x03fe, 0x10},
+	{0x03fe, 0x00},
+	{0x0106, 0x78},
+	{0x0108, 0x0c},
+	{0x0114, 0x01},
+	{0x0115, 0x12},
+	{0x0180, 0x46},
+	{0x0181, 0x30},
+	{0x0182, 0x05},
+	{0x0185, 0x01},
+	{0x03fe, 0x10},
+	{0x03fe, 0x00},
+	{0x0100, 0x09},
+	{0x000f, 0x00},
+	//otp
+	{0x0080, 0x02},
+	{0x0097, 0x0a},
+	{0x0098, 0x10},
+	{0x0099, 0x05},
+	{0x009a, 0xb0},
+	{0x0317, 0x08},
+	{0x0a67, 0x80},
+	{0x0a70, 0x03},
+	{0x0a82, 0x00},
+	{0x0a83, 0x10},
+	{0x0a80, 0x2b},
+	{0x05be, 0x00},
+	{0x05a9, 0x01},
+	{0x0313, 0x80},
+	{0x05be, 0x01},
+	{0x0317, 0x00},
+	{0x0a67, 0x00},
+
+	//colorbar
+//	{0x008c, 0x11},
+};
+
 
 static struct regval_list sensor_2560x1440p15_regs[] = {
 //version 6.8
@@ -1161,6 +1325,160 @@ static struct regval_list sensor_2560x1440p30_wdr_regs[] = {
  *
  */
 
+static struct regval_list sensor_720p120_regs[] = {
+/*
+ *version 4.2
+ *window size 1280x720
+ *mclk 24Mhz
+ *mipidata rate 677Mbps
+ *framelength 1600
+ *linelength
+ *pclk
+ *rowtime 10.41666667us
+ *pattern grbg
+ */
+	{0x03fe, 0xf0},
+	{0x03fe, 0x00},
+	{0x0317, 0x00},
+	{0x0320, 0x77},
+	{0x0324, 0xc4},
+	{0x0326, 0x42},
+	{0x0327, 0x03},
+	{0x0321, 0x10},
+	{0x0314, 0x50},
+	{0x0334, 0x40},
+	{0x0335, 0xd5},
+	{0x0336, 0x70},
+	{0x0337, 0x82},
+	{0x0315, 0x33},
+	{0x031c, 0xce},
+	{0x0287, 0x18},
+	{0x0084, 0x00},
+	{0x0087, 0x50},
+	{0x029d, 0x08},
+	{0x0290, 0x00},
+	{0x0234, 0x20},
+	{0x0217, 0xc0},
+	{0x0340, 0x06},
+	{0x0341, 0x40},
+	{0x0345, 0x06},
+	{0x034b, 0xb0},
+
+	{0x034c, 0x05},
+	{0x034e, 0x02},
+	{0x034f, 0xd0},
+
+	{0x0352, 0x08},
+	{0x0354, 0x08},
+	{0x02d1, 0xc0},
+	{0x023c, 0x04},
+	{0x0238, 0xb4},
+	{0x0223, 0xfb},
+	{0x0232, 0xc4},
+	{0x0279, 0x53},
+	{0x02d3, 0x01},
+	{0x0243, 0x06},
+	{0x02ce, 0xbf},
+	{0x02ee, 0x30},
+	{0x026f, 0x70},
+	{0x0257, 0x09},
+	{0x0211, 0x02},
+	{0x0219, 0x09},
+	{0x023f, 0x2d},
+	{0x0518, 0x00},
+	{0x0519, 0x01},
+	{0x0515, 0x18},
+	{0x02d9, 0x3f},
+	{0x02da, 0x02},
+	{0x02db, 0xe8},
+	{0x02e6, 0x20},
+	{0x021b, 0x10},
+	{0x0252, 0x22},
+	{0x024e, 0x22},
+	{0x02c4, 0x01},
+	{0x021d, 0x17},
+	{0x024a, 0x01},
+	{0x02ca, 0x02},
+	{0x0262, 0x10},
+	{0x029a, 0x20},
+	{0x021c, 0x0e},
+	{0x0298, 0x03},
+	{0x029c, 0x00},
+	{0x027e, 0x14},
+	{0x02c2, 0x10},
+	{0x0540, 0x20},
+	{0x0546, 0x01},
+	{0x0548, 0x01},
+	{0x0544, 0x01},
+	{0x0242, 0x36},
+	{0x02c0, 0x36},
+	{0x02c3, 0x4d},
+	{0x02e4, 0x10},
+	{0x022e, 0x00},
+	{0x027b, 0x3f},
+	{0x0269, 0x0f},
+	{0x02d2, 0x40},
+	{0x027c, 0x08},
+	{0x023a, 0x2e},
+	{0x0245, 0xce},
+	{0x0530, 0x3f},
+	{0x0531, 0x02},
+	{0x0228, 0x50},
+	{0x02ab, 0x00},
+	{0x0250, 0x00},
+	{0x0221, 0x50},
+	{0x02ac, 0x00},
+	{0x02a5, 0x02},
+	{0x0260, 0x0b},
+	{0x0216, 0x04},
+	{0x0299, 0x1C},
+	{0x021a, 0x98},
+	{0x0266, 0xd0},
+	{0x0020, 0x01},
+	{0x0021, 0x04},
+	{0x0022, 0xc0},
+	{0x0023, 0x08},
+	{0x02bb, 0x0d},
+	{0x02a3, 0x02},
+	{0x02a4, 0x02},
+	{0x021e, 0x02},
+	{0x024f, 0x08},
+	{0x028c, 0x08},
+	{0x0532, 0x3f},
+	{0x0533, 0x02},
+	{0x0277, 0x70},
+	{0x0276, 0xc0},
+	{0x0239, 0xc0},
+	{0x0200, 0x00},
+	{0x0201, 0x5f},
+	{0x0202, 0x05},
+	{0x0203, 0xf0},
+	{0x0205, 0xc0},
+	{0x02b0, 0x68},
+	{0x0002, 0xa9},
+	{0x0004, 0x01},
+	{0x0006, 0xa0},
+	{0x000f, 0x00},
+	{0x0060, 0x40},
+	//{0x0060, 0x00},
+	{0x0218, 0x02},
+	{0x0342, 0x05},
+	{0x0343, 0x5f},
+	{0x03fe, 0x10},
+	{0x03fe, 0x00},
+	{0x0106, 0x78},
+	{0x0107, 0x09},
+	{0x0108, 0x0c},
+	{0x0114, 0x01},
+	{0x0115, 0x12},
+	{0x0180, 0x4f},
+	{0x0181, 0x30},
+	{0x0182, 0x05},
+	{0x0185, 0x01},
+	{0x03fe, 0x10},
+	{0x03fe, 0x00},
+	{0x0100, 0x09},
+};
 static struct regval_list sensor_fmt_raw[] = {
 
 };
@@ -1172,6 +1490,22 @@ static struct regval_list sensor_fmt_raw[] = {
  * if not support the follow function , retrun -EINVAL
  */
 
+static int sensor_g_fps(struct v4l2_subdev *sd, struct sensor_fps *fps)
+{
+	struct sensor_info *info = to_state(sd);
+	struct sensor_win_size *wsize = info->current_wins;
+	data_type frame_length = 0, act_vts = 0;
+
+	sensor_read(sd, 0x0340, &frame_length);
+	act_vts = frame_length << 8;
+	sensor_read(sd, 0x0341, &frame_length);
+	act_vts |= frame_length;
+	fps->fps = wsize->pclk / (wsize->hts * act_vts);
+	sensor_dbg("fps = %d\n", fps->fps);
+
+	return 0;
+}
+
 static int sensor_g_exp(struct v4l2_subdev *sd, __s32 *value)
 {
 	struct sensor_info *info = to_state(sd);
@@ -1180,10 +1514,11 @@ static int sensor_g_exp(struct v4l2_subdev *sd, __s32 *value)
 	return 0;
 }
 
+static int gc4663_sensor_vts = 3200;
 static int sensor_s_shutter(struct v4l2_subdev *sd, unsigned int intt_long, unsigned int intt_short)
 {
 	unsigned int intt_long_h, intt_long_l, intt_short_h, intt_short_l;
-	unsigned int short_exp_max = 900, long_exp_max = 0; //20fps - 900
+	unsigned int short_exp_max = gc4663_sensor_vts - 1456 - 20 - 16 - 8, long_exp_max = 0; //20fps - 900
 
 	if (intt_long <= 1)
 		intt_long = 1;
@@ -1192,10 +1527,10 @@ static int sensor_s_shutter(struct v4l2_subdev *sd, unsigned int intt_long, unsi
 
 	if (intt_short >= short_exp_max)
 		intt_short = short_exp_max;
-	long_exp_max = 2400 - intt_short - 16;
+	long_exp_max = gc4663_sensor_vts - intt_short - 16;
 	if (intt_long >= long_exp_max) {
 		intt_long = long_exp_max;
-		intt_short = intt_long / HDR_RATIO;
+		/*intt_short = intt_long / HDR_RATIO;*/
 	}
 
 	intt_long_l = intt_long & 0xff;
@@ -1213,16 +1548,15 @@ static int sensor_s_shutter(struct v4l2_subdev *sd, unsigned int intt_long, unsi
 	return 0;
 }
 
-static int sensor_s_exp(struct v4l2_subdev *sd, unsigned int exp_val)
+static int sensor_s_exp(struct v4l2_subdev *sd, unsigned int exp_val, unsigned int exp_short)
 {
 	struct sensor_info *info = to_state(sd);
 	int tmp_exp_val = exp_val / 16;
-	int exp_short = 0;
 
 	if (info->isp_wdr_mode == ISP_DOL_WDR_MODE) {
-		sensor_dbg("Sensor in WDR mode, HDR_RATIO = %d\n", HDR_RATIO);
-		exp_short = tmp_exp_val / HDR_RATIO;
-		sensor_s_shutter(sd, tmp_exp_val, exp_short);
+		sensor_dbg("Sensor in WDR mode, HDR_RATIO = %d\n", exp_val / exp_short);
+		/*exp_short = tmp_exp_val / HDR_RATIO;*/
+		sensor_s_shutter(sd, tmp_exp_val, exp_short / 16);
 	} else {
 		sensor_dbg("exp_val:%d\n", exp_val);
 		sensor_write(sd, 0x202, (tmp_exp_val >> 8) & 0xFF);
@@ -1311,6 +1645,7 @@ unsigned int analog_gain_table[26] = {
 static int setSensorGain(struct v4l2_subdev *sd, unsigned int gain)
 {
 	struct sensor_info *info = to_state(sd);
+	struct sensor_win_size *wsize = info->current_wins;
 	int i, total;
 	unsigned int tol_dig_gain = 0;
 
@@ -1334,7 +1669,7 @@ static int setSensorGain(struct v4l2_subdev *sd, unsigned int gain)
 
 	tol_dig_gain = gain * 64 / analog_gain_table[i];
 
-	if (info->isp_wdr_mode == ISP_DOL_WDR_MODE) {
+	if (info->isp_wdr_mode == ISP_DOL_WDR_MODE || wsize->fps_fixed > 60) {
 		sensor_write(sd, 0x02b3, reg4663ValTable_wdr[i][0]);
 		sensor_write(sd, 0x02b4, reg4663ValTable_wdr[i][1]);
 		sensor_write(sd, 0x02b8, reg4663ValTable_wdr[i][2]);
@@ -1350,10 +1685,9 @@ static int setSensorGain(struct v4l2_subdev *sd, unsigned int gain)
 		sensor_write(sd, 0x0515, reg4663ValTable[i][4]);
 		sensor_write(sd, 0x0519, reg4663ValTable[i][5]);
 		sensor_write(sd, 0x02d9, reg4663ValTable[i][6]);
-
-		sensor_write(sd, 0x20e, (tol_dig_gain>>6));
-		sensor_write(sd, 0x20f, ((tol_dig_gain&0x3f)<<2));
 	}
+	sensor_write(sd, 0x20e, (tol_dig_gain>>6));
+	sensor_write(sd, 0x20f, ((tol_dig_gain&0x3f)<<2));
 
 	return 0;
 }
@@ -1373,13 +1707,22 @@ static int sensor_s_gain(struct v4l2_subdev *sd, int gain_val)
 	return 0;
 }
 
+static unsigned char gain_offset[2][4] = {
+	/* 16x  32x   64x  128x  */
+	{0x05, 0x10, 0x25, 0x35},/*RGAIN*/
+	{0x10, 0x20, 0x30, 0x44},/*BGAIN*/
+};
+
 static int sensor_s_exp_gain(struct v4l2_subdev *sd,
 				 struct sensor_exp_gain *exp_gain)
 {
-	int exp_val, gain_val;
+	int exp_val, gain_val, short_exp_val, rgain, bgain;
 	struct sensor_info *info = to_state(sd);
+	struct sensor_win_size *wsize = info->current_wins;
+	int shutter = 0, frame_length = 0;
 
 	exp_val = exp_gain->exp_val;
+	short_exp_val = exp_gain->exp_mid_val;
 	gain_val = exp_gain->gain_val;
 
 	if (gain_val < (1 * 16)) {
@@ -1389,8 +1732,45 @@ static int sensor_s_exp_gain(struct v4l2_subdev *sd,
 	if (exp_val > 0xfffff)
 		exp_val = 0xfffff;
 
-	sensor_s_exp(sd, exp_val);
+	if (info->isp_wdr_mode == ISP_DOL_WDR_MODE) {
+		shutter = (exp_val + short_exp_val) >> 4;
+	} else {
+		shutter = exp_val >> 4;
+	}
+	if (shutter > gc4663_sensor_vts - 4)
+		frame_length = shutter + 4;
+	else
+		frame_length = gc4663_sensor_vts;
+	sensor_dbg("frame_length = %d, vts = %d\n", frame_length, gc4663_sensor_vts);
+	sensor_write(sd, 0x0341, frame_length & 0xff);
+	sensor_write(sd, 0x0340, frame_length >> 8);
+
+	sensor_s_exp(sd, exp_val, short_exp_val);
 	sensor_s_gain(sd, gain_val);
+
+	if (wsize->fps_fixed > 60) {
+		if (gain_val <= 128) {//8 * 16
+			rgain = 0x0;
+			bgain = 0x0;
+		} else if (gain_val <= 256) {//16 * 16
+			rgain = gain_offset[0][0] * (gain_val - 128) / (256 - 128);
+			bgain = gain_offset[1][0] * (gain_val - 128) / (256 - 128);
+		} else if (gain_val <= 512) {//32 * 16
+			rgain = gain_offset[0][0] + (gain_offset[0][1] - gain_offset[0][0]) * (gain_val - 256) / (512 - 256);
+			bgain = gain_offset[1][0] + (gain_offset[1][1] - gain_offset[1][0]) * (gain_val - 256) / (512 - 256);
+		} else if (gain_val <= 1024) {//64 * 16
+			rgain = gain_offset[0][1] + (gain_offset[0][2] - gain_offset[0][1]) * (gain_val - 512) / (1024 - 512);
+			bgain = gain_offset[1][1] + (gain_offset[1][2] - gain_offset[1][1]) * (gain_val - 512) / (1024 - 512);
+		} else if (gain_val <= 2048) {//128 * 16
+			rgain = gain_offset[0][2] + (gain_offset[0][3] - gain_offset[0][2]) * (gain_val - 1024) / (2048 - 1024);
+			bgain = gain_offset[1][2] + (gain_offset[1][3] - gain_offset[1][2]) * (gain_val - 1024) / (2048 - 1024);
+		} else {
+			rgain = gain_offset[0][3];
+			bgain = gain_offset[1][3];
+		}
+		sensor_write(sd, 0x0451, rgain);
+		sensor_write(sd, 0x0452, bgain);
+	}
 
 	info->exp = exp_val;
 	info->gain = gain_val;
@@ -1406,6 +1786,7 @@ static int sensor_get_fmt_mbus_core(struct v4l2_subdev *sd, int *code)
 	return 0;
 }
 
+static data_type sensor_flip_status;
 static int sensor_s_hflip(struct v4l2_subdev *sd, int enable)
 {
 	data_type get_value;
@@ -1422,6 +1803,7 @@ static int sensor_s_hflip(struct v4l2_subdev *sd, int enable)
 		set_value = get_value & 0xfe;
 
 	sensor_write(sd, 0x0101, set_value);
+	sensor_flip_status = set_value;
 //	sensor_read(sd, 0x0101, &get_value);
 //	sensor_print("<sensor_s_vflip> 2. 0x0101 = 0x%x\n", get_value);
 
@@ -1444,11 +1826,31 @@ static int sensor_s_vflip(struct v4l2_subdev *sd, int enable)
 		set_value = get_value & 0xfd;
 
 	sensor_write(sd, 0x0101, set_value);
+	sensor_flip_status = set_value;
 //	sensor_read(sd, 0x0101, &get_value);
 //	sensor_print("<sensor_s_vflip> 2. 0x0101 = 0x%x\n", get_value);
 
 	return 0;
 
+}
+
+static int sensor_g_flip(struct v4l2_subdev *sd, struct sensor_flip *flip)
+{
+#ifdef CONFIG_ENABLE_SENSOR_FLIP_OPTION
+	if (sensor_flip_status & 0x01)
+		flip->hflip = 1;
+	else
+		flip->hflip = 0;
+
+	if (sensor_flip_status & 0x02)
+		flip->vflip = 1;
+	else
+		flip->vflip = 0;
+#else
+	flip->hflip = 0;
+	flip->vflip = 0;
+#endif
+	return 0;
 }
 
 /*
@@ -1479,7 +1881,6 @@ static int sensor_power(struct v4l2_subdev *sd, int on)
 		cci_lock(sd);
 		vin_gpio_set_status(sd, PWDN, 1);
 		vin_gpio_set_status(sd, RESET, 1);
-		vin_gpio_set_status(sd, POWER_EN, 1);
 		vin_gpio_write(sd, PWDN, CSI_GPIO_LOW);
 		vin_gpio_write(sd, RESET, CSI_GPIO_LOW);
 		usleep_range(1000, 1200);
@@ -1504,15 +1905,14 @@ static int sensor_power(struct v4l2_subdev *sd, int on)
 	case PWR_OFF:
 		sensor_dbg("PWR_OFF!do nothing\n");
 		cci_lock(sd);
+		vin_gpio_write(sd, RESET, CSI_GPIO_LOW);
+		vin_gpio_write(sd, PWDN, CSI_GPIO_LOW);
 		vin_set_mclk(sd, OFF);
-		vin_gpio_write(sd, POWER_EN, CSI_GPIO_LOW);
-		//vin_set_pmu_channel(sd, CMBCSI, OFF);
+		usleep_range(10000, 12000);
 		vin_set_pmu_channel(sd, AVDD, OFF);
 		vin_set_pmu_channel(sd, DVDD, OFF);
 		vin_set_pmu_channel(sd, IOVDD, OFF);
 		usleep_range(10000, 12000);
-		vin_gpio_write(sd, PWDN, CSI_GPIO_HIGH);
-		vin_gpio_write(sd, RESET, CSI_GPIO_LOW);
 		vin_gpio_set_status(sd, RESET, 0);
 		vin_gpio_set_status(sd, PWDN, 0);
 		cci_unlock(sd);
@@ -1550,20 +1950,21 @@ static int sensor_detect(struct v4l2_subdev *sd)
 	data_type rdval;
 	int eRet;
 	int times_out = 3;
+
 	do {
 		eRet = sensor_read(sd, ID_REG_HIGH, &rdval);
-		sensor_dbg("eRet:%d, ID_VAL_HIGH:0x%x, times_out:%d\n", eRet, rdval, times_out);
-		usleep_range(200, 220);
+		sensor_print("eRet:%d, ID_VAL_HIGH:0x%x, times_out:%d\n", eRet, rdval, times_out);
+//		usleep_range(200, 220);
 		times_out--;
 	} while (eRet < 0  &&  times_out > 0);
 
 	sensor_read(sd, ID_REG_HIGH, &rdval);
-	sensor_dbg("ID_VAL_HIGH = %2x, Done!\n", rdval);
+	sensor_print("ID_VAL_HIGH = %2x, Done!\n", rdval);
 	if (rdval != ID_VAL_HIGH)
 		return -ENODEV;
 
 	sensor_read(sd, ID_REG_LOW, &rdval);
-	sensor_dbg("ID_VAL_LOW = %2x, Done!\n", rdval);
+	sensor_print("ID_VAL_LOW = %2x, Done!\n", rdval);
 	if (rdval != ID_VAL_LOW)
 		return -ENODEV;
 
@@ -1620,6 +2021,9 @@ static long sensor_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 		break;
 	case SET_FPS:
 		break;
+	case VIDIOC_VIN_SENSOR_GET_FPS:
+		ret = sensor_g_fps(sd, (struct sensor_fps *)arg);
+		break;
 	case VIDIOC_VIN_SENSOR_EXP_GAIN:
 		sensor_s_exp_gain(sd, (struct sensor_exp_gain *)arg);
 		break;
@@ -1628,6 +2032,12 @@ static long sensor_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 		break;
 	case VIDIOC_VIN_GET_SENSOR_CODE:
 		sensor_get_fmt_mbus_core(sd, (int *)arg);
+		break;
+	case VIDIOC_VIN_SET_IR:
+		sensor_set_ir(sd, (struct ir_switch *)arg);
+		break;
+	case VIDIOC_VIN_SENSOR_GET_FLIP:
+		sensor_g_flip(sd, (struct sensor_flip *)arg);
 		break;
 	default:
 		return -EINVAL;
@@ -1654,6 +2064,29 @@ static struct sensor_format_struct sensor_formats[] = {
  */
 
 static struct sensor_win_size sensor_win_sizes[] = {
+#ifdef CG4663_1080P_15FPS_CROP
+	{
+		.width	    = 1920,
+		.height     = 1088,
+		.hoffset    = 0,
+		.voffset    = 0,
+		.hts	    = 4800,
+		.vts	    = 3000,
+		.pclk	    = 216 * 1000 * 1000,
+		.mipi_bps   = 648 * 1000 * 1000,
+		.fps_fixed  = 15,
+		.bin_factor = 1,
+		.intg_min   = 1 << 4,
+		.intg_max   = 3000 << 4,
+		.gain_min   = 1 << 4,
+		.gain_max   = 110 << 4,
+		.regs	    = sensor_1920x1088p15_regs,
+		.regs_size  = ARRAY_SIZE(sensor_1920x1088p15_regs),
+		.set_size   = NULL,
+		.top_clk    = 300*1000*1000,
+		.isp_clk    = 297*1000*1000,
+	},
+#endif
 	{
 		.width	    = 2560,
 		.height     = 1440,
@@ -1747,16 +2180,18 @@ static struct sensor_win_size sensor_win_sizes[] = {
 		.height     = 1440,
 		.hoffset    = 0,
 		.voffset    = 0,
-		.hts        = 1375,
-		.vts        = 2400,
-		.pclk       = 132 * 1000 * 1000,
+		.hts        = 4500,
+		.vts        = 3200,
+		.pclk       = 216 * 1000 * 1000,
 		.mipi_bps   = 648 * 1000 * 1000,
 		.fps_fixed  = 15,
 		.bin_factor = 1,
 		.if_mode    = MIPI_VC_WDR_MODE,
 		.wdr_mode   = ISP_DOL_WDR_MODE,
-		.intg_min   = 1 << 4,
-		.intg_max   = 1600 << 4,
+		.intg_min   = 4 << 4,
+		.intg_max   = (3200-16) << 4,
+		.intg_mid_min = 3 << 4,
+		.intg_mid_max = 1699 << 4,
 		.gain_min   = 1 << 4,
 		.gain_max   = 110 << 4,
 		.regs       = sensor_2560x1440p15_wdr_regs,
@@ -1771,16 +2206,18 @@ static struct sensor_win_size sensor_win_sizes[] = {
 		.height     = 1440,
 		.hoffset    = 0,
 		.voffset    = 0,
-		.hts	    = 1375,
+		.hts	    = 4500,
 		.vts	    = 2400,
-		.pclk	    = 132 * 1000 * 1000,
+		.pclk	    = 216 * 1000 * 1000,
 		.mipi_bps   = 648 * 1000 * 1000,
 		.fps_fixed  = 20,
 		.bin_factor = 1,
 		.if_mode    = MIPI_VC_WDR_MODE,
 		.wdr_mode   = ISP_DOL_WDR_MODE,
-		.intg_min   = 1 << 4,
-		.intg_max   = 1600 << 4,
+		.intg_min   = 4 << 4,
+		.intg_max   = (2400-16) << 4,
+		.intg_mid_min = 3 << 4,
+		.intg_mid_max = 899 << 4,
 		.gain_min   = 1 << 4,
 		.gain_max   = 110 << 4,
 		.regs	    = sensor_2560x1440p20_wdr_regs,
@@ -1795,16 +2232,18 @@ static struct sensor_win_size sensor_win_sizes[] = {
 		.height     = 1440,
 		.hoffset    = 0,
 		.voffset    = 0,
-		.hts        = 5275,
+		.hts        = 4500,
 		.vts        = 1600,
-		.pclk       = 211 * 1000 * 1000,
+		.pclk       = 216 * 1000 * 1000,
 		.mipi_bps   = 1344 * 1000 * 1000,
 		.fps_fixed  = 30,
 		.bin_factor = 1,
 		.if_mode    = MIPI_VC_WDR_MODE,
 		.wdr_mode   = ISP_DOL_WDR_MODE,
-		.intg_min   = 1 << 4,
-		.intg_max   = 1600 << 4,
+		.intg_min   = 4 << 4,
+		.intg_max   = (1600-16) << 4,
+		.intg_mid_min = 3 << 4,
+		.intg_mid_max = 99 << 4,
 		.gain_min   = 1 << 4,
 		.gain_max   = 110 << 4,
 		.regs       = sensor_2560x1440p30_wdr_regs,
@@ -1813,7 +2252,27 @@ static struct sensor_win_size sensor_win_sizes[] = {
 		.top_clk    = 300*1000*1000,
 		.isp_clk    = 297*1000*1000,
 	},
-
+	{
+		.width      = 1280,
+		.height     = 720,
+		.hoffset    = 0,
+		.voffset    = 0,
+		.hts        = 705,
+		.vts        = 1600,
+		.pclk       = 135 * 1000 * 1000,
+		.mipi_bps   = 677 * 1000 * 1000,
+		.fps_fixed  = 120,
+		.bin_factor = 1,
+		.intg_min   = 1 << 4,
+		.intg_max   = 1600 << 4,
+		.gain_min   = 1 << 4,
+		.gain_max   = 110 << 4,
+		.regs       = sensor_720p120_regs,
+		.regs_size  = ARRAY_SIZE(sensor_720p120_regs),
+		.set_size   = NULL,
+		.top_clk    = 300*1000*1000,
+		.isp_clk    = 297*1000*1000,
+	},
 };
 
 #define N_WIN_SIZES (ARRAY_SIZE(sensor_win_sizes))
@@ -1857,7 +2316,7 @@ static int sensor_s_ctrl(struct v4l2_ctrl *ctrl)
 	case V4L2_CID_GAIN:
 		return sensor_s_gain(sd, ctrl->val);
 	case V4L2_CID_EXPOSURE:
-		return sensor_s_exp(sd, ctrl->val);
+		return sensor_s_exp(sd, ctrl->val, ctrl->val/16);
 	case V4L2_CID_HFLIP:
 		return sensor_s_hflip(sd, ctrl->val);
 	case V4L2_CID_VFLIP:
@@ -1891,12 +2350,17 @@ static int sensor_reg_init(struct sensor_info *info)
 	} else {
 		if (wsize->regs)
 			sensor_write_array(sd, wsize->regs, wsize->regs_size);
-		if (wsize->wdr_mode == ISP_DOL_WDR_MODE) {
-			exp_gain.exp_val = 30720;
-			exp_gain.gain_val = 16;
+		if (info->exp && info->gain) {
+			exp_gain.exp_val = info->exp;
+			exp_gain.gain_val = info->gain;
 		} else {
-			exp_gain.exp_val = 15408;
-			exp_gain.gain_val = 32;
+			if (wsize->wdr_mode == ISP_DOL_WDR_MODE) {
+				exp_gain.exp_val = 30720;
+				exp_gain.gain_val = 16;
+			} else {
+				exp_gain.exp_val = 15408;
+				exp_gain.gain_val = 32;
+			}
 		}
 		sensor_s_exp_gain(sd, &exp_gain);
 	}
@@ -1911,6 +2375,8 @@ static int sensor_reg_init(struct sensor_info *info)
 
 	info->width = wsize->width;
 	info->height = wsize->height;
+	gc4663_sensor_vts = wsize->vts;
+	sensor_read(sd, 0x0101, &sensor_flip_status);//read sensor init flip
 
 	sensor_dbg("s_fmt set width = %d, height = %d\n", wsize->width,
 			 wsize->height);
@@ -2057,6 +2523,9 @@ static int sensor_probe(struct i2c_client *client,
 	info->preview_first_flag = 1;
 	info->wdr_time_hs = 0x18;
 	info->time_hs = 0x20;
+	info->deskew = 0x2;
+	info->first_power_flag = 1;
+	info->ir_state = IDLE_STATE;
 
 	return 0;
 }

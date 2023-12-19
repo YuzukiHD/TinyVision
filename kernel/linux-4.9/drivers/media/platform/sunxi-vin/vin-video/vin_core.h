@@ -55,6 +55,7 @@ struct vin_status_info {
 	unsigned int max_internal;
 	unsigned int min_internal;
 	struct prs_input_para prs_in;
+	struct isp_debug_info isp_debug_param_info;
 };
 
 struct vin_coor {
@@ -117,6 +118,10 @@ struct vin_core {
 	unsigned char logic_top_stream_count;
 	unsigned char ve_ol_ch;
 	struct csi_ve_online_cfg ve_online_cfg;
+
+#if defined CONFIG_ISP_SERVER_MELIS
+	struct work_struct ldci_buf_send_task;
+#endif
 };
 
 static inline struct sensor_instance *get_valid_sensor(struct vin_core *vinc)
@@ -133,6 +138,8 @@ static inline struct sensor_instance *get_valid_sensor(struct vin_core *vinc)
 }
 int sunxi_vin_debug_register_driver(void);
 void sunxi_vin_debug_unregister_driver(void);
+int sunxi_isp_debug_register_driver(void);
+void sunxi_isp_debug_unregister_driver(void);
 int sunxi_vin_core_register_driver(void);
 void sunxi_vin_core_unregister_driver(void);
 struct vin_core *sunxi_vin_core_get_dev(int index);

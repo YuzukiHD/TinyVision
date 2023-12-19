@@ -109,7 +109,7 @@ void *disp_vmap(unsigned long phys_addr, unsigned long size)
 {
 	int npages = PAGE_ALIGN(size) / PAGE_SIZE;
 	struct page **pages = vmalloc(sizeof(struct page *) * npages);
-	struct page **tmp = pages;
+	struct page **tmp;
 	struct page *cur_page = phys_to_page(phys_addr);
 	pgprot_t pgprot;
 	void *vaddr = NULL;
@@ -118,7 +118,7 @@ void *disp_vmap(unsigned long phys_addr, unsigned long size)
 	if (!pages)
 		return NULL;
 
-	for (i = 0; i < npages; i++)
+	for (i = 0, tmp = pages; i < npages; i++)
 		*(tmp++) = cur_page++;
 
 	pgprot = PAGE_KERNEL;

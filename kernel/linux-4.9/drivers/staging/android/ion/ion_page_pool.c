@@ -165,6 +165,8 @@ struct ion_page_pool *ion_page_pool_create(gfp_t gfp_mask, unsigned int order,
 	plist_node_init(&pool->list, order);
 	if (cached)
 		pool->cached = true;
+	else
+		pool->cached = false;
 
 	return pool;
 }

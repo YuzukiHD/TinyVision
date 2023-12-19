@@ -79,7 +79,6 @@ void csic_dump_dma(unsigned int sel)
 	__csic_dump_regs(csic_dma_base[sel] + 0x200 + dma_virtual_find_ch[sel]*0x200, 0x40);
 }
 
-
 /*BK TOP EN*/
 void csic_dma_top_enable(unsigned int sel)
 {
@@ -98,6 +97,7 @@ void csic_dma_clk_cnt_en(unsigned int sel, unsigned int en)
 	vin_reg_clr_set(csic_dma_base[sel] + CSIC_DMA_TOP_EN_REG_OFF,
 			CSIC_CLK_CNT_EN_MASK, 1 << CSIC_CLK_CNT_EN);
 }
+
 void csic_dma_clk_cnt_sample(unsigned int sel, unsigned int en)
 {
 	vin_reg_clr_set(csic_dma_base[sel] + CSIC_DMA_TOP_EN_REG_OFF,
@@ -174,6 +174,11 @@ void csic_dma_version_read_enable(unsigned int sel, unsigned int en)
 		CSIC_VER_EN_MASK, en << CSIC_VER_EN);
 }
 
+void csic_dma_frm_cnt(unsigned int sel, struct csi_sync_ctrl *sync)
+{
+	vin_reg_clr_set(csic_dma_base[sel] + CSIC_DMA_FRM_CNT_REG_OFF,
+			CSIC_DMA_CLR_DIS_MASK, sync->dma_clr_dist<<CSIC_DMA_CLR_DIS);
+}
 
 /**top offset 0x4**/
 void csic_dma_mul_ch_enable(unsigned int sel, unsigned int en)
@@ -269,7 +274,6 @@ void csic_get_dma_version(unsigned int sel, struct dma_version *version)
 	version->small_ver = (reg_val & VER_SMALL_VER_MASK) >> VER_SMALL_VER;
 }
 
-
 /*Multichannel*/
 static void __csic_dma_enable(unsigned int sel, unsigned int ch)
 {
@@ -318,7 +322,6 @@ void csic_lbc_disable(unsigned int sel)
 {
 	__csic_lbc_disable(sel, dma_virtual_find_ch[sel]);
 }
-
 
 static void __csic_fbc_enable(unsigned int sel, unsigned int ch)
 {
@@ -394,7 +397,6 @@ void csic_dma_cap_mask_num(unsigned int sel, unsigned int num)
 {
 	__csic_dma_cap_mask_num(sel, dma_virtual_find_ch[sel], num);
 }
-
 
 static void __csic_dma_config(unsigned int sel, unsigned int ch, struct csic_dma_cfg *cfg)
 {
@@ -548,16 +550,14 @@ static void __csic_dma_cap_status(unsigned int sel, unsigned int ch, struct dma_
 {
 	unsigned int reg_val = vin_reg_readl(csic_dma_base[sel] + ch * CSIC_DMA_CH_OFF + CSIC_DMA_CAP_STA_REG_OFF);
 
-	status->scap_sta = (reg_val & SCAP_STA_MASK) >> SCAP_STA;
+	status->cap_sta = (reg_val & CAP_STA_MASK) >> CAP_STA;
 	status->field_sta = (reg_val & FIELD_STA_MASK) >> FIELD_STA;
 }
-
 
 void csic_dma_cap_status(unsigned int sel, struct dma_capture_status *status)
 {
 	__csic_dma_cap_status(sel, dma_virtual_find_ch[sel], status);
 }
-
 
 static void __csic_dma_int_enable(unsigned int sel, unsigned int ch, enum dma_int_sel interrupt)
 {
@@ -636,15 +636,6 @@ void csic_dma_line_cnt(unsigned int sel, int line)
 	__csic_dma_line_cnt(sel, dma_virtual_find_ch[sel], line);
 }
 
-static void __csic_dma_frm_cnt(unsigned int sel, unsigned int ch, struct csi_sync_ctrl *sync)
-{
-}
-
-void csic_dma_frm_cnt(unsigned int sel, struct csi_sync_ctrl *sync)
-{
-	__csic_dma_frm_cnt(sel, dma_virtual_find_ch[sel], sync);
-}
-
 static void __csic_dma_int_clear_status(unsigned int sel, unsigned int ch, enum dma_int_sel interrupt)
 {
 	vin_reg_writel(csic_dma_base[sel] + ch * CSIC_DMA_CH_OFF + CSIC_DMA_INT_STA_REG_OFF, interrupt);
@@ -708,4 +699,3 @@ void csic_lbc_cmp_ratio(unsigned int sel, struct dma_lbc_cmp *lbc_cmp)
 {
 	__csic_lbc_cmp_ratio(sel, dma_virtual_find_ch[sel], lbc_cmp);
 }
-

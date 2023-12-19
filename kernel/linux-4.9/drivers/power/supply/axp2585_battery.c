@@ -947,6 +947,12 @@ static int axp2585_battery_probe(struct platform_device *pdev)
 	unsigned int val;
 	struct axp2585_device_info *di;
 	struct axp20x_dev *axp_dev = dev_get_drvdata(pdev->dev.parent);
+	struct device_node *node = pdev->dev.of_node;
+
+	if (!of_device_is_available(node)) {
+		pr_err("axp2585-battery device is not configed\n");
+		return -ENODEV;
+	}
 
 	if (!axp_dev->irq) {
 		pr_err("can not register axp2585-charger without irq\n");
@@ -1101,6 +1107,8 @@ static void axp2585_shutdown(struct platform_device *p)
 {
 	struct axp2585_device_info *di = platform_get_drvdata(p);
 
+	cancel_delayed_work_sync(&di->bat_chk);
+
 	axp2585_icchg_set(di, di->dts_info.pmu_shutdown_chgcur);
 
 }
@@ -1109,6 +1117,7 @@ static int axp2585_suspend(struct platform_device *p, pm_message_t state)
 {
 	struct axp2585_device_info *di = platform_get_drvdata(p);
 
+	cancel_delayed_work_sync(&di->bat_chk);
 	axp2585_icchg_set(di, di->dts_info.pmu_suspend_chgcur);
 
 	axp2585_virq_dts_set(di, false);
@@ -1119,6 +1128,7 @@ static int axp2585_resume(struct platform_device *p)
 {
 	struct axp2585_device_info *di = platform_get_drvdata(p);
 
+	schedule_delayed_work(&di->bat_chk, 0);
 	axp2585_icchg_set(di, di->dts_info.pmu_runtime_chgcur);
 
 	axp2585_virq_dts_set(di, true);

@@ -14,7 +14,6 @@
 
 #include "mem_interface.h"
 
-#define VI_OUT_BUFFER_LIST_NODE_NUM (3)
 
 #define RT_VI_SHOW_TIME_COST (0)
 
@@ -56,7 +55,7 @@ typedef struct vi_comp_ctx {
 	int align_height;
 	int buf_size;
 
-	struct vin_buffer vin_buf[VI_OUT_BUFFER_LIST_NODE_NUM];
+	struct vin_buffer *vin_buf;
 	int vipp_id;
 	struct mem_interface *memops;
 
@@ -67,6 +66,9 @@ typedef struct vi_comp_ctx {
 	int max_fps;
 
 	reduce_fps_info reduce_fps;
+
+	vi_lbc_fill_param s_vi_lbc_fill_param;
+	rt_yuv_info s_yuv_info[CONFIG_YUV_BUF_NUM];
 } vi_comp_ctx;
 
 static int thread_process_vi(void *param);
@@ -75,11 +77,11 @@ static int config_videostream_by_vinbuf(vi_comp_ctx *vi_comp,
 					video_frame_s *pvideo_stream,
 					struct vin_buffer *pvin_buf)
 {
-	int y_size		= vi_comp->align_width * vi_comp->base_config.height;
+	int y_size		= vi_comp->align_width * vi_comp->align_height;
 	unsigned char *phy_addr = pvin_buf->paddr;
 	unsigned char *vir_addr = cdc_mem_get_vir(vi_comp->memops, (unsigned long)phy_addr);
 
-	//pvideo_stream->pts         = (uint64_t)(pvin_buf->timestamp/1000);
+	pvideo_stream->pts = (uint64_t)(pvin_buf->vb.vb2_buf.timestamp/1000);
 	pvideo_stream->phy_addr[0] = (unsigned int)phy_addr;
 	pvideo_stream->phy_addr[1] = (unsigned int)(phy_addr + y_size);
 	pvideo_stream->vir_addr[0] = (void *)vir_addr;
@@ -94,11 +96,34 @@ static int config_videostream_by_vinbuf(vi_comp_ctx *vi_comp,
 	return 0;
 }
 
+static int rt_is_lbc_format(vi_comp_ctx *vi_comp)
+{
+	if (vi_comp->base_config.pixelformat == RT_PIXEL_LBC_25X
+		|| vi_comp->base_config.pixelformat == RT_PIXEL_LBC_2X)
+		return 1;
+	else
+		return 0;
+}
+
+static int rt_need_fill_data(vi_comp_ctx *vi_comp)
+{
+	int vipp_id = vi_comp->base_config.channel_id;
+	int en_encpp = 0;
+
+	vin_get_encpp_cfg(vipp_id, RT_CTRL_ENCPP_EN, &en_encpp);
+
+	if (en_encpp && vi_comp->base_config.en_16_align_fill_data
+		&& vi_comp->base_config.height != vi_comp->align_height) {
+			return 1;
+	} else {
+		return 0;
+	}
+}
 void vin_buffer_callback(int id)
 {
 	vi_comp_ctx *vi_comp = g_vi_comp[id];
 
-	RT_LOGD("callback, id = %d", id);
+	RT_LOGI("callback, id = %d", id);
 
 	time_first_cb = get_cur_time();
 	callback_count++;
@@ -111,14 +136,161 @@ void vin_buffer_callback(int id)
 
 	return;
 }
+
+#if 1//lbc fill data function.
+static void lbcLine_StmWrBit(VI_DMA_LBC_BS_S *bs, unsigned int word, unsigned int len)
+{
+    if (NULL == bs) {
+		return;
+    }
+    bs->cnt++;
+    bs->sum = bs->sum + len;
+
+    while (len > 0) {
+		if (len < 32) {
+		    word = word & ((1 << len) - 1);
+		}
+
+		if (bs->left_bits > len) {
+		    *bs->cur_buf_ptr = *bs->cur_buf_ptr | (word << (8 - bs->left_bits));
+		    bs->left_bits = bs->left_bits - len;
+		    break;
+		} else {
+		    *bs->cur_buf_ptr = *bs->cur_buf_ptr | (word << (8 - bs->left_bits));
+		    len = len - bs->left_bits;
+		    word = word >> bs->left_bits;
+		    bs->left_bits = 8;
+		    bs->cur_buf_ptr++;
+		}
+    }
+}
+
+static void lbcLine_StmInit(VI_DMA_LBC_BS_S *bs, unsigned char *bs_buf_ptr)
+{
+    if (NULL == bs || NULL == bs_buf_ptr) {
+		return;
+    }
+    bs->cur_buf_ptr = bs_buf_ptr;
+    bs->left_bits = 8;
+    bs->cnt = 0;
+    bs->sum = 0;
+}
+
+static void lbcLine_ParaInit(VI_DMA_LBC_PARAM_S *para, VI_DMA_LBC_CFG_S *cfg)
+{
+    if (NULL == para || NULL == cfg) {
+		return;
+    }
+    para->mb_wth = 16;
+    para->frm_wth = (cfg->frm_wth + 31) / 32 * 32;
+    para->frm_hgt = cfg->frm_hgt;
+    para->line_tar_bits[0] = cfg->line_tar_bits[0];
+    para->line_tar_bits[1] = cfg->line_tar_bits[1];
+    para->frm_bits = 0;
+}
+
+static void lbcLine_Align(VI_DMA_LBC_PARAM_S *para, VI_DMA_LBC_BS_S *bs)
+{
+    unsigned int align_bit = 0;
+    unsigned int align_bit_1 = 0;
+    unsigned int align_bit_2 = 0;
+    unsigned int i = 0;
+
+    if (NULL == para || NULL == bs) {
+		return;
+    }
+
+    align_bit = para->line_tar_bits[para->frm_y % 2] - para->line_bits;
+    align_bit_1 = align_bit / 1024;
+    align_bit_2 = align_bit % 1024;
+
+    for (i = 0; i < align_bit_1; i++) {
+		lbcLine_StmWrBit(bs, 0, 1024);
+    }
+    lbcLine_StmWrBit(bs, 0, align_bit_2);
+    para->frm_bits += para->line_tar_bits[para->frm_y % 2];
+}
+
+static void lbcLine_Enc(VI_DMA_LBC_PARAM_S *para, VI_DMA_LBC_BS_S *bs, unsigned int frm_x)
+{
+    unsigned int i = 0;
+    unsigned int bits = 0;
+
+    if (NULL == para || NULL == bs) {
+		return;
+    }
+
+    if (para->frm_y % 2 == 0) {
+		lbcLine_StmWrBit(bs, 1, 2); //mode-dts
+		if (para->frm_x == 0) { //qp_code
+		    lbcLine_StmWrBit(bs, 0, 3);
+		    bits = 3;
+		} else {
+		    lbcLine_StmWrBit(bs, 1, 1);
+		    bits = 1;
+		}
+		lbcLine_StmWrBit(bs, 0, 3);
+		para->line_bits += bits + 5;
+    } else {
+		for (i = 0; i < 2; i++) {
+		    lbcLine_StmWrBit(bs, 1, 2); //mode-dts
+		    if (i == 1) { //qp_code
+				lbcLine_StmWrBit(bs, 0, 1);
+				bits = 1;
+		    } else {
+				if (para->frm_x == 0) { //qp_code
+				    lbcLine_StmWrBit(bs, 0, 3);
+				    bits = 3;
+				} else {
+				    lbcLine_StmWrBit(bs, 1, 1);
+				    bits = 1;;
+				}
+		    }
+		    lbcLine_StmWrBit(bs, 0, 3);
+		    para->line_bits += bits + 5;
+		}
+    }
+}
+
+static unsigned int lbcLine_Cmp(VI_DMA_LBC_CFG_S *cfg, VI_DMA_LBC_STM_S *stm)
+{
+    VI_DMA_LBC_PARAM_S stLbcPara;
+    VI_DMA_LBC_BS_S stLbcBs;
+    unsigned int frm_x = 0;
+    unsigned int frm_bits = 0;
+
+    if (NULL == cfg || NULL == stm) {
+		RT_LOGE("fatal error! null pointer");
+		return 0;
+    }
+
+    memset(&stLbcPara, 0, sizeof(VI_DMA_LBC_PARAM_S));
+    memset(&stLbcBs, 0, sizeof(VI_DMA_LBC_BS_S));
+
+    lbcLine_ParaInit(&stLbcPara, cfg);
+    lbcLine_StmInit(&stLbcBs, stm->bs);
+
+    for (stLbcPara.frm_y = 0; stLbcPara.frm_y < stLbcPara.frm_hgt; stLbcPara.frm_y = stLbcPara.frm_y + 1) {
+		stLbcPara.line_bits = 0;
+		for (stLbcPara.frm_x = 0; stLbcPara.frm_x < stLbcPara.frm_wth; stLbcPara.frm_x = stLbcPara.frm_x + stLbcPara.mb_wth) {
+		    lbcLine_Enc(&stLbcPara, &stLbcBs, stLbcPara.frm_x);
+		}
+		lbcLine_Align(&stLbcPara, &stLbcBs);
+    }
+    frm_bits = (stLbcPara.frm_bits + 7) / 8;
+
+    return frm_bits;
+}
+#endif
+
 #if ENABLE_SAVE_VIN_OUT_DATA
 void vi_comp_save_outdata(struct vi_comp_ctx *pvi_comp, video_frame_s *pvideo_frame)
 {
 	struct mem_interface *_memops = pvi_comp->memops;
     int nSaveLen = pvideo_frame->buf_size;
 	unsigned char *pVirBuf = pvideo_frame->vir_addr[0];
-	int width = pvi_comp->base_config.width;
-	int height = pvi_comp->base_config.height;
+	int width = pvi_comp->align_width;
+	int height = pvi_comp->align_height;
     int ret = 0;
     mm_segment_t old_fs;
 	char name[128];
@@ -152,6 +324,83 @@ void vi_comp_save_outdata(struct vi_comp_ctx *pvi_comp, video_frame_s *pvideo_fr
 	return ;
 }
 #endif
+
+static int vi_comp_fill_buffer_to_16_align(struct vi_comp_ctx *vi_comp, video_frame_s *src_frame)
+{
+	void *src_vir_addr = src_frame->vir_addr[0];
+	unsigned int width = vi_comp->base_config.width;
+	unsigned int width_align = vi_comp->align_width;
+	unsigned int height = vi_comp->base_config.height;
+	unsigned int height_align = vi_comp->align_height;
+	unsigned int height_diff = height_align - height;
+	unsigned int offset_src = width_align*height - (width_align*1);
+	unsigned int offset_dst = 0;
+	int i = 0;
+
+	RT_LOGD("width %dx%d align %dx%d height_diff %d", width, height, width_align, height_align, height_diff);
+	if (rt_is_lbc_format(vi_comp)) {
+		unsigned char *mLbcFillDataAddr = vi_comp->s_vi_lbc_fill_param.mLbcFillDataAddr;
+		unsigned int mLbcFillDataLen = vi_comp->s_vi_lbc_fill_param.mLbcFillDataLen;
+		unsigned int line_bits_sum = (vi_comp->s_vi_lbc_fill_param.line_tar_bits[0] + vi_comp->s_vi_lbc_fill_param.line_tar_bits[1]) / 8;
+		unsigned int offset_dst = line_bits_sum/2*height;
+
+		RT_LOGD("ViCh:%d, LBC pix:0x%x, src_vir_addr:0x%p, dst:%d, src:%p, len:%d, %d", vi_comp->base_config.channel_id, vi_comp->base_config.pixelformat,
+			src_vir_addr, offset_dst, mLbcFillDataAddr, mLbcFillDataLen, src_frame->buf_size);
+		if (!mLbcFillDataAddr) {
+			RT_LOGE("mLbcFillDataAddr is null!");
+			return -1;
+		}
+		unsigned int mDataLen = line_bits_sum*height_diff/2;
+		if (mLbcFillDataLen != mDataLen) {
+			RT_LOGW("error! wrong data len %d != %d", mLbcFillDataLen, mDataLen);
+		}
+		memcpy(src_vir_addr + offset_dst, mLbcFillDataAddr, mLbcFillDataLen);
+		cdc_mem_flush_cache(vi_comp->memops, src_vir_addr + offset_dst, mLbcFillDataLen);
+	} else {
+		for (i = 0; i < height_diff; i++) {
+			offset_dst = width_align*height + (width_align*i);
+			memcpy(src_vir_addr + offset_dst, src_vir_addr + offset_src, width_align);
+		}
+		cdc_mem_flush_cache(vi_comp->memops, src_vir_addr + width_align*height, width_align*height_diff);
+
+		char *tmp = (char *)src_vir_addr;
+
+		int ySize = width_align * height_align;
+		if (RT_PIXEL_YUV420SP == vi_comp->base_config.pixelformat || RT_PIXEL_YVU420SP == vi_comp->base_config.pixelformat) {
+			// fill UV
+			int uvData = width_align * height / 2;
+			offset_src = ySize + uvData - (width_align*1);
+			for (i = 0; i < height_diff/2; i++) {
+				offset_dst = ySize + uvData + (width_align*i);
+				RT_LOGI("i:%d, src_vir_addr:0x%x, offset_src:%d, offset_dst:%d, width_align:%d", i, src_vir_addr, offset_src, offset_dst, width_align);
+				memcpy(src_vir_addr + offset_dst, src_vir_addr + offset_src, width_align);
+			}
+			cdc_mem_flush_cache(vi_comp->memops, src_vir_addr + ySize + uvData, width_align*height_diff/2);
+		} else if (RT_PIXEL_YUV420P == vi_comp->base_config.pixelformat || RT_PIXEL_YVU420P == vi_comp->base_config.pixelformat) {
+			// fill U
+			int uData = width_align * height / 4;
+			offset_src = ySize + uData - (width_align/4 * 1);
+			for (i = 0; i < height_diff; i++) {
+				offset_dst = ySize + uData + (width_align/4 * i);
+				memcpy(src_vir_addr + offset_dst, src_vir_addr + offset_src, width_align/4);
+			}
+			cdc_mem_flush_cache(vi_comp->memops, src_vir_addr + ySize + uData, width_align/4*height_diff);
+			// fill V
+			int uvData = width_align * height / 2;
+			offset_src = ySize + uvData - (width_align/4 * 1);
+			for (i = 0; i < height_diff; i++) {
+				offset_dst = ySize + uvData + (width_align/4 * i);
+				memcpy(src_vir_addr + offset_dst, src_vir_addr + offset_src, width_align/4);
+			}
+			cdc_mem_flush_cache(vi_comp->memops, src_vir_addr + ySize + uvData, width_align/4*height_diff);
+		} else {
+			RT_LOGW("pixel format 0x%x is not support!", vi_comp->base_config.pixelformat);
+		}
+	}
+
+	return 0;
+}
+
 /* empty_list --> valid_list */
 static int vi_fill_out_buffer_done(struct vi_comp_ctx *vi_comp,
 				   struct vin_buffer *vin_buf)
@@ -184,6 +433,10 @@ static int vi_fill_out_buffer_done(struct vi_comp_ctx *vi_comp,
 	#if ENABLE_SAVE_VIN_OUT_DATA
 		vi_comp_save_outdata(vi_comp, &mvideo_frame);
 	#endif
+
+	if (rt_need_fill_data(vi_comp))
+		vi_comp_fill_buffer_to_16_align(vi_comp, &mvideo_frame);
+
 	if (vi_comp->out_port_tunnel_info.valid_flag == 1 && vi_comp->out_port_tunnel_info.tunnel_comp != NULL) {
 		comp_empty_this_in_buffer(vi_comp->out_port_tunnel_info.tunnel_comp, &buffer_header);
 	} else {
@@ -232,6 +485,11 @@ int dequeue_buffer(vi_comp_ctx *vi_comp)
 	struct vin_buffer *vin_buf = NULL;
 	int ret			   = 0;
 
+	if (vi_comp->base_config.bonline_channel) {
+		RT_LOGD(" chanel_id %d online mode not need this", vi_comp->base_config.channel_id);
+		return -1;
+	}
+
 	ret = vin_dqbuffer_special(vi_comp->vipp_id, &vin_buf);
 
 	/* RT_LOGD("dequeue buf, ret = %d",ret); */
@@ -260,12 +518,13 @@ int dequeue_buffer(vi_comp_ctx *vi_comp)
 			vi_comp->base_config.drop_frame_num--;
 			vin_qbuffer_special(vi_comp->vipp_id, vin_buf);
 		} else {
-			int bDrop_flag = check_reduce_fps(vi_comp, 0); //vin_buf->timestamp);
+			int bDrop_flag = check_reduce_fps(vi_comp, vin_buf->vb.vb2_buf.timestamp);
 
 			if (bDrop_flag == 1)
 				vin_qbuffer_special(vi_comp->vipp_id, vin_buf);
-			else
+			else {
 				vi_fill_out_buffer_done(vi_comp, vin_buf);
+			}
 		}
 	}
 
@@ -277,6 +536,75 @@ static int vipp_create(vi_comp_ctx *vi_comp)
 	RT_LOGI("vipp create not support");
 
 	return -1;
+}
+
+static int lbc_cal_fill_16_align_data(vi_comp_ctx *vi_comp)
+{
+	unsigned int width =  vi_comp->base_config.width;
+	unsigned int width_32_align =  RT_ALIGN(vi_comp->base_config.width, 32);
+	unsigned int height =  vi_comp->base_config.height;
+	unsigned int height_16_align =  RT_ALIGN(vi_comp->base_config.height, 16);
+
+	if (vi_comp->base_config.pixelformat == RT_PIXEL_LBC_25X) {
+		vi_comp->s_vi_lbc_fill_param.line_tar_bits[0] = RT_ALIGN(LBC_2_5X_COM_RATIO_EVEN * width_32_align * LBC_BIT_DEPTH/1000, 512);
+		vi_comp->s_vi_lbc_fill_param.line_tar_bits[1] = RT_ALIGN(LBC_2_5X_COM_RATIO_ODD * width_32_align * LBC_BIT_DEPTH/500, 512);
+	} else if (vi_comp->base_config.pixelformat == RT_PIXEL_LBC_2X) {
+		vi_comp->s_vi_lbc_fill_param.line_tar_bits[0] = RT_ALIGN(LBC_2X_COM_RATIO_EVEN * width_32_align * LBC_BIT_DEPTH/1000, 512);
+		vi_comp->s_vi_lbc_fill_param.line_tar_bits[1] = RT_ALIGN(LBC_2X_COM_RATIO_ODD * width_32_align * LBC_BIT_DEPTH/500, 512);
+	} else {
+		RT_LOGW("rt_media now only support LBC_25X/2X.");
+	}
+
+	VI_DMA_LBC_CFG_S stLbcCfg;
+	VI_DMA_LBC_STM_S stLbcStm;
+	memset(&stLbcCfg, 0, sizeof(VI_DMA_LBC_CFG_S));
+	stLbcCfg.frm_wth = width;
+	stLbcCfg.frm_hgt = height_16_align - height;
+	stLbcCfg.line_tar_bits[0] = vi_comp->s_vi_lbc_fill_param.line_tar_bits[0];
+	stLbcCfg.line_tar_bits[1] = vi_comp->s_vi_lbc_fill_param.line_tar_bits[1];
+
+	memset(&stLbcStm, 0, sizeof(VI_DMA_LBC_STM_S));
+	unsigned int bs_len = stLbcCfg.frm_wth * stLbcCfg.frm_hgt * 4;
+	stLbcStm.bs = (unsigned char *)kmalloc(bs_len, GFP_KERNEL);
+	if (NULL == stLbcStm.bs) {
+		RT_LOGE("fatal error! malloc stLbcStm.bs failed! size=%d", bs_len);
+		return -1;
+	}
+	memset(stLbcStm.bs, 0, bs_len);
+
+	unsigned int frm_bit = lbcLine_Cmp(&stLbcCfg, &stLbcStm);
+	if (frm_bit > bs_len) {
+		RT_LOGE("fatal error! wrong frm_bit:%d > bs_len:%d", frm_bit, bs_len);
+		if (stLbcStm.bs) {
+			kfree(stLbcStm.bs);
+			stLbcStm.bs = NULL;
+		}
+		return -1;
+	}
+
+	if (vi_comp->s_vi_lbc_fill_param.mLbcFillDataAddr) {
+		RT_LOGW("LbcFillDataAddr %p is not NULL! free it before malloc.", vi_comp->s_vi_lbc_fill_param.mLbcFillDataAddr);
+		kfree(vi_comp->s_vi_lbc_fill_param.mLbcFillDataAddr);
+		vi_comp->s_vi_lbc_fill_param.mLbcFillDataAddr = NULL;
+	}
+
+	vi_comp->s_vi_lbc_fill_param.mLbcFillDataLen = frm_bit;
+	vi_comp->s_vi_lbc_fill_param.mLbcFillDataAddr = (unsigned char *)kmalloc(vi_comp->s_vi_lbc_fill_param.mLbcFillDataLen, GFP_KERNEL);
+	if (NULL == vi_comp->s_vi_lbc_fill_param.mLbcFillDataAddr) {
+		RT_LOGE("fatal error! malloc LbcFillDataAddr failed! size=%d", vi_comp->s_vi_lbc_fill_param.mLbcFillDataLen);
+		if (stLbcStm.bs) {
+			kfree(stLbcStm.bs);
+			stLbcStm.bs = NULL;
+		}
+		return -1;
+	}
+	memcpy(vi_comp->s_vi_lbc_fill_param.mLbcFillDataAddr, stLbcStm.bs, vi_comp->s_vi_lbc_fill_param.mLbcFillDataLen);
+
+	if (stLbcStm.bs) {
+		kfree(stLbcStm.bs);
+		stLbcStm.bs = NULL;
+	}
+	return 0;
 }
 
 static int alloc_vin_buf(vi_comp_ctx *vi_comp)
@@ -303,15 +631,20 @@ static int alloc_vin_buf(vi_comp_ctx *vi_comp)
 		} else if (vi_comp->base_config.pixelformat == RT_PIXEL_LBC_2X) {
 			bLbcLossyComEnFlag2x = 1;
 		}
+
+		if (rt_need_fill_data(vi_comp) && rt_is_lbc_format(vi_comp)) {
+			lbc_cal_fill_16_align_data(vi_comp);
+		}
+
 		RT_LOGD("bLbcLossyComEnFlag2x %d bLbcLossyComEnFlag2_5x %d", bLbcLossyComEnFlag2x, bLbcLossyComEnFlag2_5x);
 		if (bLbcLossyComEnFlag2x == 1) {
-			com_ratio_even = 600;
-			com_ratio_odd  = 450;
+			com_ratio_even = LBC_2X_COM_RATIO_EVEN;
+			com_ratio_odd  = LBC_2X_COM_RATIO_ODD;
 			y_stride       = ((com_ratio_even * pic_width_32align * bit_depth / 1000 + 511) & (~511)) >> 3;
 			yc_stride      = ((com_ratio_odd * pic_width_32align * bit_depth / 500 + 511) & (~511)) >> 3;
 		} else if (bLbcLossyComEnFlag2_5x == 1) {
-			com_ratio_even = 440;
-			com_ratio_odd  = 380;
+			com_ratio_even = LBC_2_5X_COM_RATIO_EVEN;
+			com_ratio_odd  = LBC_2_5X_COM_RATIO_ODD;
 			y_stride       = ((com_ratio_even * pic_width_32align * bit_depth / 1000 + 511) & (~511)) >> 3;
 			yc_stride      = ((com_ratio_odd * pic_width_32align * bit_depth / 500 + 511) & (~511)) >> 3;
 		} else {
@@ -336,7 +669,6 @@ static int alloc_vin_buf(vi_comp_ctx *vi_comp)
 	vi_comp->buf_size = buf_size - lbc_ext_size;
 	RT_LOGW("buf_size = %d, align_w = %d, align_h = %d", buf_size,
 		vi_comp->align_width, vi_comp->align_height);
-	RT_LOGTMP("run this line");
 	if (vi_comp->memops == NULL) {
 		vi_comp->memops = mem_create(MEM_TYPE_ION, param);
 		if (vi_comp->memops == NULL) {
@@ -344,14 +676,14 @@ static int alloc_vin_buf(vi_comp_ctx *vi_comp)
 			return -1;
 		}
 	}
-
+#if 0//yuv mem have change to kernel palloc.
 	if (vi_comp->base_config.output_mode == OUTPUT_MODE_YUV) {
-		RT_LOGW("config yuv buf, size = %d, %d, num = %d",
+		RT_LOGW("vi_comp->vipp_id %d config yuv buf, size = %d, %d, num = %d", vi_comp->vipp_id,
 			buf_size, vi_comp->yuv_buf_info.buf_size,
 			vi_comp->yuv_buf_info.buf_num);
-		if (vi_comp->yuv_buf_info.buf_num != VI_OUT_BUFFER_LIST_NODE_NUM) {
+		if (vi_comp->yuv_buf_info.buf_num != vi_comp->base_config.vin_buf_num) {
 			RT_LOGE("yuv_buf_info.buf_num is not match: %d, %d",
-				vi_comp->yuv_buf_info.buf_num, VI_OUT_BUFFER_LIST_NODE_NUM);
+				vi_comp->yuv_buf_info.buf_num, vi_comp->base_config.vin_buf_num);
 			return -1;
 		}
 		for (i = 0; i < vi_comp->yuv_buf_info.buf_num; i++) {
@@ -359,15 +691,29 @@ static int alloc_vin_buf(vi_comp_ctx *vi_comp)
 			vin_qbuffer_special(vi_comp->vipp_id, &vi_comp->vin_buf[i]);
 		}
 		vi_comp->config_yuv_buf_flag = 1;
-	} else {
-		for (i = 0; i < VI_OUT_BUFFER_LIST_NODE_NUM; i++) {
-			unsigned char *vir_addr = cdc_mem_palloc(vi_comp->memops, buf_size);
+	} else
+#endif
+	{
+		RT_LOGD("channel %d vin_buf_num %d", vi_comp->base_config.channel_id, vi_comp->base_config.vin_buf_num);
+		int buf_num = vi_comp->base_config.vin_buf_num;
 
+		if (vi_comp->base_config.bonline_channel)
+			buf_num = vi_comp->base_config.share_buf_num;
+
+		if (vi_comp->base_config.output_mode == OUTPUT_MODE_YUV)
+			buf_num = CONFIG_YUV_BUF_NUM;
+		for (i = 0; i < buf_num; i++) {
+			unsigned char *vir_addr = cdc_mem_palloc(vi_comp->memops, buf_size);
+			cdc_mem_flush_cache(vi_comp->memops, vir_addr, buf_size);
 			if (vir_addr == NULL) {
 				RT_LOGE("cdc_mem_palloc failed, size = %d", buf_size);
 				return -1;
 			}
+			vi_comp->vin_buf[i].vir_addr = vir_addr;
 			vi_comp->vin_buf[i].paddr = (void *)cdc_mem_get_phy(vi_comp->memops, vir_addr);
+
+			if (vi_comp->base_config.output_mode == OUTPUT_MODE_YUV)
+				vi_comp->s_yuv_info[i].phy_addr = vi_comp->vin_buf[i].paddr;
 
 			RT_LOGW("palloc vin buf: vir = %p, phy = %p, i = %d", vir_addr, vi_comp->vin_buf[i].paddr, i);
 			vin_qbuffer_special(vi_comp->vipp_id, &vi_comp->vin_buf[i]);
@@ -575,7 +921,7 @@ static int highframe_alloc_vin_buf(vi_comp_ctx *vi_comp, int width, int height)
 		}
 	}
 
-	for (i = 0; i < VI_OUT_BUFFER_LIST_NODE_NUM; i++) {
+	for (i = 0; i < vi_comp->base_config.vin_buf_num; i++) {
 		unsigned char *vir_addr = cdc_mem_palloc(vi_comp->memops, buf_size);
 
 		if (vir_addr == NULL) {
@@ -597,7 +943,7 @@ static void highframe_free_vin_buf(vi_comp_ctx *vi_comp)
 
 	RT_LOGW("%s:free vin buffer\n", __func__);
 
-	for (i = 0; i < VI_OUT_BUFFER_LIST_NODE_NUM; i++) {
+	for (i = 0; i < vi_comp->base_config.vin_buf_num; i++) {
 		if (vi_comp->vin_buf[i].paddr) {
 			unsigned char *virAddr = (unsigned char *)cdc_mem_get_vir(vi_comp->memops,
 										  (unsigned long)vi_comp->vin_buf[i].paddr);
@@ -754,6 +1100,23 @@ static int highframe_vipp_init(vi_comp_ctx *vi_comp)
 	return 0;
 }
 
+
+static int convert_to_v4l2_color_space(VencH264VideoSignal *venc_video_signal)
+{
+	if (venc_video_signal->src_colour_primaries == VENC_BT709) {
+		if (venc_video_signal->full_range_flag)
+			return V4L2_COLORSPACE_REC709;
+		else
+			return V4L2_COLORSPACE_REC709_PART_RANGE;
+	}
+
+	if (VENC_YCC == venc_video_signal->src_colour_primaries)
+		return V4L2_COLORSPACE_JPEG;
+
+	RT_LOGW("not support color space %d set default to V4L2_COLORSPACE_REC709", venc_video_signal->src_colour_primaries);
+	return V4L2_COLORSPACE_REC709;
+}
+
 static int vipp_init(vi_comp_ctx *vi_comp)
 {
 	int ret = 0;
@@ -762,7 +1125,9 @@ static int vipp_init(vi_comp_ctx *vi_comp)
 	int mode = 4; /* NV12 */
 	struct v4l2_format fmt;
 	int wdr_param = 0;
+	struct csi_ve_online_cfg online_cfg;
 
+	memset(&online_cfg, 0, sizeof(struct csi_ve_online_cfg));
 	if (vi_comp->base_config.pixelformat == RT_PIXEL_YUV420SP)
 		mode = 4; /* NV12 */
 	else if (vi_comp->base_config.pixelformat == RT_PIXEL_YVU420SP)
@@ -788,7 +1153,7 @@ static int vipp_init(vi_comp_ctx *vi_comp)
 
 	if (vi_comp->base_config.enable_high_fps_transfor == 0)
 		ret = vin_open_special(id);
-//RT_LOGI("vin open, ret = %d, id = %d", ret, id);
+	RT_LOGI("vin open, ret = %d, id = %d", ret, id);
 
 #if RT_VI_SHOW_TIME_COST
 	int64_t time3_start = get_cur_time();
@@ -796,8 +1161,31 @@ static int vipp_init(vi_comp_ctx *vi_comp)
 
 	if (vi_comp->base_config.enable_high_fps_transfor == 0)
 		ret = vin_s_input_special(id, 0);
-//RT_LOGI("vin s input, ret = %d, id = %d", ret, id);
+	RT_LOGI("vin s input, ret = %d, id = %d", ret, id);
 
+	if (vi_comp->base_config.width == 0 || vi_comp->base_config.height == 0) {
+		struct sensor_resolution Sensor_resolution;
+		memset(&Sensor_resolution, 0, sizeof(struct sensor_resolution));
+
+		vin_get_sensor_resolution_special(id, &Sensor_resolution);
+		if (Sensor_resolution.width_max && Sensor_resolution.height_max) {
+			if (Sensor_resolution.width_max > 1920) {
+				vi_comp->base_config.width = 1920;
+				vi_comp->base_config.height = 1088;
+			} else {
+				vi_comp->base_config.width = Sensor_resolution.width_max;
+				vi_comp->base_config.height = Sensor_resolution.height_max;
+			}
+		} else {
+			vi_comp->base_config.width = 640;
+			vi_comp->base_config.height = 480;
+		}
+	}
+
+	online_cfg.ve_online_en = vi_comp->base_config.bonline_channel;
+	online_cfg.dma_buf_num = vi_comp->base_config.share_buf_num;
+	ret = vin_set_ve_online_cfg_special(id, &online_cfg);
+	RT_LOGI("vin_set_ve_online_cfg_special, ret = %d, id = %d", ret, id);
 #if RT_VI_SHOW_TIME_COST
 	int64_t time3_end = get_cur_time();
 	RT_LOGE("time of s input: %lld", (time3_end - time3_start));
@@ -806,7 +1194,7 @@ static int vipp_init(vi_comp_ctx *vi_comp)
 	if (vi_comp->base_config.enable_wdr == 1)
 		wdr_param = 1;
 	else
-		wdr_param = 2;
+		wdr_param = 0;
 	RT_LOGI("wdr_param = %d, enable_wdr = %d", wdr_param, vi_comp->base_config.enable_wdr);
 
 	/* set parameter */
@@ -828,6 +1216,9 @@ static int vipp_init(vi_comp_ctx *vi_comp)
 	fmt.type	      = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
 	fmt.fmt.pix_mp.width  = vi_comp->base_config.width;
 	fmt.fmt.pix_mp.height = vi_comp->base_config.height;
+	fmt.fmt.pix_mp.colorspace =
+		convert_to_v4l2_color_space(&vi_comp->base_config.venc_video_signal);
+	RT_LOGI("fmt.fmt.pix_mp.colorspace %d %d", fmt.fmt.pix_mp.colorspace, V4L2_COLORSPACE_REC709);
 	switch (mode) {
 	case 0:
 		fmt.fmt.pix_mp.pixelformat = V4L2_PIX_FMT_SBGGR8;
@@ -880,7 +1271,7 @@ static int vipp_init(vi_comp_ctx *vi_comp)
 	RT_LOGE("time of s fmt: %lld", (time2_end - time2_start));
 #endif
 
-	ret = vin_g_fmt_special(id, &fmt);
+	vin_g_fmt_special(id, &fmt);
 	RT_LOGI("vin g fmt, ret = %d, id = %d", ret, id);
 
 	RT_LOGD("resolution got from sensor = %d*%d num_planes = %d\n",
@@ -914,8 +1305,8 @@ static int vipp_init(vi_comp_ctx *vi_comp)
 
 	RT_LOGE("time of stream on: %lld", (time1_end - time1_start));
 #endif
-
-	return 0;
+	RT_LOGD("ret %d", ret);
+	return ret;
 }
 
 static int reset_high_fps(vi_comp_ctx *vi_comp)
@@ -931,19 +1322,18 @@ static int reset_high_fps(vi_comp_ctx *vi_comp)
 	return 0;
 }
 
-static int request_yuv_frame(struct vi_comp_ctx *vi_comp, unsigned char **pp_phy_addr)
+static int request_yuv_frame(struct vi_comp_ctx *vi_comp, rt_yuv_info *p_yuv_info)
 {
 	unsigned long flags;
 	int ret			   = -1;
 	struct vin_buffer *vin_buf = NULL;
 	int data_size		   = vi_comp->align_width * vi_comp->base_config.height * 3 / 2;
 	int loop_cnt		   = 0;
-	int max_cnt		   = 200; /* 2s */
+	int max_cnt		   = 50;
+	int i = 0;
 
 	if (vi_comp->base_config.pixelformat == RT_PIXEL_LBC_25X || vi_comp->base_config.pixelformat == RT_PIXEL_LBC_2X)
 		data_size = vi_comp->buf_size;
-
-	RT_LOGI("pp_phy_addr = %p, vi_comp = %p", pp_phy_addr, vi_comp);
 
 	while (ret != 0) {
 		ret = vin_dqbuffer_special(vi_comp->vipp_id, &vin_buf);
@@ -953,7 +1343,7 @@ static int request_yuv_frame(struct vi_comp_ctx *vi_comp, unsigned char **pp_phy
 			vi_comp->wait_in_buf_condition = 0;
 			spin_unlock_irqrestore(&vi_comp->vi_spin_lock, flags);
 			/* timeout is 10 ms: HZ is 100, HZ == 1s, so 1 jiffies is 10 ms */
-			wait_event_timeout(vi_comp->wait_in_buf, vi_comp->wait_in_buf_condition, 1);
+			wait_event_timeout(vi_comp->wait_in_buf, vi_comp->wait_in_buf_condition, 10);
 		}
 		loop_cnt++;
 		if (loop_cnt > max_cnt) {
@@ -968,24 +1358,36 @@ static int request_yuv_frame(struct vi_comp_ctx *vi_comp, unsigned char **pp_phy
 		RT_LOGE(" dequeue buf failed\n");
 		return ret;
 	}
+	p_yuv_info->phy_addr = (unsigned char *)vin_buf->paddr;
 
-	*pp_phy_addr = (unsigned char *)vin_buf->paddr;
-
+	for (i = 0; i < CONFIG_YUV_BUF_NUM; i++) {
+		if (p_yuv_info->phy_addr == vi_comp->s_yuv_info[i].phy_addr) {
+			if (vi_comp->s_yuv_info[i].bset)
+				p_yuv_info->fd = vi_comp->s_yuv_info[i].fd;
+			else {
+				vi_comp->s_yuv_info[i].fd = cdc_mem_share_fd(vi_comp->memops, vin_buf->vir_addr);
+				p_yuv_info->fd = vi_comp->s_yuv_info[i].fd;
+				vi_comp->s_yuv_info[i].bset = 1;
+			}
+			break;
+		}
+	}
+	if (i >= CONFIG_YUV_BUF_NUM)
+		RT_LOGE("get yuv mem fd err.");
 	return data_size;
 }
 
 static int return_yuv_frame(struct vi_comp_ctx *vi_comp, unsigned char *phy_addr)
 {
 	int i = 0;
-
-	for (i = 0; i < VI_OUT_BUFFER_LIST_NODE_NUM; i++) {
+	for (i = 0; i < vi_comp->base_config.vin_buf_num; i++) {
 		if (vi_comp->vin_buf[i].paddr == phy_addr) {
 			vin_qbuffer_special(vi_comp->vipp_id, &vi_comp->vin_buf[i]);
 			break;
 		}
 	}
 
-	if (i >= VI_OUT_BUFFER_LIST_NODE_NUM) {
+	if (i >= vi_comp->base_config.vin_buf_num) {
 		RT_LOGE("can not match phy_addr: %p", phy_addr);
 		return -1;
 	}
@@ -1016,7 +1418,7 @@ static int get_yuv_frame(struct vi_comp_ctx *vi_comp, void *user_buf)
 			vi_comp->wait_in_buf_condition = 0;
 			spin_unlock_irqrestore(&vi_comp->vi_spin_lock, flags);
 			/* timeout is 10 ms: HZ is 100, HZ == 1s, so 1 jiffies is 10 ms */
-			wait_event_timeout(vi_comp->wait_in_buf, vi_comp->wait_in_buf_condition, 1);
+			wait_event_timeout(vi_comp->wait_in_buf, vi_comp->wait_in_buf_condition, 10);
 		}
 		loop_cnt++;
 		if (loop_cnt > max_cnt) {
@@ -1031,7 +1433,6 @@ static int get_yuv_frame(struct vi_comp_ctx *vi_comp, void *user_buf)
 		RT_LOGE(" dequeue buf failed\n");
 		return ret;
 	}
-
 	virAddr = (unsigned char *)cdc_mem_get_vir(vi_comp->memops, (unsigned long)vin_buf->paddr);
 
 	cdc_mem_flush_cache(vi_comp->memops, virAddr, data_size);
@@ -1062,8 +1463,6 @@ static int commond_process_vi(struct vi_comp_ctx *vi_comp, message_t *msg)
 		if (vi_comp->state != COMP_STATE_IDLE) {
 			cmd_error = 1;
 		} else {
-			vipp_create(vi_comp);
-			vipp_init(vi_comp);
 			vi_comp->state = COMP_STATE_INITIALIZED;
 		}
 
@@ -1110,6 +1509,12 @@ static int commond_process_vi(struct vi_comp_ctx *vi_comp, message_t *msg)
 			0,
 			0,
 			NULL);
+	} else if (cmd == COMP_COMMAND_EXIT) {
+		if (vi_comp->state != COMP_STATE_IDLE) {
+			cmd_error = 1;
+		} else {
+			vi_comp->state = COMP_STATE_EXIT;
+		}
 	}
 
 	if (cmd_error == 1) {
@@ -1175,7 +1580,7 @@ error_type vi_comp_init(
 	PARAM_IN comp_handle component)
 {
 	error_type error = ERROR_TYPE_OK;
-
+	int ret = 0;
 	rt_component_type *rt_component = (rt_component_type *)component;
 	struct vi_comp_ctx *vi_comp     = (struct vi_comp_ctx *)rt_component->component_private;
 
@@ -1184,6 +1589,14 @@ error_type vi_comp_init(
 		return ERROR_TYPE_ILLEGAL_PARAM;
 	}
 
+	vi_comp->vin_buf = kzalloc(sizeof(struct vin_buffer) * vi_comp->base_config.vin_buf_num, GFP_KERNEL);
+
+	vipp_create(vi_comp);
+	ret = vipp_init(vi_comp);
+	if (ret != 0) {
+		RT_LOGE("vipp_init error ret %d", ret);
+		return ERROR_TYPE_VIN_ERR;
+	}
 	post_msg_and_wait(vi_comp, COMP_COMMAND_INIT, 0);
 	return error;
 }
@@ -1255,8 +1668,8 @@ error_type vi_comp_destroy(PARAM_IN comp_handle component)
 	vin_close_special(vi_comp->vipp_id);
 	/*should make sure the thread do nothing importent */
 	if (vi_comp->vi_thread)
-		kthread_stop(vi_comp->vi_thread);
-
+		post_msg_and_wait(vi_comp, COMP_COMMAND_EXIT, 0);
+		//kthread_stop(vi_comp->vi_thread);
 	message_destroy(&vi_comp->msg_queue);
 
 	while ((!list_empty(&vi_comp->out_buf_manager.empty_frame_list))) {
@@ -1276,20 +1689,23 @@ error_type vi_comp_destroy(PARAM_IN comp_handle component)
 			kfree(frame_node);
 		}
 	}
-
 	RT_LOGD("free_frame_cout = %d", free_frame_cout);
-
-	if (free_frame_cout != VI_OUT_BUFFER_LIST_NODE_NUM)
-		RT_LOGE("free num of frame node is not match: %d, %d", free_frame_cout, VI_OUT_BUFFER_LIST_NODE_NUM);
+	if (free_frame_cout != vi_comp->base_config.vin_buf_num)
+		RT_LOGE("free num of frame node is not match: %d, %d", free_frame_cout, vi_comp->base_config.vin_buf_num);
 
 	if (vi_comp->config_yuv_buf_flag == 0) {
-		for (i = 0; i < VI_OUT_BUFFER_LIST_NODE_NUM; i++) {
+		for (i = 0; i < vi_comp->base_config.vin_buf_num; i++) {
 			if (vi_comp->vin_buf[i].paddr) {
 				unsigned char *virAddr = (unsigned char *)cdc_mem_get_vir(vi_comp->memops,
 											  (unsigned long)vi_comp->vin_buf[i].paddr);
 				cdc_mem_pfree(vi_comp->memops, virAddr);
 			}
 		}
+	}
+
+	if (vi_comp->vin_buf != NULL) {
+		kfree(vi_comp->vin_buf);
+		vi_comp->vin_buf = NULL;
 	}
 
 	if (vi_comp->memops)
@@ -1310,8 +1726,29 @@ error_type vi_comp_get_config(
 	struct vi_comp_ctx *vi_comp     = (struct vi_comp_ctx *)rt_component->component_private;
 
 	if (rt_component == NULL || vi_comp == NULL) {
-		RT_LOGE("venc_comp_get_config: param error");
+		RT_LOGE("vi_comp_get_config: param error");
 		return ERROR_TYPE_ILLEGAL_PARAM;
+	}
+
+	switch (index) {
+	case COMP_INDEX_VI_CONFIG_Dynamic_GET_ISP_ARRT_CFG: {
+		RTIspCtrlAttr *ctrlattr = (RTIspCtrlAttr *)param_data;
+
+		vin_get_isp_attr_cfg_special(vi_comp->vipp_id, &(ctrlattr->isp_attr_cfg));
+
+		RT_LOGD("set isp attr cfg");
+
+		break;
+	}
+	case COMP_INDEX_VI_CONFIG_GET_BASE_CONFIG: {
+		vi_comp_base_config *base_config = (vi_comp_base_config *)param_data;
+		memcpy(base_config, &vi_comp->base_config, sizeof(vi_comp_base_config));
+		break;
+	}
+	default: {
+		error = config_dynamic_param(vi_comp, index, param_data);
+		break;
+	}
 	}
 
 	return error;
@@ -1378,9 +1815,10 @@ error_type vi_comp_set_config(
 		}
 
 		post_msg_and_wait(vi_comp, COMP_COMMAND_PAUSE, 0);
+		rt_yuv_info *p_yuv_info = (rt_yuv_info *)param_data;
 
-		error = request_yuv_frame(vi_comp, (unsigned char **)param_data);
-		RT_LOGI("request yuv frame, ret = %d, phy_addr = %p\n", error, *(unsigned char **)param_data);
+		error = request_yuv_frame(vi_comp, p_yuv_info);
+		RT_LOGI("request yuv frame, ret = %d, fd = %d phy_addr %p\n", error, p_yuv_info->fd, p_yuv_info->phy_addr);
 
 		post_msg_and_wait(vi_comp, COMP_COMMAND_START, 0);
 
@@ -1435,7 +1873,7 @@ error_type vi_comp_set_config(
 			mode_flag, ir_param->ir_on, ir_param->ir_flash_on);
 
 		/* ir_mode of isp --  2: grey, other: color */
-		//vin_server_reset_special(vi_comp->vipp_id, mode_flag, ir_param->ir_on, ir_param->ir_flash_on);
+		vin_server_reset_special(vi_comp->vipp_id, mode_flag, ir_param->ir_on, ir_param->ir_flash_on);
 
 		break;
 	}
@@ -1446,7 +1884,7 @@ error_type vi_comp_set_config(
 
 		RT_LOGI("set h flip: %d", bhflip);
 
-		//vin_s_ctrl_special(vi_comp->vipp_id, ctrl_id, val);
+		vin_s_ctrl_special(vi_comp->vipp_id, ctrl_id, val);
 		break;
 	}
 	case COMP_INDEX_VI_CONFIG_Dynamic_SET_V_FLIP: {
@@ -1456,7 +1894,7 @@ error_type vi_comp_set_config(
 
 		RT_LOGI("set v flip: %d", bvflip);
 
-		//vin_s_ctrl_special(vi_comp->vipp_id, ctrl_id, val);
+		vin_s_ctrl_special(vi_comp->vipp_id, ctrl_id, val);
 		break;
 	}
 	case COMP_INDEX_VI_CONFIG_Dynamic_CATCH_JPEG: {
@@ -1470,7 +1908,7 @@ error_type vi_comp_set_config(
 
 		RT_LOGI("ePower_line_freq = %d", ePower_line);
 
-		//vin_s_ctrl_special(vi_comp->vipp_id, ctrl_id, ePower_line);
+		vin_s_ctrl_special(vi_comp->vipp_id, ctrl_id, ePower_line);
 		break;
 	}
 	case COMP_INDEX_VI_CONFIG_Dynamic_SET_AE_METERING_MODE: {
@@ -1479,32 +1917,63 @@ error_type vi_comp_set_config(
 
 		RT_LOGI("ae_metering_mode = %d", ae_metering_mode);
 
-		//vin_s_ctrl_special(vi_comp->vipp_id, ctrl_id, ae_metering_mode);
+		vin_s_ctrl_special(vi_comp->vipp_id, ctrl_id, ae_metering_mode);
 		break;
 	}
 	case COMP_INDEX_VI_CONFIG_Dynamic_GET_EXP_GAIN: {
+#if 0
 		RTIspExpGain *exp_gain = (RTIspExpGain *)param_data;
 
-		//vin_isp_get_exp_gain_special(vi_comp->vipp_id, (struct sensor_exp_gain *)exp_gain);
+		vin_isp_get_exp_gain_special(vi_comp->vipp_id, (struct sensor_exp_gain *)exp_gain);
 
 		RT_LOGI("get exp&gain = %d/%d/%d/%d", exp_gain->exp_val, exp_gain->gain_val,
 			exp_gain->r_gain, exp_gain->b_gain);
+#endif
 		break;
 	}
 	case COMP_INDEX_VI_CONFIG_Dynamic_GET_HIST: {
 		unsigned int *hist = (unsigned int *)param_data;
 
-		//vin_isp_get_hist_special(vi_comp->vipp_id, hist);
+		vin_isp_get_hist_special(vi_comp->vipp_id, hist);
 
 		RT_LOGI("get hist");
+		break;
+	}
+	case COMP_INDEX_VI_CONFIG_Dynamic_SET_ORL: {
+		int i;
+		struct v4l2_format fmt;
+		RTIspOrl *isp_orl = (RTIspOrl *)param_data;
+		struct v4l2_clip clips[isp_orl->orl_cnt * 2];
+
+		for (i = 0; i < isp_orl->orl_cnt; i++) {
+			clips[i].c.height = isp_orl->orl_win[i].height;
+			clips[i].c.width =  isp_orl->orl_win[i].width;
+			clips[i].c.left =  isp_orl->orl_win[i].left;
+			clips[i].c.top =  isp_orl->orl_win[i].top;
+
+			clips[isp_orl->orl_cnt + i].c.top =  isp_orl->orl_win[i].rgb_orl;
+		}
+		clips[isp_orl->orl_cnt].c.width = isp_orl->orl_width;
+
+		CLEAR(fmt);
+		fmt.type = V4L2_BUF_TYPE_VIDEO_OVERLAY;
+		fmt.fmt.win.clips = &clips[0];
+		fmt.fmt.win.clipcount = isp_orl->orl_cnt;
+		fmt.fmt.win.bitmap = NULL;
+		fmt.fmt.win.field = V4L2_FIELD_NONE;
+		vin_s_fmt_overlay_special(vi_comp->vipp_id, &fmt);
+
+		vin_overlay_special(vi_comp->vipp_id,  isp_orl->on);
+
 		break;
 	}
 	case COMP_INDEX_VI_CONFIG_Dynamic_SET_ISP_ARRT_CFG: {
 		RTIspCtrlAttr *ctrlattr = (RTIspCtrlAttr *)param_data;
 
-		//vin_isp_set_attr_cfg(vi_comp->vipp_id, ctrlattr->isp_ctrl_id, ctrlattr->value);
+		vin_set_isp_attr_cfg_special(vi_comp->vipp_id, &(ctrlattr->isp_attr_cfg));
 
 		RT_LOGD("set isp attr cfg");
+
 		break;
 	}
 	case COMP_INDEX_VI_CONFIG_SET_RESET_HIGH_FPS: {
@@ -1598,7 +2067,7 @@ error_type vi_comp_fill_this_out_buffer(
 
 	vin_buf = src_stream->private;
 
-	RT_LOGD("vin_buf = %p", vin_buf);
+	RT_LOGI("vin_buf = %p", vin_buf);
 
 	if (vin_buf == NULL)
 		RT_LOGE("error: vin_buf is null");
@@ -1693,7 +2162,7 @@ setup_tunnel_exit:
 	return error;
 }
 
-error_type vi_comp_component_init(PARAM_IN comp_handle component)
+error_type vi_comp_component_init(PARAM_IN comp_handle component, const rt_media_config_s *pmedia_config)
 {
 	int i				= 0;
 	int ret				= 0;
@@ -1703,6 +2172,7 @@ error_type vi_comp_component_init(PARAM_IN comp_handle component)
 	struct sched_param param = {.sched_priority = 1 };
 
 	vi_comp = kmalloc(sizeof(struct vi_comp_ctx), GFP_KERNEL);
+	vi_comp->base_config.channel_id = pmedia_config->channelId;
 	if (vi_comp == NULL) {
 		RT_LOGE("kmalloc for vi_comp failed");
 		error = ERROR_TYPE_NOMEM;
@@ -1740,10 +2210,11 @@ error_type vi_comp_component_init(PARAM_IN comp_handle component)
 
 	/* init out buf manager*/
 	mutex_init(&vi_comp->out_buf_manager.mutex);
-	vi_comp->out_buf_manager.empty_num = VI_OUT_BUFFER_LIST_NODE_NUM;
+	RT_LOGD("channel %d vin_buf_num %d", pmedia_config->channelId, pmedia_config->vin_buf_num);
+	vi_comp->out_buf_manager.empty_num = pmedia_config->vin_buf_num;
 	INIT_LIST_HEAD(&vi_comp->out_buf_manager.empty_frame_list);
 	INIT_LIST_HEAD(&vi_comp->out_buf_manager.valid_frame_list);
-	for (i = 0; i < VI_OUT_BUFFER_LIST_NODE_NUM; i++) {
+	for (i = 0; i < pmedia_config->vin_buf_num; i++) {
 		video_frame_node *pNode = kmalloc(sizeof(video_frame_node), GFP_KERNEL);
 		if (NULL == pNode) {
 			RT_LOGE("fatal error! kmalloc fail!");
@@ -1786,16 +2257,33 @@ static int thread_process_vi(void *param)
 
 		if (vi_comp->state == COMP_STATE_EXECUTING) {
 			/* get out buffer */
+#if DEBUG_SHOW_ENCODE_TIME
+			static int cnt_1 = 1;
+			if (cnt_1 && vi_comp->base_config.channel_id == 0) {
+			    cnt_1 = 0;
+			    RT_LOGW("channel %d vin comp first time EXECUTING state, time: %lld",
+					vi_comp->base_config.channel_id, get_cur_time());
+			}
+			static int cnt_11 = 1;
+			if (cnt_11 && vi_comp->base_config.channel_id == 1) {
+			    cnt_11 = 0;
+			    RT_LOGW("channel %d vin comp first time EXECUTING state, time: %lld",
+					vi_comp->base_config.channel_id, get_cur_time());
+			}
+#endif
 			if (dequeue_buffer(vi_comp) != 0) {
 				spin_lock_irqsave(&vi_comp->vi_spin_lock, flags);
 				vi_comp->wait_in_buf_condition = 0;
 				spin_unlock_irqrestore(&vi_comp->vi_spin_lock, flags);
 				/* timeout is 10 ms: HZ is 100, HZ == 1s, so 1 jiffies is 10 ms */
-				wait_event_timeout(vi_comp->wait_in_buf, vi_comp->wait_in_buf_condition, 1);
+				wait_event_timeout(vi_comp->wait_in_buf, vi_comp->wait_in_buf_condition, 10);
 				continue;
 			}
+		} else if (vi_comp->state == COMP_STATE_EXIT) {
+			RT_LOGW("COMP_STATE_EXIT vi_comp->state %d", vi_comp->state);
+			break;
 		} else {
-			TMessage_WaitQueueNotEmpty(&vi_comp->msg_queue, 10);
+			TMessage_WaitQueueNotEmpty(&vi_comp->msg_queue, 1000);
 		}
 	}
 

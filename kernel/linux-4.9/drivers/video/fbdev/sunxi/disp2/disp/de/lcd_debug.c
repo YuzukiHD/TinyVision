@@ -73,8 +73,23 @@ int create_prop(struct para *lcd_debug_para)
 	int ret;
 
 	pp = kcalloc(1, sizeof(struct property), GFP_KERNEL | __GFP_ZERO);
+	if (!pp) {
+		pr_warn("calloc memory fail!\n");
+		return -1;
+	}
 	pp->name = kmalloc(NAME_LENGTH, GFP_KERNEL | __GFP_ZERO);
+	if (!pp->name) {
+		pr_warn("malloc memory fail!\n");
+		kfree(pp);
+		return -1;
+	}
 	pp->value = kmalloc(VALUE_LENGTH, GFP_KERNEL | __GFP_ZERO);
+	if (!pp->value) {
+		pr_warn("malloc memory fail!\n");
+		kfree(pp->name);
+		kfree(pp);
+		return -1;
+	}
 
 	strcpy(pp->name, lcd_debug_para->prop_src.name);
 	memcpy(pp->value, lcd_debug_para->prop_src.value, lcd_debug_para->prop_src.length);
@@ -133,8 +148,24 @@ int update_prop(struct para *lcd_debug_para)
 	}
 
 	newprop = kmalloc(sizeof(struct property), GFP_KERNEL | __GFP_ZERO);
+	if (!newprop) {
+		pr_warn("malloc memory fail!\n");
+		return -1;
+	}
 	newprop->name = kmalloc(NAME_LENGTH, GFP_KERNEL | __GFP_ZERO);
+	if (!newprop->name) {
+		pr_warn("malloc memory fail!\n");
+		kfree(newprop);
+		return -1;
+	}
 	newprop->value = kmalloc(VALUE_LENGTH, GFP_KERNEL | __GFP_ZERO);
+	if (!newprop->value) {
+		pr_warn("malloc memory fail!\n");
+		kfree(newprop->name);
+		kfree(newprop);
+		return -1;
+	}
+
 	memcpy(newprop->name, prop_src->name, strlen(prop_src->name));
 	memcpy(newprop->value, prop_src->value, prop_src->length);
 	newprop->length = prop_src->length;

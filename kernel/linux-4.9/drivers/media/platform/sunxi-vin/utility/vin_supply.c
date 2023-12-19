@@ -416,11 +416,11 @@ int vin_gpio_set_status(struct v4l2_subdev *sd, enum gpio_type gpio_id,
 
 	if (status == 0)
 		gc_def.mul_sel = GPIO_DISABLE;
-	if (status == 3)
-		gc_def.mul_sel = 3;
+	if (status != 0 && status != 1)
+		gc_def.mul_sel = status;
 	if (os_gpio_set(&gc_def) < 0)
 		return -1;
-	if (status == 3)
+	if (status != 0 && status != 1)
 		return 0;
 
 	if (status == 1)

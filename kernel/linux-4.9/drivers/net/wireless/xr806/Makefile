@@ -12,7 +12,6 @@ xr806-y := \
 	debug.o \
 	checksum.o \
 	platform/spi.o \
-	test/hwio_test.o \
 	test/data_test.o \
 	os_dep/os_intf.o \
 	os_dep/os_net.o

@@ -222,6 +222,12 @@ int de_ccsc_init(struct disp_bsp_init_para *para)
 				memory =
 				    kmalloc(sizeof(struct __icsc_reg_t),
 						    GFP_KERNEL | __GFP_ZERO);
+				if (memory == NULL) {
+					__wrn("alloc ICcsc[%d][%d] mm fail!size=0x%x\n",
+					     screen_id, ch_id,
+					     (unsigned int)sizeof(struct __icsc_reg_t));
+					return -1;
+				}
 
 				icsc_block[screen_id][ch_id].off = base;
 				icsc_block[screen_id][ch_id].val = memory;

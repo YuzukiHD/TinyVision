@@ -123,4 +123,3 @@ drivers/gator/gator_src_md5.h
 arch/arm/boot/dts/board.dts
 arch/arm64/boot/dts/sunxi/board.dts
 user_headers
-modules/gpu/img-rgx/linux/rogue_km/binary_sunxi_linux_nullws_release/

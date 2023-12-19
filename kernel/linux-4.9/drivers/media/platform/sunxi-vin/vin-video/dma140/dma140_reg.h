@@ -225,8 +225,7 @@ struct dma_flip_size {
 
 struct dma_capture_status {
 	bool field_sta;
-	bool vcap_sta;
-	bool scap_sta;
+	bool cap_sta;
 };
 
 struct dma_int_status {

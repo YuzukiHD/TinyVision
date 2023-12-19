@@ -477,19 +477,21 @@ static int f_audio_set_alt(struct usb_function *f, unsigned intf, unsigned alt)
 	}
 
 	if (intf == uac1->as_out_intf) {
-		uac1->as_out_alt = alt;
-
-		if (alt)
-			ret = u_audio_start_capture(&uac1->g_audio);
-		else
+		if (alt) {
+			if (!uac1->as_out_alt)
+				ret = u_audio_start_capture(&uac1->g_audio);
+		} else {
 			u_audio_stop_capture(&uac1->g_audio);
+		}
+		uac1->as_out_alt = alt;
 	} else if (intf == uac1->as_in_intf) {
-		uac1->as_in_alt = alt;
-
-		if (alt)
-			ret = u_audio_start_playback(&uac1->g_audio);
-		else
+		if (alt) {
+			if (!uac1->as_in_alt)
+				ret = u_audio_start_playback(&uac1->g_audio);
+		} else {
 			u_audio_stop_playback(&uac1->g_audio);
+		}
+		uac1->as_in_alt = alt;
 	} else {
 		dev_err(dev, "%s:%d Error!\n", __func__, __LINE__);
 		return -EINVAL;

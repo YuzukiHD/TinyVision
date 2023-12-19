@@ -158,15 +158,28 @@ int xradio_hw_scan(struct ieee80211_hw *hw,
 {
 	struct xradio_common *hw_priv = hw->priv;
 	struct xradio_vif *priv = xrwl_get_vif_from_ieee80211(vif);
+
+#ifdef SCAN_SUBDIVIDE
+	struct xradio_vif *p2p_if_vif = __xrwl_hwpriv_to_vifpriv(hw_priv, 1);
+	enum xradio_join_status p2p_join_status = XRADIO_JOIN_STATUS_PASSIVE;
+#endif
+
 	struct wsm_template_frame frame = {
 		.frame_type = WSM_FRAME_TYPE_PROBE_REQUEST,
 	};
 	int i;
+
 #ifdef CONFIG_XRADIO_TESTMODE
 	int ret = 0;
 	u16 advance_scan_req_channel;
 #endif
+	int suspend_lock_state;
 	scan_printk(XRADIO_DBG_TRC, "%s\n", __func__);
+
+#ifdef SCAN_SUBDIVIDE
+	if (p2p_if_vif)
+		p2p_join_status = p2p_if_vif->join_status;
+#endif
 
 	/* Scan when P2P_GO corrupt firmware MiniAP mode */
 	if (priv->join_status == XRADIO_JOIN_STATUS_AP) {
@@ -229,10 +242,19 @@ int xradio_hw_scan(struct ieee80211_hw *hw,
 		return -EINVAL;
 	}
 
+	suspend_lock_state = atomic_cmpxchg(&hw_priv->suspend_lock_state,
+								XRADIO_SUSPEND_LOCK_IDEL, XRADIO_SUSPEND_LOCK_OTHERS);
+	if (suspend_lock_state == XRADIO_SUSPEND_LOCK_SUSPEND) {
+		scan_printk(XRADIO_DBG_WARN,
+			   "%s:refuse because of suspend\n", __func__);
+		return -EBUSY;
+	}
+
 	frame.skb = mac80211_probereq_get(hw, vif, NULL, 0, req->ie, req->ie_len);
 	if (!frame.skb) {
 		scan_printk(XRADIO_DBG_ERROR, "%s: mac80211_probereq_get failed!\n",
 			__func__);
+		atomic_set(&hw_priv->suspend_lock_state, XRADIO_SUSPEND_LOCK_IDEL);
 		return -ENOMEM;
 	}
 
@@ -279,6 +301,7 @@ int xradio_hw_scan(struct ieee80211_hw *hw,
 	/* will be unlocked in xradio_scan_work() */
 	down(&hw_priv->scan.lock);
 	down(&hw_priv->conf_lock);
+	atomic_set(&hw_priv->suspend_lock_state, XRADIO_SUSPEND_LOCK_IDEL);
 
 #ifdef CONFIG_XRADIO_TESTMODE
 	/* Active Scan - Serving Channel Request Handling */
@@ -333,7 +356,17 @@ int xradio_hw_scan(struct ieee80211_hw *hw,
 			}
 		}
 
+#ifdef SCAN_SUBDIVIDE
+		if (p2p_join_status < XRADIO_JOIN_STATUS_STA &&
+		    priv->join_status < XRADIO_JOIN_STATUS_STA) {
+			wsm_vif_lock_tx(priv);
+			hw_priv->scan.scan_type = 0;
+		} else {
+			hw_priv->scan.scan_type = 1;  //one-by-one channel scan
+		}
+#else
 		wsm_vif_lock_tx(priv);
+#endif
 
 		SYS_BUG(hw_priv->scan.req);
 		hw_priv->scan.req     = req;
@@ -359,7 +392,11 @@ int xradio_hw_scan(struct ieee80211_hw *hw,
 
 		if (frame.skb)
 			dev_kfree_skb(frame.skb);
+#ifdef SCAN_SUBDIVIDE
+		queue_delayed_work(hw_priv->workqueue, &hw_priv->scan.work, 0);
+#else
 		queue_work(hw_priv->workqueue, &hw_priv->scan.work);
+#endif
 
 #ifdef CONFIG_XRADIO_TESTMODE
 	}
@@ -489,9 +526,16 @@ int xradio_hw_sched_scan_start(struct ieee80211_hw *hw,
 
 void xradio_scan_work(struct work_struct *work)
 {
+#ifdef SCAN_SUBDIVIDE
+	struct xradio_common *hw_priv = container_of(work,
+					struct xradio_common,
+					scan.work.work);
+#else
 	struct xradio_common *hw_priv = container_of(work,
 						struct xradio_common,
 						scan.work);
+#endif
+
 	struct xradio_vif *priv;
 	struct ieee80211_channel **it;
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 9, 0))
@@ -527,6 +571,12 @@ void xradio_scan_work(struct work_struct *work)
 			"ignoring scan work\n");
 		return;
 	}
+
+#ifdef SCAN_SUBDIVIDE
+	if (hw_priv->scan.scan_type)
+		wsm_vif_lock_tx(priv);
+
+#endif /* SCAN_SUBDIVIDE */
 
 #ifdef SUPPORT_HT40
 
@@ -704,6 +754,10 @@ void xradio_scan_work(struct work_struct *work)
 		for (it = hw_priv->scan.curr + 1, i = 1;
 		     it != hw_priv->scan.end && i < WSM_SCAN_MAX_NUM_OF_CHANNELS;
 		     ++it, ++i) {
+#ifdef SCAN_SUBDIVIDE
+			if (hw_priv->scan.scan_type)
+				break;
+#endif
 			if ((*it)->band != first->band)
 				break;
 			if (((*it)->flags ^ first->flags) & IEEE80211_CHAN_PASSIVE_SCAN)
@@ -712,6 +766,7 @@ void xradio_scan_work(struct work_struct *work)
 			    (*it)->max_power != first->max_power)
 				break;
 		}
+
 		scan.band = first->band;
 
 #ifdef SUPPORT_HT40
@@ -860,8 +915,14 @@ void xradio_scan_work(struct work_struct *work)
 fail:
 	hw_priv->scan.curr = hw_priv->scan.end;
 	up(&hw_priv->conf_lock);
+
+#ifdef SCAN_SUBDIVIDE
+	if (queue_delayed_work(hw_priv->workqueue, &hw_priv->scan.work, 0) <= 0)
+#else
 	if (queue_work(hw_priv->workqueue, &hw_priv->scan.work) <= 0)
+#endif
 		scan_printk(XRADIO_DBG_ERROR, "%s queue scan work failed\n", __func__);
+
 	return;
 }
 
@@ -1032,9 +1093,14 @@ static void xradio_scan_restart_delayed(struct xradio_vif *priv)
 	}
 }
 
+#ifdef SCAN_SUBDIVIDE
+u32 scan_delay = 200;
+#endif
+
 static void xradio_scan_complete(struct xradio_common *hw_priv, int if_id)
 {
 	struct xradio_vif *priv;
+
 	atomic_xchg(&hw_priv->recent_scan, 0);
 	scan_printk(XRADIO_DBG_TRC, "%s\n", __func__);
 
@@ -1053,7 +1119,18 @@ static void xradio_scan_complete(struct xradio_common *hw_priv, int if_id)
 		up(&hw_priv->scan.lock);
 		wsm_unlock_tx(hw_priv);
 	} else {
+#ifdef SCAN_SUBDIVIDE
+		if (hw_priv->scan.scan_type) {
+			wsm_unlock_tx(hw_priv);
+			queue_delayed_work(hw_priv->workqueue,
+				  &hw_priv->scan.work, scan_delay * HZ / 1000);
+		} else {
+			queue_delayed_work(hw_priv->workqueue,
+					&hw_priv->scan.work, 0);
+		}
+#else
 		xradio_scan_work(&hw_priv->scan.work);
+#endif
 	}
 }
 

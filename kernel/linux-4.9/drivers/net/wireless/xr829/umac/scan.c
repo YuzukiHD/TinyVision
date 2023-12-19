@@ -1004,4 +1004,3 @@ void mac80211_sched_scan_stopped(struct ieee80211_hw *hw)
 
 	mac80211_queue_work(&local->hw, &local->sched_scan_stopped_work);
 }
-EXPORT_SYMBOL(mac80211_sched_scan_stopped);

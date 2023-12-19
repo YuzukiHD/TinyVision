@@ -1,5 +1,4 @@
-
-
+#define LOG_TAG "rt_media"
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/ioctl.h>
@@ -18,10 +17,9 @@
 #include <linux/mm.h>
 #include <asm/uaccess.h>
 #include "mem_interface.h"
-#define LOG_TAG "rt_media"
 
 #include "rt_media.h"
-#include "_uapi_rt_media.h"
+#include <uapi_rt_media.h>
 
 #include "component/rt_common.h"
 #include "component/rt_component.h"
@@ -36,7 +34,8 @@
 #define RT_MEDIA_DEV_MINOR (0)
 #endif
 
-#define CSI_COMPILE_ERROR 0
+#define MOTION_TOTAL_REGION_NUM_DEFAULT (50)
+#define REGION_D3D_TOTAL_REGION_NUM_DEFAULT (120)
 
 int g_rt_media_dev_major = RT_MEDIA_DEV_MAJOR;
 int g_rt_media_dev_minor = RT_MEDIA_DEV_MINOR;
@@ -85,6 +84,12 @@ typedef struct video_recoder {
 	int bReset_high_fps_finish;
 	int bsetup_recorder_finish;
 	int bvin_is_ready;//rt_media thread setup not ready fact.
+	VencMotionSearchParam motion_search_param;
+	VencMotionSearchRegion *motion_region;
+	int motion_region_len; //unit:bytes
+	VencRegionD3DParam region_d3d_param;
+	VencRegionD3DRegion *region_d3d_region;
+	int region_d3d_region_len; //unit:bytes
 } video_recoder;
 
 struct rt_media_dev {
@@ -108,6 +113,8 @@ struct rt_media_dev {
 	int in_high_fps_status;
 	video_recoder *need_start_recoder_1;
 	video_recoder *need_start_recoder_2;
+	int bcsi_err;
+	int bcsi_status_set[VIDEO_INPUT_CHANNEL_NUM];
 };
 
 struct vi_part_cfg {
@@ -116,10 +123,17 @@ struct vi_part_cfg {
 	int height;
 	int venc_format; //1:H264 2:H265
 	int flicker_mode; ////0:disable,1:50HZ,2:60HZ, default 50HZ
+	int fps;
 };
-
+struct csi_status_pair {
+	int bset;
+	int status;
+};
 static struct rt_media_dev *rt_media_devp;
-static int bvin_is_ready_2;//Deal with the fact that rt_media not registered
+
+static int bvin_is_ready_rt_not_probe[VIDEO_INPUT_CHANNEL_NUM];//Deal with the fact that rt_media not registered
+static struct csi_status_pair g_csi_status_pair[VIDEO_INPUT_CHANNEL_NUM];
+
 static video_stream_s *ioctl_get_stream_data(video_recoder *recoder);
 static int ioctl_return_stream_data(video_recoder *recoder,
 				    video_stream_s *video_stream);
@@ -134,7 +148,7 @@ error_type venc_event_handler(
 	PARAM_IN void *pEventData)
 {
 	/* todo; */
-	RT_LOGD("not support venc_event_handler");
+	RT_LOGI("not support venc_event_handler");
 	return -1;
 }
 
@@ -167,7 +181,7 @@ error_type rt_venc_fill_out_buffer_done(
 
 	recoder->stream_data_cb_count++;
 	if (recoder->stream_data_cb_count == 1) {
-		RT_LOGW("first stream data, pts = %lld, time = %lld, width = %d",
+		RT_LOGW("channel %d first stream data, pts = %lld, time = %lld, width = %d", recoder->config.channelId,
 			video_stream->pts, get_cur_time(), recoder->config.width);
 	}
 
@@ -236,16 +250,25 @@ static int thread_reset_high_fps(void *param)
 	RT_LOGW("finish");
 	return 0;
 }
-#if CSI_COMPILE_ERROR
-static int wdr_get_from_partition(struct vi_part_cfg *vi_part_cfg)
+
+static int wdr_get_from_partition(struct vi_part_cfg *vi_part_cfg, int sensor_num)
 {
-	void *vaddr = NULL;
+#if defined CONFIG_ISP_SERVER_MELIS
 	int ret     = 0;
+	void *vaddr = NULL;
+	int check_sign = -1;
 	SENSOR_ISP_CONFIG_S *sensor_isp_cfg;
 
-	vaddr = vin_map_kernel(VIN_RESERVE_ADDR, VIN_RESERVE_SIZE);
+	if (sensor_num == 1) {
+		check_sign = SENSOR_1_SIGN;
+		vaddr = vin_map_kernel(VIN_SENSOR1_RESERVE_ADDR, VIN_RESERVE_SIZE);
+	} else {
+		check_sign = SENSOR_0_SIGN;
+		vaddr = vin_map_kernel(VIN_SENSOR0_RESERVE_ADDR, VIN_RESERVE_SIZE);
+	}
+
 	if (vaddr == NULL) {
-		RT_LOGE("%s:map 0x%x paddr err!!!", __func__, VIN_RESERVE_ADDR);
+		RT_LOGE("%s:map 0x%x paddr err!!!", __func__, VIN_SENSOR0_RESERVE_ADDR);
 		ret = -EFAULT;
 		goto ekzalloc;
 	}
@@ -253,7 +276,7 @@ static int wdr_get_from_partition(struct vi_part_cfg *vi_part_cfg)
 	sensor_isp_cfg = (SENSOR_ISP_CONFIG_S *)vaddr;
 
 #if 0
-	sensor_isp_cfg->sign = 0xBB66BB66;
+	sensor_isp_cfg->sign = 0xAA66AA66;
 	sensor_isp_cfg->wdr_mode = 0;
 	sensor_isp_cfg->width = 2560;
 	sensor_isp_cfg->height = 1440;
@@ -262,22 +285,24 @@ static int wdr_get_from_partition(struct vi_part_cfg *vi_part_cfg)
 #endif
 
 	/* check id */
-	if (sensor_isp_cfg->sign != 0xBB66BB66) {
-		RT_LOGW("%s:sign is 0x%x but not 0xBB66BB66\n", __func__, sensor_isp_cfg->sign);
+	if (sensor_isp_cfg->sign != check_sign) {
+		RT_LOGW("%s:sign is 0x%x but not 0x%x\n", __func__, sensor_isp_cfg->sign, check_sign);
 		ret = -EINVAL;
 		goto unmap;
 	}
 
-	vi_part_cfg->wdr	  = sensor_isp_cfg->wdr_mode > 1 ? 0 : sensor_isp_cfg->wdr_mode;
-	vi_part_cfg->width	= sensor_isp_cfg->width;
-	vi_part_cfg->height       = sensor_isp_cfg->height;
-	vi_part_cfg->venc_format  = sensor_isp_cfg->venc_format > 2 ? 1 : (sensor_isp_cfg->venc_format == 0 ? 1 : sensor_isp_cfg->venc_format);
+	vi_part_cfg->wdr = sensor_isp_cfg->wdr_mode > 1 ? 0 : sensor_isp_cfg->wdr_mode;
+	vi_part_cfg->width = sensor_isp_cfg->width;
+	vi_part_cfg->height = sensor_isp_cfg->height;
+	vi_part_cfg->venc_format = sensor_isp_cfg->venc_format > 2 ? 1 : (sensor_isp_cfg->venc_format == 0 ? 1 : sensor_isp_cfg->venc_format);
 	vi_part_cfg->flicker_mode = sensor_isp_cfg->flicker_mode > 2 ? 1 : sensor_isp_cfg->flicker_mode;
 
-	RT_LOGD("wdr/width/height/vformat/flicker get from partiton is %d/%d/%d/%d\n",
+	vi_part_cfg->fps = sensor_isp_cfg->fps <= 0 ? 15 : sensor_isp_cfg->fps;
+
+	RT_LOGS("wdr/width/height/vformat/flicker get from partiton is %d/%d/%d/%d %d %d %d\n",
 		sensor_isp_cfg->wdr_mode, sensor_isp_cfg->width,
 		sensor_isp_cfg->height, sensor_isp_cfg->venc_format,
-		vi_part_cfg->flicker_mode);
+		vi_part_cfg->flicker_mode, vi_part_cfg->fps, sensor_isp_cfg->fps);
 
 //sensor_isp_cfg->sign = 0xFFFFFFFF;
 
@@ -285,8 +310,11 @@ unmap:
 	vin_unmap_kernel(vaddr);
 ekzalloc:
 	return ret;
-}
+#else
+	return 0;
 #endif
+}
+
 error_type vi_event_handler(
 	PARAM_IN comp_handle component,
 	PARAM_IN void *pAppData,
@@ -344,6 +372,7 @@ static int get_component_handle(video_recoder *recoder)
 		ret = comp_get_handle((comp_handle *)&recoder->vi_comp,
 				      "video.vipp",
 				      recoder,
+					  &recoder->config,
 				      &vi_callback);
 		if (ret != ERROR_TYPE_OK) {
 			RT_LOGE("get vi comp handle error: %d", ret);
@@ -355,6 +384,7 @@ static int get_component_handle(video_recoder *recoder)
 		ret = comp_get_handle((comp_handle *)&recoder->venc_comp,
 				      "video.encoder",
 				      recoder,
+					  &recoder->config,
 				      &venc_callback);
 		if (ret != ERROR_TYPE_OK) {
 			RT_LOGE("get venc comp handle error: %d", ret);
@@ -366,36 +396,144 @@ static int get_component_handle(video_recoder *recoder)
 	return ret;
 }
 
+int fps_change_id_1;
+int fps_change_id_2;
+
+static void set_fps_change_channel_id_1(int id)
+{
+	fps_change_id_1 = id;
+}
+
+int get_fps_change_channel_id_1(void)
+{
+	return fps_change_id_1;
+}
+
+void rt_media_csi_fps_change_first(int change_fps)
+{
+	int ret = 0;
+	int channel_id = get_fps_change_channel_id_1();
+	video_recoder *recoder = &rt_media_devp->recoder[channel_id];
+
+	if (change_fps <= 0 || change_fps > recoder->max_fps) {
+		RT_LOGW("IOCTL_SET_FPS: invalid change_fps[%d], setup to max_fps[%d]", change_fps, recoder->max_fps);
+		change_fps = recoder->max_fps;
+	}
+
+	RT_LOGI("IOCTL_SET_FPS: change_fps = %d, max_fps = %d, vi_comp = %p, venc_comp = %p",
+		change_fps, recoder->max_fps, recoder->vi_comp, recoder->venc_comp);
+
+	if (!recoder->vi_comp)
+		return;
+	ret = comp_set_config(recoder->vi_comp, COMP_INDEX_VI_CONFIG_Dynamic_SET_FPS, (void *)change_fps);
+	if (ret < 0) {
+		RT_LOGE("IOCTL_SET_FPS failed, ret = %d, change_fps = %d", ret, change_fps);
+		return ;
+	}
+
+	if (!recoder->venc_comp)
+		return;
+	ret = comp_set_config(recoder->venc_comp, COMP_INDEX_VENC_CONFIG_Dynamic_SET_FPS, (void *)change_fps);
+	if (ret < 0) {
+		RT_LOGE("IOCTL_SET_FPS failed, ret = %d, change_fps = %d", ret, change_fps);
+		return ;
+	}
+}
+/* to do
+static void set_fps_change_channel_id_2(int id)
+{
+	fps_change_id_2 = id;
+}*/
+
+int get_fps_change_channel_id_2(void)
+{
+	return fps_change_id_2;
+}
+void rt_media_csi_fps_change_second(int change_fps)
+{
+	int ret = 0;
+	int channel_id = get_fps_change_channel_id_2();
+	video_recoder *recoder	 = &rt_media_devp->recoder[channel_id];
+
+	if (change_fps <= 0 || change_fps > recoder->max_fps) {
+		RT_LOGW("IOCTL_SET_FPS: invalid change_fps[%d], setup to max_fps[%d]", change_fps, recoder->max_fps);
+		change_fps = recoder->max_fps;
+	}
+
+	RT_LOGI("IOCTL_SET_FPS: change_fps = %d, max_fps = %d, vi_comp = %p, venc_comp = %p",
+		change_fps, recoder->max_fps, recoder->vi_comp, recoder->venc_comp);
+
+	ret = comp_set_config(recoder->vi_comp, COMP_INDEX_VI_CONFIG_Dynamic_SET_FPS, (void *)change_fps);
+	if (ret < 0) {
+		RT_LOGE("IOCTL_SET_FPS failed, ret = %d, change_fps = %d", ret, change_fps);
+		return ;
+	}
+
+	ret = comp_set_config(recoder->venc_comp, COMP_INDEX_VENC_CONFIG_Dynamic_SET_FPS, (void *)change_fps);
+	if (ret < 0) {
+		RT_LOGE("IOCTL_SET_FPS failed, ret = %d, change_fps = %d", ret, change_fps);
+		return ;
+	}
+}
+
+static void rt_vin_sensor_fps_change_callback(int channel_id)
+{
+	set_fps_change_channel_id_1(channel_id);
+	vin_sensor_fps_change_callback(channel_id, rt_media_csi_fps_change_first);
+}
+
 static void fill_venc_config(venc_comp_base_config *pvenc_config, video_recoder *recoder)
 {
 	rt_media_config_s *media_config = &recoder->config;
 
 	/* setup venc config */
 	if (media_config->encodeType == 0)
-		pvenc_config->codec_type = VENC_COMP_CODEC_H264;
+		pvenc_config->codec_type = RT_VENC_CODEC_H264;
 	else if (media_config->encodeType == 1)
-		pvenc_config->codec_type = VENC_COMP_CODEC_JPEG;
+		pvenc_config->codec_type = RT_VENC_CODEC_JPEG;
 	else if (media_config->encodeType == 2)
-		pvenc_config->codec_type = VENC_COMP_CODEC_H265;
+		pvenc_config->codec_type = RT_VENC_CODEC_H265;
 	else {
 		RT_LOGE("codec_type[%d] not support, use h264", media_config->encodeType);
-		pvenc_config->codec_type = VENC_COMP_CODEC_H264;
+		pvenc_config->codec_type = RT_VENC_CODEC_H264;
 	}
 
 	pvenc_config->qp_range		    = media_config->qp_range;
 	pvenc_config->profile		    = media_config->profile;
 	pvenc_config->level		    = media_config->level;
 	pvenc_config->src_width		    = media_config->width;
-	pvenc_config->src_height	    = media_config->height;
-	pvenc_config->dst_width		    = media_config->width;
-	pvenc_config->dst_height	    = media_config->height;
+	if (media_config->en_16_align_fill_data) {
+		pvenc_config->src_height = RT_ALIGN(media_config->height, 16);
+	} else {
+		pvenc_config->src_height = media_config->height;
+	}
+	pvenc_config->dst_width		    = media_config->dst_width;
+	pvenc_config->dst_height	    = media_config->dst_height;
 	pvenc_config->frame_rate	    = media_config->fps;
 	pvenc_config->bit_rate		    = media_config->bitrate * 1024;
+	pvenc_config->vbv_thresh_size   = media_config->vbv_thresh_size;
+	pvenc_config->vbv_buf_size      = media_config->vbv_buf_size;
 	pvenc_config->pixelformat	   = recoder->pixelformat;
 	pvenc_config->max_keyframe_interval = media_config->gop;
 	pvenc_config->enable_overlay	= media_config->enable_overlay;
-
-	memcpy(&pvenc_config->motion_search_param, &media_config->motion_search_param, sizeof(RTVencMotionSearchParam));
+	pvenc_config->channel_id = media_config->channelId;
+	pvenc_config->quality = media_config->jpg_quality;
+	pvenc_config->jpg_mode = media_config->jpg_mode;
+	pvenc_config->bit_rate_range.bitRateMax = media_config->bit_rate_range.bitRateMax * 1024;
+	pvenc_config->bit_rate_range.bitRateMin = media_config->bit_rate_range.bitRateMin * 1024;
+	pvenc_config->bOnlineChannel = media_config->bonline_channel;
+	pvenc_config->share_buf_num = media_config->share_buf_num;
+	pvenc_config->en_encpp_sharp = media_config->enable_sharp;
+	pvenc_config->is_ipc_case = media_config->is_ipc;
+	pvenc_config->breduce_refrecmem = media_config->breduce_refrecmem;
+	if (media_config->enable_crop) {
+		pvenc_config->enable_crop = media_config->enable_crop;
+		pvenc_config->s_crop_rect.nLeft = media_config->s_crop_rect.nLeft;
+		pvenc_config->s_crop_rect.nTop = media_config->s_crop_rect.nTop;
+		pvenc_config->s_crop_rect.nWidth = media_config->s_crop_rect.nWidth;
+		pvenc_config->s_crop_rect.nHeight = media_config->s_crop_rect.nHeight;
+	}
+	memcpy(&pvenc_config->venc_video_signal, &media_config->venc_video_signal, sizeof(VencH264VideoSignal));
 
 	if (media_config->vbr == 0)
 		pvenc_config->rc_mode = VENC_COMP_RC_MODE_H264CBR;
@@ -460,28 +598,44 @@ int ioctl_config(video_recoder *recoder, rt_media_config_s *config)
 	rt_media_config_s *media_config = &recoder->config;
 	RT_LOGD("Ryan kernel rt-media config recoder->config.output_mode: %d", recoder->config.output_mode);
 
+	if (bvin_is_ready_rt_not_probe[config->channelId]) {
+		int i = 0;
+		for (; i < VIDEO_INPUT_CHANNEL_NUM; i++) {
+			if (g_csi_status_pair[i].bset) {
+				rt_media_devp->bcsi_status_set[i] = g_csi_status_pair[i].status;
+			}
+		}
+	}
+    /*LOG_LEVEL_VERBOSE = 2,
+    LOG_LEVEL_DEBUG = 3,
+    LOG_LEVEL_INFO = 4,
+    LOG_LEVEL_WARNING = 5,
+    LOG_LEVEL_ERROR = 6,*/
+	cdc_log_set_level(CONFIG_RT_MEDIA_CDC_LOG_LEVEL);
+
+	if (config->vin_buf_num < CONFIG_YUV_BUF_NUM)
+		config->vin_buf_num = CONFIG_YUV_BUF_NUM;
+
 	memset(&venc_config, 0, sizeof(venc_comp_base_config));
 	memset(&vi_config, 0, sizeof(vi_comp_base_config));
-
+	venc_config.channel_id = recoder->config.channelId;
 	if (media_config == NULL) {
 		RT_LOGE("ioctl_config: param is null");
 		return -1;
 	}
 
 	if (recoder->state != RT_MEDIA_STATE_IDLE) {
-		RT_LOGE(" the state[%d] is not idle", recoder->state);
-		return -1;
+		RT_LOGW("channel %d the state[%d] is not idle", config->channelId, recoder->state);
+		return 0;
 	}
-
+	if (config->dst_width == 0 || config->dst_height == 0) {
+		config->dst_width = config->width;
+		config->dst_height = config->height;
+	}
 	memcpy(media_config, config, sizeof(rt_media_config_s));
 
 	/* set the init-config-fps as max_fps */
 	recoder->max_fps = media_config->fps;
-
-	RT_LOGI("dis_default_para = %d, large_mv_th = %d, sizeof = %d",
-		media_config->motion_search_param.dis_default_para,
-		media_config->motion_search_param.large_mv_th,
-		sizeof(RTVencMotionSearchParam));
 
 	if (media_config->channelId < 0 || media_config->channelId > (VIDEO_INPUT_CHANNEL_NUM - 1)) {
 		RT_LOGE("channel[%d] is error", media_config->channelId);
@@ -491,16 +645,25 @@ int ioctl_config(video_recoder *recoder, rt_media_config_s *config)
 	if (recoder->config.output_mode == OUTPUT_MODE_STREAM) {
 		recoder->activate_venc_flag = 1;
 		recoder->activate_vi_flag   = 1;
-	} else if (recoder->config.output_mode == OUTPUT_MODE_YUV)
+	} else if (recoder->config.output_mode == OUTPUT_MODE_YUV) {
+		recoder->activate_venc_flag = 0;
 		recoder->activate_vi_flag = 1;
-	else if (recoder->config.output_mode == OUTPUT_MODE_ONLY_ENCDODER)
+	}
+	else if (recoder->config.output_mode == OUTPUT_MODE_ONLY_ENCDODER) {
 		recoder->activate_venc_flag = 1;
+		recoder->activate_vi_flag   = 0;
+	}
+
 	RT_LOGD("recoder->activate_vi_flag: %d", recoder->activate_vi_flag);
 	if (recoder->state == RT_MEDIA_STATE_IDLE)
 		ioctl_init(recoder);
 
-	RT_LOGW("2021-03-18-ENABLE_SETUP_RECODER_IN_KERNEL = %d, configSize = %d",
-		ENABLE_SETUP_RECODER_IN_KERNEL, sizeof(rt_media_config_s));
+#if defined CONFIG_RT_MEDIA_SETUP_RECORDER_IN_KERNEL && defined CONFIG_VIDEO_RT_MEDIA
+	RT_LOGW("CONFIG_RT_MEDIA_SETUP_RECORDER_IN_KERNEL = %d, configSize = %d",
+		CONFIG_RT_MEDIA_SETUP_RECORDER_IN_KERNEL, sizeof(rt_media_config_s));
+#else
+	RT_LOGW("CONFIG_RT_MEDIA_SETUP_RECORDER_IN_KERNEL id not enable, configSize = %d", sizeof(rt_media_config_s));
+#endif
 
 	RT_LOGW("out_mode = %d, activate_venc = %d, vi = %d, venc_comp = %p, vi = %p, max_fps = %d",
 		recoder->config.output_mode,
@@ -526,6 +689,12 @@ int ioctl_config(video_recoder *recoder, rt_media_config_s *config)
 	vi_config.pixelformat    = recoder->pixelformat;
 	vi_config.enable_wdr     = media_config->enable_wdr;
 	vi_config.drop_frame_num = media_config->drop_frame_num;
+	vi_config.bonline_channel = media_config->bonline_channel;
+	vi_config.share_buf_num = media_config->share_buf_num;
+	vi_config.en_16_align_fill_data = media_config->en_16_align_fill_data;
+	vi_config.vin_buf_num = media_config->vin_buf_num;
+
+	memcpy(&vi_config.venc_video_signal, &media_config->venc_video_signal, sizeof(VencH264VideoSignal));
 
 	RT_LOGI("enable_wdr = %d, %d", media_config->enable_wdr, vi_config.enable_wdr);
 	if (recoder->vi_comp)
@@ -539,28 +708,49 @@ int ioctl_config(video_recoder *recoder, rt_media_config_s *config)
 		comp_setup_tunnel(recoder->venc_comp, COMP_INPUT_PORT, recoder->vi_comp, connect_flag);
 		comp_setup_tunnel(recoder->vi_comp, COMP_OUTPUT_PORT, recoder->venc_comp, connect_flag);
 	}
+	if (recoder->vi_comp) {
+		if (comp_init(recoder->vi_comp) != 0) {
+			RT_LOGE("comp_init error");
+			return -1;
+		}
+	}
+	if (media_config->width == 0 || media_config->height == 0) {
+		vi_comp_base_config tmp_vi_config;
 
-	if (recoder->vi_comp)
-		comp_init(recoder->vi_comp);
-
+		RT_LOGW("err, width x height: %d %d", media_config->width, media_config->height);
+		comp_get_config(recoder->vi_comp, COMP_INDEX_VI_CONFIG_GET_BASE_CONFIG, &tmp_vi_config);
+		media_config->width = tmp_vi_config.width;
+		media_config->height = tmp_vi_config.height;
+		if (media_config->dst_width == 0 || media_config->dst_height == 0) {
+			media_config->dst_width = media_config->width;
+			media_config->dst_height = media_config->height;
+		}
+		venc_config.src_width = media_config->width;
+		venc_config.src_height = media_config->height;
+		venc_config.dst_width = media_config->dst_width;
+		venc_config.dst_height = media_config->dst_height;
+		if (recoder->venc_comp)
+			comp_set_config(recoder->venc_comp, COMP_INDEX_VENC_CONFIG_Base, &venc_config);
+		if (recoder->vi_comp)
+			comp_set_config(recoder->vi_comp, COMP_INDEX_VI_CONFIG_Base, &tmp_vi_config);
+	}
 	RT_LOGI("begin init venc comp");
 	//* init venc comp
 	if (recoder->venc_comp) {
 		comp_init(recoder->venc_comp);
 
-		RT_LOGI("media_config->enable_bin_image = %d, th = %d",
-			media_config->enable_bin_image, media_config->bin_image_moving_th);
-		if (media_config->enable_bin_image == 1) {
-			rt_venc_bin_image_param bin_param;
-
-			bin_param.enable    = 1;
-			bin_param.moving_th = media_config->bin_image_moving_th;
-			comp_set_config(recoder->venc_comp, COMP_INDEX_VENC_CONFIG_ENABLE_BIN_IMAGE, &bin_param);
-		}
-		if (media_config->enable_mv_info == 1)
-			comp_set_config(recoder->venc_comp, COMP_INDEX_VENC_CONFIG_ENABLE_MV_INFO, &media_config->enable_mv_info);
+//		RT_LOGI("media_config->enable_bin_image = %d, th = %d",
+//			media_config->enable_bin_image, media_config->bin_image_moving_th);
+//		if (media_config->enable_bin_image == 1) {
+//			rt_venc_bin_image_param bin_param;
+//
+//			bin_param.enable    = 1;
+//			bin_param.moving_th = media_config->bin_image_moving_th;
+//			comp_set_config(recoder->venc_comp, COMP_INDEX_VENC_CONFIG_ENABLE_BIN_IMAGE, &bin_param);
+//		}
+//		if (media_config->enable_mv_info == 1)
+//			comp_set_config(recoder->venc_comp, COMP_INDEX_VENC_CONFIG_ENABLE_MV_INFO, &media_config->enable_mv_info);
 	}
-
 	recoder->state = RT_MEDIA_STATE_CONFIGED;
 	RT_LOGI("ioctl_config finish");
 	return 0;
@@ -568,8 +758,9 @@ int ioctl_config(video_recoder *recoder, rt_media_config_s *config)
 
 int ioctl_start(video_recoder *recoder)
 {
+	RT_LOGI("ioctl_start begin");
 	if (recoder->state != RT_MEDIA_STATE_CONFIGED && recoder->state != RT_MEDIA_STATE_PAUSE) {
-		RT_LOGE("ioctl_start: state[%d] is not right", recoder->state);
+		RT_LOGW("channel %d ioctl_start: state[%d] is not right", recoder->config.channelId, recoder->state);
 		return -1;
 	}
 
@@ -624,6 +815,11 @@ int ioctl_destroy(video_recoder *recoder)
 	video_stream_node *stream_node = NULL;
 	int free_stream_cout	   = 0;
 
+	if (recoder->state == RT_MEDIA_STATE_IDLE) {
+		RT_LOGW("state is RT_MEDIA_STATE_IDLE, dont need destroy!");
+		return -1;
+	}
+
 	/*free the comp*/
 	if (recoder->venc_comp) {
 		comp_stop(recoder->venc_comp);
@@ -671,6 +867,18 @@ int ioctl_destroy(video_recoder *recoder)
 	recoder->state			= RT_MEDIA_STATE_IDLE;
 	recoder->enable_high_fps	= 0;
 	recoder->bReset_high_fps_finish = 0;
+
+	if (recoder->motion_region) {
+		kfree(recoder->motion_region);
+		recoder->motion_region = NULL;
+		recoder->motion_region_len = 0;
+	}
+
+	if (recoder->region_d3d_region) {
+		kfree(recoder->region_d3d_region);
+		recoder->region_d3d_region = NULL;
+		recoder->region_d3d_region_len = 0;
+	}
 
 	return -1;
 }
@@ -821,18 +1029,18 @@ static int ioctl_output_yuv_catch_jpeg_start(video_recoder *recoder,
 	rt_media_config_s *media_config = &recoder->config;
 
 	memset(&venc_config, 0, sizeof(venc_comp_base_config));
-
 	ret = comp_get_handle((comp_handle *)&recoder->venc_comp,
-			      "video.encoder",
-			      recoder,
-			      &venc_callback);
+			"video.encoder",
+			recoder,
+			&recoder->config,
+			&venc_callback);
 	if (ret != ERROR_TYPE_OK) {
 		RT_LOGE("get venc comp handle error: %d", ret);
 		return -1;
 	}
 
 	venc_config.quality		  = jpeg_config->qp;
-	venc_config.codec_type		  = VENC_COMP_CODEC_JPEG;
+	venc_config.codec_type		  = RT_VENC_CODEC_JPEG;
 	venc_config.src_width		  = media_config->width;
 	venc_config.src_height		  = media_config->height;
 	venc_config.dst_width		  = jpeg_config->width;
@@ -841,8 +1049,10 @@ static int ioctl_output_yuv_catch_jpeg_start(video_recoder *recoder,
 	venc_config.bit_rate		  = media_config->bitrate * 1024;
 	venc_config.pixelformat		  = recoder->pixelformat;
 	venc_config.max_keyframe_interval = media_config->gop;
-
+	venc_config.rotate_angle = jpeg_config->rotate_angle;
+	memcpy(&venc_config.venc_video_signal, &media_config->venc_video_signal, sizeof(VencH264VideoSignal));
 	venc_config.rc_mode = VENC_COMP_RC_MODE_H264CBR;
+	venc_config.en_encpp_sharp = media_config->enable_sharp;
 
 	RT_LOGI("src_w&h = %d, %d; dst_w&h = %d, %d, pixelformat = %d", venc_config.src_width, venc_config.src_height,
 		venc_config.dst_width, venc_config.dst_height, venc_config.pixelformat);
@@ -977,9 +1187,10 @@ static int ioctl_reset_encoder_type(video_recoder *recoder, int encoder_type)
 
 	/* create and init venc comp */
 	ret = comp_get_handle((comp_handle *)&recoder->venc_comp,
-			      "video.encoder",
-			      recoder,
-			      &venc_callback);
+			"video.encoder",
+			recoder,
+			&recoder->config,
+			&venc_callback);
 	if (ret != ERROR_TYPE_OK) {
 		RT_LOGE("get venc comp handle error: %d", ret);
 		return -1;
@@ -1044,6 +1255,7 @@ static long fops_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
 	/* todo */
 	int ret			       = 0;
+	int i = 0;
 	media_private_info *media_info = filp->private_data;
 	video_recoder *recoder	 = &rt_media_devp->recoder[media_info->channel];
 
@@ -1056,6 +1268,11 @@ static long fops_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		if (copy_from_user(&config, (void __user *)arg, sizeof(struct rt_media_config_s))) {
 			RT_LOGE("IOCTL_CONFIG copy_from_user fail\n");
 			return -EFAULT;
+		}
+
+		if (rt_media_devp->bcsi_err) {
+			RT_LOGE("csi is err\n");
+			return -1;
 		}
 
 		if (config.channelId < 0 || config.channelId > (VIDEO_INPUT_CHANNEL_NUM - 1)) {
@@ -1076,13 +1293,16 @@ static long fops_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		}
 
 		recoder = &rt_media_devp->recoder[media_info->channel];
-		ioctl_config(recoder, &config);
+		if (ioctl_config(recoder, &config) != 0) {
+			RT_LOGE("config err");
+			return -1;
+		}
 		RT_LOGD("IOCTL_CONFIG end");
 		break;
 	}
 	case IOCTL_START: {
-		RT_LOGD("IOCTL_START start");
-		RT_LOGTMP("rt_media_devp->in_high_fps_status %d", rt_media_devp->in_high_fps_status);
+		RT_LOGD("IOCTL_START start %d", recoder->config.width);
+		RT_LOGS("rt_media_devp->in_high_fps_status %d", rt_media_devp->in_high_fps_status);
 		if (recoder->enable_high_fps == 1 && recoder->bReset_high_fps_finish == 0) {
 			RT_LOGW("bReset_high_fps_finish is not 1, not start, state = %d", recoder->state);
 			return EFAULT;
@@ -1100,7 +1320,17 @@ static long fops_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			return 0;
 		}
 
+	#if defined CONFIG_VIDEO_RT_MEDIA
+		if (rt_media_devp->bcsi_status_set[media_info->channel]) {
+			ioctl_start(recoder);
+		} else {
+			RT_LOGW("csi not ready.");
+			return -1;
+		}
+	#else
 		ioctl_start(recoder);
+	#endif
+
 		RT_LOGD("IOCTL_START end");
 		break;
 	}
@@ -1192,71 +1422,6 @@ static long fops_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			RT_LOGE("IOCTL_GET_STREAM_DATA: recoder->venc_comp is null\n");
 			return -EFAULT;
 		}
-#if (COPY_STREAM_DATA_FROM_KERNEL)
-		video_stream_s user_video_stream;
-		video_stream_s dst_video_stream;
-
-		memset(&user_video_stream, 0, sizeof(video_stream_s));
-		memset(&dst_video_stream, 0, sizeof(video_stream_s));
-
-		if (copy_from_user(&user_video_stream, (void __user *)arg, sizeof(video_stream_s))) {
-			RT_LOGE("IOCTL_GET_STREAM_DATA copy_from_user fail\n");
-			return -EFAULT;
-		}
-
-		video_stream = ioctl_get_stream_data(recoder);
-		if (video_stream == NULL) {
-			RT_LOGD("IOCTL_GET_STREAM_DATA: video stream is null\n");
-			//* timeout is 10 ms: HZ is 100, HZ == 1s, so 1 jiffies is 10 ms
-
-			mutex_lock(&recoder->stream_buf_manager.mutex);
-			recoder->stream_buf_manager.wait_bitstream_condition = 0;
-			recoder->stream_buf_manager.need_wait_up_flag	= 1;
-			mutex_unlock(&recoder->stream_buf_manager.mutex);
-
-			wait_event_timeout(recoder->stream_buf_manager.wait_bitstream,
-					   recoder->stream_buf_manager.wait_bitstream_condition, 1);
-			return -EFAULT;
-		}
-
-		RT_LOGD("video_stream->data0 = %p, size0 = %d", video_stream->data0, video_stream->size0);
-		if (video_stream->data0 && video_stream->size0 > 0) {
-			if (copy_to_user((void *)user_video_stream.buf, video_stream->data0, video_stream->size0)) {
-				RT_LOGE("IOCTL_GET_STREAM_DATA copy_to_user fail\n");
-				ioctl_return_stream_data(recoder, video_stream);
-				return -EFAULT;
-			}
-			user_video_stream.buf_valid_size = video_stream->size0;
-		}
-
-		if (video_stream->data1 && video_stream->size1 > 0) {
-			RT_LOGD("copy the video_stream->data1, size = %d",
-				video_stream->size1);
-			if (copy_to_user((void *)(user_video_stream.buf + user_video_stream.buf_valid_size), video_stream->data1, video_stream->size1)) {
-				RT_LOGE("IOCTL_GET_STREAM_DATA copy_to_user fail\n");
-				ioctl_return_stream_data(recoder, video_stream);
-				return -EFAULT;
-			}
-			user_video_stream.buf_valid_size += video_stream->size1;
-		}
-		if (video_stream->data2 && video_stream->size2 > 0) {
-			RT_LOGE("not copy the video_stream->data2 yet, size = %d",
-				video_stream->size2);
-		}
-
-		memcpy(&dst_video_stream, video_stream, sizeof(video_stream_s));
-		dst_video_stream.buf		= user_video_stream.buf;
-		dst_video_stream.buf_size       = user_video_stream.buf_size;
-		dst_video_stream.buf_valid_size = user_video_stream.buf_valid_size;
-		dst_video_stream.pts		= video_stream->pts;
-
-		if (copy_to_user((void *)arg, &dst_video_stream, sizeof(video_stream_s))) {
-			RT_LOGE("IOCTL_GET_STREAM_DATA copy_to_user fail\n");
-			ioctl_return_stream_data(recoder, video_stream);
-			return -EFAULT;
-		}
-
-#else
 		video_stream = ioctl_get_stream_data(recoder);
 		if (video_stream == NULL) {
 			RT_LOGD("IOCTL_GET_STREAM_DATA: video stream is null\n");
@@ -1279,7 +1444,6 @@ static long fops_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			RT_LOGE("IOCTL_GET_STREAM_DATA copy_to_user fail\n");
 			return -EFAULT;
 		}
-#endif
 
 		break;
 	}
@@ -1317,8 +1481,9 @@ static long fops_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 				RT_LOGE("COMP_INDEX_VENC_CONFIG_CATCH_JPEG_START failed");
 				return -EFAULT;
 			}
-		} else
+		} else {
 			ioctl_output_yuv_catch_jpeg_start(recoder, &jpeg_config);
+		}
 
 		break;
 	}
@@ -1362,24 +1527,24 @@ static long fops_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		}
 		break;
 	}
-	case IOCTL_GET_BIN_IMAGE_DATA: {
-		ret = comp_get_config(recoder->venc_comp, COMP_INDEX_VENC_CONFIG_GET_BIN_IMAGE_DATA, (void *)arg);
-		if (ret <= 0) {
-			RT_LOGE("IOCTL_GET_BIN_IMAGE_DATA failed");
-			return -EFAULT;
-		}
-		RT_LOGI("IOCTL_GET_BIN_IMAGE_DATA, ret = %d", ret);
-		return ret;
-	}
-	case IOCTL_GET_MV_INFO_DATA: {
-		ret = comp_get_config(recoder->venc_comp, COMP_INDEX_VENC_CONFIG_GET_MV_INFO_DATA, (void *)arg);
-		if (ret <= 0) {
-			RT_LOGE("IOCTL_GET_MV_INFO_DATA failed");
-			return -EFAULT;
-		}
-		RT_LOGI("IOCTL_GET_MV_INFO_DATA, ret = %d", ret);
-		return ret;
-	}
+//	case IOCTL_GET_BIN_IMAGE_DATA: {
+//		ret = comp_get_config(recoder->venc_comp, COMP_INDEX_VENC_CONFIG_GET_BIN_IMAGE_DATA, (void *)arg);
+//		if (ret <= 0) {
+//			RT_LOGE("IOCTL_GET_BIN_IMAGE_DATA failed");
+//			return -EFAULT;
+//		}
+//		RT_LOGI("IOCTL_GET_BIN_IMAGE_DATA, ret = %d", ret);
+//		return ret;
+//	}
+//	case IOCTL_GET_MV_INFO_DATA: {
+//		ret = comp_get_config(recoder->venc_comp, COMP_INDEX_VENC_CONFIG_GET_MV_INFO_DATA, (void *)arg);
+//		if (ret <= 0) {
+//			RT_LOGE("IOCTL_GET_MV_INFO_DATA failed");
+//			return -EFAULT;
+//		}
+//		RT_LOGI("IOCTL_GET_MV_INFO_DATA, ret = %d", ret);
+//		return ret;
+//	}
 	case IOCTL_CONFIG_YUV_BUF_INFO: {
 		if (copy_from_user(&recoder->yuv_buf_info, (void __user *)arg, sizeof(struct config_yuv_buf_info))) {
 			RT_LOGE("IOCTL_GET_YUV_FRAME copy_from_user fail\n");
@@ -1396,14 +1561,16 @@ static long fops_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	}
 	case IOCTL_REQUEST_YUV_FRAME: {
 		unsigned char *phy_addr = NULL;
+		rt_yuv_info s_yuv_info;
 
-		ret = comp_set_config(recoder->vi_comp, COMP_INDEX_VI_CONFIG_Dynamic_REQUEST_YUV_FRAME, (void *)&phy_addr);
+		memset(&s_yuv_info, 0, sizeof(rt_yuv_info));
+		ret = comp_set_config(recoder->vi_comp, COMP_INDEX_VI_CONFIG_Dynamic_REQUEST_YUV_FRAME, (void *)&s_yuv_info);
 		if (ret < 0) {
 			RT_LOGE("IOCTL_REQUEST_YUV_FRAME failed, ret = %d", ret);
 			return -EFAULT;
 		}
 
-		if (copy_to_user((void *)arg, &phy_addr, sizeof(unsigned char *))) {
+		if (copy_to_user((void *)arg, &s_yuv_info, sizeof(s_yuv_info))) {
 			RT_LOGE("IOCTL_REQUEST_YUV_FRAME copy_to_user fail\n");
 			return -EFAULT;
 		}
@@ -1477,11 +1644,53 @@ static long fops_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			return -EFAULT;
 		}
 
-		RT_LOGD("IOCTL_SET_ISP_ATTR_CFG:ctrl id:%d, value:%d\n", ctrlattr.isp_ctrl_id, ctrlattr.value);
+		RT_LOGD("IOCTL_SET_ISP_ATTR_CFG:ctrl id:%d\n", ctrlattr.isp_attr_cfg.cfg_id);
 
 		ret = comp_set_config(recoder->vi_comp, COMP_INDEX_VI_CONFIG_Dynamic_SET_ISP_ARRT_CFG, (void *)&ctrlattr);
 		if (ret < 0) {
 			RT_LOGE("COMP_INDEX_VI_CONFIG_Dynamic_SET_ISP_ARRT_CFG failed, ret = %d", ret);
+			return -EFAULT;
+		}
+		break;
+	}
+	case IOCTL_GET_ISP_ATTR_CFG: {
+		RTIspCtrlAttr ctrlattr;
+
+		memset(&ctrlattr, 0, sizeof(RTIspCtrlAttr));
+
+		if (copy_from_user(&ctrlattr, (void __user *)arg, sizeof(RTIspCtrlAttr))) {
+			RT_LOGE("IOCTL_GET_ISP_ATTR_CFG copy_from_user fail\n");
+			return -EFAULT;
+		}
+
+		RT_LOGD("IOCTL_GET_ISP_ATTR_CFG:ctrl id:%d\n", ctrlattr.isp_attr_cfg.cfg_id);
+
+		ret = comp_get_config(recoder->vi_comp, COMP_INDEX_VI_CONFIG_Dynamic_GET_ISP_ARRT_CFG, (void *)&ctrlattr);
+		if (ret < 0) {
+			RT_LOGE("COMP_INDEX_VI_CONFIG_Dynamic_GET_ISP_ARRT_CFG failed, ret = %d", ret);
+			return -EFAULT;
+		}
+
+		if (copy_to_user((void *)arg, &ctrlattr, sizeof(RTIspCtrlAttr))) {
+			RT_LOGE("IOCTL_GET_ISP_ATTR_CFG copy_to_user fail\n");
+			return -EFAULT;
+		}
+
+		break;
+	}
+	case IOCTL_SET_ISP_ORL: {
+		RTIspOrl isp_orl;
+
+		memset(&isp_orl, 0, sizeof(RTIspOrl));
+
+		if (copy_from_user(&isp_orl, (void __user *)arg, sizeof(RTIspOrl))) {
+			RT_LOGE("IOCTL_SET_ISP_ATTR_CFG copy_from_user fail\n");
+			return -EFAULT;
+		}
+
+		ret = comp_set_config(recoder->vi_comp, COMP_INDEX_VI_CONFIG_Dynamic_SET_ORL, (void *)&isp_orl);
+		if (ret < 0) {
+			RT_LOGE("COMP_INDEX_VI_CONFIG_Dynamic_SET_ORL failed, ret = %d", ret);
 			return -EFAULT;
 		}
 		break;
@@ -1698,40 +1907,122 @@ static long fops_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
 		break;
 	}
-	case IOCTL_GET_ENC_MOTION_SEARCH_RESULT: {
-		int result_len				= 50 * sizeof(RTVencMotionSearchRegion);
-		RTVencMotionSearchRegion *motion_result = kmalloc(result_len, GFP_KERNEL);
+	case IOCTL_SET_IPC_CASE: {
+		int is_ipc_case = 0;
 
-		RT_LOGI("result_len = %d", result_len);
-		if (motion_result == NULL) {
-			RT_LOGE("IOCTL_GET_ENC_MOTION_SEARCH_RESULT: kmalloc fail\n");
+		if (copy_from_user(&is_ipc_case, (void __user *)arg, sizeof(int))) {
+			RT_LOGE("IOCTL_SET_IPC_CASE copy_from_user fail\n");
 			return -EFAULT;
 		}
-
-		memset(motion_result, 0, result_len);
-
-		ret = comp_get_config(recoder->venc_comp, COMP_INDEX_VENC_CONFIG_Dynamic_GET_MOTION_SEARCH_RESULT, (void *)motion_result);
+		RT_LOGI("is_ipc_case %d", is_ipc_case);
+		ret = comp_set_config(recoder->venc_comp, COMP_INDEX_VENC_CONFIG_SET_IPC_CASE, (void *)&is_ipc_case);
 		if (ret != 0) {
-			RT_LOGE("VENC GET_MOTION_SEARCH_RESULT fail\n");
-			kfree(motion_result);
+			RT_LOGE("VENC IOCTL_SET_IPC_CASE fail\n");
 			return -EFAULT;
 		}
-
-		if (copy_to_user((void *)arg, motion_result, result_len)) {
-			RT_LOGE("IOCTL_GET_ENC_MOTION_SEARCH_RESULT copy_to_user fail\n");
-			return -EFAULT;
-			kfree(motion_result);
-		}
-		kfree(motion_result);
 
 		break;
 	}
+	case IOCTL_SET_ENC_MOTION_SEARCH_PARAM: {
+		VencMotionSearchParam *pmotion_search_param = &recoder->motion_search_param;
+		int total_region_num;
+
+		if (copy_from_user(pmotion_search_param, (void __user *)arg, sizeof(RTVencMotionSearchParam))) {
+			RT_LOGE("IOCTL_SET_ENC_MOTION_SEARCH_PARAM copy_from_user fail\n");
+			return -EFAULT;
+		}
+		RT_LOGD("motion_search_param hor_region_num %d, ver_region_num %d", recoder->motion_search_param.hor_region_num, recoder->motion_search_param.ver_region_num);
+
+		if (0 == recoder->motion_search_param.en_motion_search) {
+			if (recoder->motion_region) {
+				kfree(recoder->motion_region);
+				recoder->motion_region = NULL;
+				recoder->motion_region_len = 0;
+			}
+		} else {
+			if (0 == recoder->motion_search_param.dis_default_para) {
+				total_region_num = MOTION_TOTAL_REGION_NUM_DEFAULT;
+			} else {
+				if ((0 == recoder->motion_search_param.hor_region_num) || (0 == recoder->motion_search_param.ver_region_num)) {
+					RT_LOGE("IOCTL_SET_ENC_MOTION_SEARCH_PARAM invalid params, %d %d\n", recoder->motion_search_param.hor_region_num,
+						recoder->motion_search_param.ver_region_num);
+					return -EFAULT;
+				} else {
+					total_region_num = recoder->motion_search_param.hor_region_num * recoder->motion_search_param.ver_region_num;
+				}
+			}
+
+			recoder->motion_region_len = total_region_num * sizeof(VencMotionSearchRegion);
+			RT_LOGI("total_region_num %d, motion_region_len %d", total_region_num, recoder->motion_region_len);
+
+			// free motion_region when disable motion_search or ioctl_destroy
+			recoder->motion_region = kmalloc(recoder->motion_region_len, GFP_KERNEL);
+			if (recoder->motion_region == NULL) {
+				RT_LOGE("IOCTL_SET_ENC_MOTION_SEARCH_PARAM: kmalloc fail\n");
+				return -EFAULT;
+			}
+			memset(recoder->motion_region, 0, recoder->motion_region_len);
+		}
+
+		ret = comp_set_config(recoder->venc_comp, COMP_INDEX_VENC_CONFIG_SET_MOTION_SEARCH_PARAM, (void *)pmotion_search_param);
+		if (ret != 0) {
+			RT_LOGE("VENC COMP_INDEX_VENC_CONFIG_SET_MOTION_SEARCH_PARAM fail\n");
+			if (recoder->motion_region) {
+				kfree(recoder->motion_region);
+				recoder->motion_region = NULL;
+				recoder->motion_region_len = 0;
+			}
+			return -EFAULT;
+		}
+
+		break;
+	}
+	case IOCTL_GET_ENC_MOTION_SEARCH_RESULT: {
+		VencMotionSearchResult motion_result;
+		VencMotionSearchResult motion_result_from_user;
+
+		if (recoder->config.encodeType == 1) {
+			RT_LOGW("not support jpg, return\n");
+			return -1;
+		}
+
+		if (recoder->motion_region == NULL || 0 == recoder->motion_region_len) {
+			RT_LOGE("IOCTL_GET_ENC_MOTION_SEARCH_RESULT: invalid motion_region\n");
+			return -EFAULT;
+		}
+
+		memset(&motion_result_from_user, 0, sizeof(VencMotionSearchResult));
+		if (copy_from_user(&motion_result_from_user, (void __user *)arg, sizeof(VencMotionSearchResult))) {
+			RT_LOGE("motion_result_from_user copy_from_user fail\n");
+			return -EFAULT;
+		}
+
+		memset(&motion_result, 0, sizeof(VencMotionSearchResult));
+		motion_result.region = recoder->motion_region;
+
+		ret = comp_get_config(recoder->venc_comp, COMP_INDEX_VENC_CONFIG_Dynamic_GET_MOTION_SEARCH_RESULT, (void *)&motion_result);
+		if (ret != 0) {
+			RT_LOGE("VENC COMP_INDEX_VENC_CONFIG_Dynamic_GET_MOTION_SEARCH_RESULT fail\n");
+			return -EFAULT;
+		}
+
+		if (copy_to_user((void *)motion_result_from_user.region, motion_result.region, recoder->motion_region_len)) {
+			RT_LOGE("region copy_to_user fail\n");
+			return -EFAULT;
+		}
+		motion_result.region = motion_result_from_user.region;
+		if (copy_to_user((void *)arg, &motion_result, sizeof(VencMotionSearchResult))) {
+			RT_LOGE("motion_result copy_to_user fail\n");
+			return -EFAULT;
+		}
+		break;
+	}
 	case IOCTL_SET_VENC_SUPER_FRAME_PARAM: {
-		RTVencSuperFrameConfig super_frame_config;
+		VencSuperFrameConfig super_frame_config;
 
-		memset(&super_frame_config, 0, sizeof(RTVencSuperFrameConfig));
+		memset(&super_frame_config, 0, sizeof(VencSuperFrameConfig));
 
-		if (copy_from_user(&super_frame_config, (void __user *)arg, sizeof(RTVencSuperFrameConfig))) {
+		if (copy_from_user(&super_frame_config, (void __user *)arg, sizeof(VencSuperFrameConfig))) {
 			RT_LOGE("IOCTL_SET_VENC_SUPER_FRAME_PARAM copy_from_user fail\n");
 			return -EFAULT;
 		}
@@ -1742,6 +2033,376 @@ static long fops_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			return -EFAULT;
 		}
 
+		break;
+	}
+	case IOCTL_SET_SHARP: {
+		int bSharp = (int)arg;
+		ret = comp_set_config(recoder->venc_comp, COMP_INDEX_VENC_CONFIG_SET_SHARP, (void *)&bSharp);
+		if (ret != 0) {
+			RT_LOGE("VENC COMP_INDEX_VENC_CONFIG_SET_SHARP fail\n");
+			return -EFAULT;
+		}
+		break;
+	}
+	case IOCTL_GET_CSI_STATUS: {
+		//not buildin mode, such ko mode, this is invalid
+		int i = 0;
+		for (; i < VIDEO_INPUT_CHANNEL_NUM; i++) {
+		#if defined CONFIG_VIDEO_RT_MEDIA//build in mode
+			if (g_csi_status_pair[i].bset) {
+				rt_media_devp->bcsi_status_set[i] = g_csi_status_pair[i].status;
+			}
+		#else//not for real value, only compatibility
+			rt_media_devp->bcsi_status_set[i] = 1;
+		#endif
+		}
+		if (copy_to_user((void *)arg, rt_media_devp->bcsi_status_set, sizeof(int) * VIDEO_INPUT_CHANNEL_NUM)) {
+			RT_LOGE("IOCTL_GET_CSI_STATUS copy_to_user fail\n");
+			return -EFAULT;
+		}
+		break;
+	}
+	case IOCTL_SET_ROI: {
+		VencROIConfig sRoiConfig[MAX_ROI_AREA];
+
+		memset(sRoiConfig, 0, sizeof(VencROIConfig) * MAX_ROI_AREA);
+
+		if (copy_from_user(sRoiConfig, (void __user *)arg, sizeof(VencROIConfig) * MAX_ROI_AREA)) {
+			RT_LOGE("IOCTL_SET_ROI copy_from_user fail\n");
+			return -EFAULT;
+		}
+		if (recoder->venc_comp) {
+			for (i = 0; i < MAX_ROI_AREA; i++) {
+				comp_set_config(recoder->venc_comp, COMP_INDEX_VENC_CONFIG_SET_ROI, &sRoiConfig[i]);
+			}
+		}
+		break;
+	}
+	case IOCTL_SET_GDC: {
+		sGdcParam sGdcConfig;
+
+		memset(&sGdcConfig, 0, sizeof(sGdcParam));
+
+		if (copy_from_user(&sGdcConfig, (void __user *)arg, sizeof(sGdcParam))) {
+			RT_LOGE("IOCTL_SET_GDC copy_from_user fail\n");
+			return -EFAULT;
+		}
+		RT_LOGD("eMountMode %d peak_weights_strength %d peak_m %d %d", sGdcConfig.eMountMode, sGdcConfig.peak_weights_strength, sGdcConfig.peak_m, sGdcConfig.th_strong_edge);
+		if (recoder->venc_comp)
+			comp_set_config(recoder->venc_comp, COMP_INDEX_VENC_CONFIG_SET_GDC, &sGdcConfig);
+		break;
+	}
+	case IOCTL_SET_ROTATE: {
+		unsigned int rotate_angle = (unsigned int)arg;
+
+		if (recoder->venc_comp)
+			comp_set_config(recoder->venc_comp, COMP_INDEX_VENC_CONFIG_SET_ROTATE, &rotate_angle);
+		break;
+	}
+	case IOCTL_SET_REC_REF_LBC_MODE: {
+		eVeLbcMode rec_lbc_mode = (eVeLbcMode)arg;
+		RT_LOGD("rec_lbc_mode %d\n", rec_lbc_mode);
+
+		if (recoder->config.encodeType == 1) {
+			RT_LOGW("not support jpg, return\n");
+			return -1;
+		}
+
+		if (recoder->venc_comp)
+			comp_set_config(recoder->venc_comp, COMP_INDEX_VENC_CONFIG_SET_REC_REF_LBC_MODE, &rec_lbc_mode);
+		break;
+	}
+	case IOCTL_SET_WEAK_TEXT_TH: {
+		RTVenWeakTextTh WeakTextTh;
+
+		memset(&WeakTextTh, 0, sizeof(RTVenWeakTextTh));
+
+		if (copy_from_user(&WeakTextTh, (void __user *)arg, sizeof(RTVenWeakTextTh))) {
+			RT_LOGE("IOCTL_SET_WEAK_TEXT_TH copy_from_user fail\n");
+			return -EFAULT;
+		}
+
+		if (recoder->config.encodeType == 1) {
+			RT_LOGW("not support jpg, return\n");
+			return -1;
+		}
+
+		RT_LOGD("en_weak_text_th:%d, weak_text_th:%d%%", WeakTextTh.en_weak_text_th, (int)WeakTextTh.weak_text_th);
+
+		if (recoder->venc_comp && WeakTextTh.en_weak_text_th) {
+			ret = comp_set_config(recoder->venc_comp, COMP_INDEX_VENC_CONFIG_SET_WEAK_TEXT_TH, (void *)&WeakTextTh.weak_text_th);
+			if (ret != 0) {
+				RT_LOGE("COMP_INDEX_VENC_CONFIG_SET_VE2ISP_D2D_LIMIT fail\n");
+				return -EFAULT;
+			}
+		}
+
+		break;
+	}
+	case IOCTL_SET_REGION_D3D_PARAM: {
+		VencRegionD3DParam *pregion_d3d_param = &recoder->region_d3d_param;
+		int total_region_num;
+
+		if (recoder->config.encodeType == 1) {
+			RT_LOGW("not support jpg, return\n");
+			return -1;
+		}
+
+		if (copy_from_user(pregion_d3d_param, (void __user *)arg, sizeof(VencRegionD3DParam))) {
+			RT_LOGE("IOCTL_SET_REGION_D3D_PARAM copy_from_user fail\n");
+			return -EFAULT;
+		}
+
+		RT_LOGD("RegionD3D Region:%dx%d, Expand:%dx%d, Coef:%d,{%d,%d,%d},{%d,%d,%d,%d}, Th:{%d%%,%d%%,%d%%}\n",
+			pregion_d3d_param->hor_region_num,
+			pregion_d3d_param->ver_region_num,
+			pregion_d3d_param->hor_expand_num,
+			pregion_d3d_param->ver_expand_num,
+			pregion_d3d_param->chroma_offset,
+			pregion_d3d_param->static_coef[0],
+			pregion_d3d_param->static_coef[1],
+			pregion_d3d_param->static_coef[2],
+			pregion_d3d_param->motion_coef[0],
+			pregion_d3d_param->motion_coef[1],
+			pregion_d3d_param->motion_coef[2],
+			pregion_d3d_param->motion_coef[3],
+			(int)pregion_d3d_param->zero_mv_rate_th[0],
+			(int)pregion_d3d_param->zero_mv_rate_th[1],
+			(int)pregion_d3d_param->zero_mv_rate_th[2]);
+
+		if (recoder->region_d3d_param.en_region_d3d == 0) {
+			if (recoder->region_d3d_region) {
+				kfree(recoder->region_d3d_region);
+				recoder->region_d3d_region = NULL;
+				recoder->region_d3d_region_len = 0;
+			}
+		} else {
+			if (recoder->region_d3d_param.dis_default_para == 0) {
+				total_region_num = REGION_D3D_TOTAL_REGION_NUM_DEFAULT;
+			} else {
+				if ((recoder->region_d3d_param.hor_region_num == 0) || (recoder->region_d3d_param.ver_region_num == 0)) {
+					RT_LOGE("IOCTL_SET_REGION_D3D_PARAM invalid params, %d %d\n", recoder->region_d3d_param.hor_region_num,
+						recoder->region_d3d_param.ver_region_num);
+					return -EFAULT;
+				} else {
+					total_region_num = recoder->region_d3d_param.hor_region_num * recoder->region_d3d_param.ver_region_num;
+				}
+			}
+
+			recoder->region_d3d_region_len = total_region_num * sizeof(VencRegionD3DRegion);
+			RT_LOGI("total_region_num %d, region_d3d_region_len %d", total_region_num, recoder->region_d3d_region_len);
+
+			// free region_d3d_region when disable region_d3d or ioctl_destroy
+			recoder->region_d3d_region = kmalloc(recoder->region_d3d_region_len, GFP_KERNEL);
+			if (recoder->region_d3d_region == NULL) {
+				RT_LOGE("IOCTL_SET_REGION_D3D_PARAM: kmalloc fail\n");
+				return -EFAULT;
+			}
+			memset(recoder->region_d3d_region, 0, recoder->region_d3d_region_len);
+		}
+
+		ret = comp_set_config(recoder->venc_comp, COMP_INDEX_VENC_CONFIG_SET_REGION_D3D_PARAM, (void *)pregion_d3d_param);
+		if (ret != 0) {
+			RT_LOGE("VENC COMP_INDEX_VENC_CONFIG_SET_REGION_D3D_PARAM fail\n");
+			if (recoder->region_d3d_region) {
+				kfree(recoder->region_d3d_region);
+				recoder->region_d3d_region = NULL;
+				recoder->region_d3d_region_len = 0;
+			}
+			return -EFAULT;
+		}
+
+		break;
+	}
+	case IOCTL_GET_REGION_D3D_RESULT: {
+		VencRegionD3DResult region_d3d_result;
+		VencRegionD3DResult region_d3d_result_from_user;
+
+		if (recoder->config.encodeType == 1) {
+			RT_LOGW("not support jpg, return\n");
+			return -1;
+		}
+
+		if (recoder->region_d3d_region == NULL || 0 == recoder->region_d3d_region_len) {
+			RT_LOGE("IOCTL_GET_REGION_D3D_RESULT: invalid region_d3d_region\n");
+			return -EFAULT;
+		}
+
+		memset(&region_d3d_result_from_user, 0, sizeof(VencRegionD3DResult));
+		if (copy_from_user(&region_d3d_result_from_user, (void __user *)arg, sizeof(VencRegionD3DResult))) {
+			RT_LOGE("region_d3d_result_from_user copy_from_user fail\n");
+			return -EFAULT;
+		}
+
+		memset(&region_d3d_result, 0, sizeof(VencRegionD3DResult));
+		region_d3d_result.region = recoder->region_d3d_region;
+
+		ret = comp_get_config(recoder->venc_comp, COMP_INDEX_VENC_CONFIG_Dynamic_GET_REGION_D3D_RESULT, (void *)&region_d3d_result);
+		if (ret != 0) {
+			RT_LOGE("VENC COMP_INDEX_VENC_CONFIG_Dynamic_GET_REGION_D3D_RESULT fail\n");
+			return -EFAULT;
+		}
+
+		if (copy_to_user((void *)region_d3d_result_from_user.region, region_d3d_result.region, recoder->region_d3d_region_len)) {
+			RT_LOGE("region copy_to_user fail\n");
+			return -EFAULT;
+		}
+		region_d3d_result.region = region_d3d_result_from_user.region;
+		if (copy_to_user((void *)arg, &region_d3d_result, sizeof(VencRegionD3DResult))) {
+			RT_LOGE("region_d3d_result copy_to_user fail\n");
+			return -EFAULT;
+		}
+		break;
+	}
+	case IOCTL_SET_CHROMA_QP_OFFSET: {
+		int nChromaQPOffset = (int)arg;
+
+		if (recoder->config.encodeType == 1) {
+			RT_LOGW("not support jpg, return\n");
+			return -1;
+		}
+		RT_LOGD("nChromaQPOffset %d\n", nChromaQPOffset);
+
+		if (recoder->venc_comp)
+			comp_set_config(recoder->venc_comp, COMP_INDEX_VENC_CONFIG_SET_CHROMA_QP_OFFSET, &nChromaQPOffset);
+		break;
+	}
+	case IOCTL_SET_H264_CONSTRAINT_FLAG: {
+		VencH264ConstraintFlag ConstraintFlag;
+
+		if (recoder->config.encodeType != 0) {
+			RT_LOGW("only support h.264, return\n");
+			return -1;
+		}
+
+		memset(&ConstraintFlag, 0, sizeof(VencH264ConstraintFlag));
+
+		if (copy_from_user(&ConstraintFlag, (void __user *)arg, sizeof(VencH264ConstraintFlag))) {
+			RT_LOGE("IOCTL_SET_H264_CONSTRAINT_FLAG copy_from_user fail\n");
+			return -EFAULT;
+		}
+
+		RT_LOGD("constraint:%d %d %d  %d %d %d", ConstraintFlag.constraint_0, ConstraintFlag.constraint_1,
+			ConstraintFlag.constraint_2, ConstraintFlag.constraint_3, ConstraintFlag.constraint_4, ConstraintFlag.constraint_5);
+
+		if (recoder->venc_comp) {
+			ret = comp_set_config(recoder->venc_comp, COMP_INDEX_VENC_CONFIG_SET_H264_CONSTRAINT_FLAG, (void *)&ConstraintFlag);
+			if (ret != 0) {
+				RT_LOGE("COMP_INDEX_VENC_CONFIG_SET_H264_CONSTRAINT_FLAG fail\n");
+				return -EFAULT;
+			}
+		}
+
+		break;
+	}
+	case IOCTL_SET_VE2ISP_D2D_LIMIT: {
+		VencVe2IspD2DLimit D2DLimit;
+
+		if (recoder->config.encodeType == 1) {
+			RT_LOGW("not support jpg, return\n");
+			return -1;
+		}
+
+		memset(&D2DLimit, 0, sizeof(VencVe2IspD2DLimit));
+
+		if (copy_from_user(&D2DLimit, (void __user *)arg, sizeof(VencVe2IspD2DLimit))) {
+			RT_LOGE("IOCTL_SET_VE2ISP_D2D_LIMIT copy_from_user fail\n");
+			return -EFAULT;
+		}
+
+		RT_LOGD("en_d2d_limit:%d, d2d_level:%d %d %d %d %d %d", D2DLimit.en_d2d_limit,
+			D2DLimit.d2d_level[0], D2DLimit.d2d_level[1], D2DLimit.d2d_level[2],
+			D2DLimit.d2d_level[3], D2DLimit.d2d_level[4], D2DLimit.d2d_level[5]);
+
+		if (recoder->venc_comp) {
+			ret = comp_set_config(recoder->venc_comp, COMP_INDEX_VENC_CONFIG_SET_VE2ISP_D2D_LIMIT, (void *)&D2DLimit);
+			if (ret != 0) {
+				RT_LOGE("COMP_INDEX_VENC_CONFIG_SET_VE2ISP_D2D_LIMIT fail\n");
+				return -EFAULT;
+			}
+		}
+
+		break;
+	}
+	case IOCTL_SET_GRAY: {
+		unsigned int enable_gray = (unsigned int)arg;
+
+		if (recoder->venc_comp)
+			comp_set_config(recoder->venc_comp, COMP_INDEX_VENC_CONFIG_SET_GRAY, &enable_gray);
+		break;
+	}
+	case IOCTL_SET_WB_YUV: {
+		RTsWbYuvParam sWbyuvConfig;
+
+		memset(&sWbyuvConfig, 0, sizeof(RTsWbYuvParam));
+
+		if (copy_from_user(&sWbyuvConfig, (void __user *)arg, sizeof(RTsWbYuvParam))) {
+			RT_LOGE("IOCTL_SET_WB_YUV copy_from_user fail\n");
+			return -EFAULT;
+		}
+		if (recoder->venc_comp)
+			comp_set_config(recoder->venc_comp, COMP_INDEX_VENC_CONFIG_SET_WBYUV, &sWbyuvConfig);
+		RT_LOGD("bEnableWbYuv %d ", sWbyuvConfig.bEnableWbYuv);
+		break;
+	}
+	case IOCTL_GET_WB_YUV: {
+		RTVencThumbInfo s_wbyuv_info;
+
+		memset(&s_wbyuv_info, 0, sizeof(RTVencThumbInfo));
+
+		if (copy_from_user(&s_wbyuv_info, (void __user *)arg, sizeof(RTVencThumbInfo))) {
+			RT_LOGE("IOCTL_GET_WB_YUV copy_from_user fail\n");
+			return -EFAULT;
+		}
+		RT_LOGD("nThumbSize %d %p", s_wbyuv_info.nThumbSize, s_wbyuv_info.pThumbBuf);
+		if (recoder->venc_comp)
+			comp_get_config(recoder->venc_comp, COMP_INDEX_VENC_CONFIG_GET_WBYUV, &s_wbyuv_info);
+		break;
+	}
+	case IOCTL_SET_2DNR: {
+		RTs2DfilterParam s_2dnr_param;
+
+		memset(&s_2dnr_param, 0, sizeof(RTs2DfilterParam));
+
+		if (copy_from_user(&s_2dnr_param, (void __user *)arg, sizeof(RTs2DfilterParam))) {
+			RT_LOGE("IOCTL_SET_2DNR copy_from_user fail\n");
+			return -EFAULT;
+		}
+		if (recoder->venc_comp)
+			comp_set_config(recoder->venc_comp, COMP_INDEX_VENC_CONFIG_SET_2DNR, &s_2dnr_param);
+		break;
+	}
+	case IOCTL_SET_3DNR: {
+		RTs3DfilterParam s_3dnr_param;
+
+		memset(&s_3dnr_param, 0, sizeof(RTs3DfilterParam));
+
+		if (copy_from_user(&s_3dnr_param, (void __user *)arg, sizeof(RTs3DfilterParam))) {
+			RT_LOGE("IOCTL_SET_3DNR copy_from_user fail\n");
+			return -EFAULT;
+		}
+		if (recoder->venc_comp)
+			comp_set_config(recoder->venc_comp, COMP_INDEX_VENC_CONFIG_SET_3DNR, &s_3dnr_param);
+		break;
+	}
+	case IOCTL_SET_CYCLIC_INTRA_REFRESH: {
+		RTVencCyclicIntraRefresh s_intra_refresh;
+
+		memset(&s_intra_refresh, 0, sizeof(RTVencCyclicIntraRefresh));
+
+		if (copy_from_user(&s_intra_refresh, (void __user *)arg, sizeof(RTVencCyclicIntraRefresh))) {
+			RT_LOGE("IOCTL_SET_CYCLIC_INTRA_REFRESH copy_from_user fail\n");
+			return -EFAULT;
+		}
+		if (recoder->venc_comp)
+			comp_set_config(recoder->venc_comp, COMP_INDEX_VENC_CONFIG_SET_CYCLE_INTRA_REFRESH, &s_intra_refresh);
+		break;
+	}
+	case IOCTL_SET_P_FRAME_INTRA: {
+		unsigned int enable_p_intra = (unsigned int)arg;
+
+		if (recoder->venc_comp)
+			comp_set_config(recoder->venc_comp, COMP_INDEX_VENC_CONFIG_SET_P_FRAME_INTRA, &enable_p_intra);
 		break;
 	}
 	default: {
@@ -1791,41 +2452,68 @@ static int rt_media_resume(struct platform_device *pdev)
 	return 0;
 }
 #endif
+#if 0
+static int rt_is_sensor_0(int vipp_num)
+{
+	if (vipp_num == CSI_SENSOR_0_VIPP_0
+		|| vipp_num == CSI_SENSOR_0_VIPP_1
+		|| vipp_num == CSI_SENSOR_0_VIPP_2
+	)
+		return 1;
 
-static int setup_recoder(void)
+	return 0;
+}
+
+static int rt_is_sensor_1(int vipp_num)
+{
+	if (vipp_num == CSI_SENSOR_1_VIPP_0
+		|| vipp_num == CSI_SENSOR_1_VIPP_1
+		|| vipp_num == CSI_SENSOR_1_VIPP_2
+	)
+		return 1;
+
+	return 0;
+}
+#endif
+static int rt_which_sensor(int vipp_num)
+{
+	switch (vipp_num) {
+	case CSI_SENSOR_0_VIPP_0:
+	case CSI_SENSOR_0_VIPP_1:
+	case CSI_SENSOR_0_VIPP_2:
+		return 0;
+	case CSI_SENSOR_1_VIPP_0:
+	case CSI_SENSOR_1_VIPP_1:
+	case CSI_SENSOR_1_VIPP_2:
+		return 1;
+	default:
+		return 0;//default sensor 0
+	}
+
+	return 0;//default sensor 0
+}
+
+static int setup_recoder_config(int channel_id)
 {
 	int ret			= 0;
-	int channel_id		= 0;
-	int cur_enable_high_fps = 0;
 	video_recoder *recoder  = &rt_media_devp->recoder[channel_id];
 	rt_media_config_s config;
-#if CSI_COMPILE_ERROR
 	struct vi_part_cfg vi_part_cfg;
-#endif
-
-#ifdef CONFIG_ISP_FAST_CONVERGENCE
-	cur_enable_high_fps = 1;
-#endif
-	//cur_enable_high_fps = 0;
-
-	RT_LOGW("* start setup_recoder, cur_enable_high_fps = %d", cur_enable_high_fps);
-
-	if (cur_enable_high_fps)
-		rt_media_devp->in_high_fps_status = 1;
 
 	memset(&config, 0, sizeof(rt_media_config_s));
-	config.channelId	 = 0;
-	config.encodeType	= 0;
-	config.fps		 = 15;
-	config.bitrate		 = 1536;
-	config.gop		 = 40;
-	config.vbr		 = 0;
-	config.qp_range.i_min_qp = 35;
-	config.qp_range.i_max_qp = 51;
-	config.qp_range.p_min_qp = 35;
-	config.qp_range.p_max_qp = 51;
-#if CSI_COMPILE_ERROR
-	ret = wdr_get_from_partition(&vi_part_cfg);
+	config.channelId	 = channel_id;
+	config.encodeType	= MAIN_CHANNEL_ENCODE_TYPE;
+	config.width  = MAIN_CHANNEL_WIDTH;
+	config.height = MAIN_CHANNEL_HEIGHT;
+	config.fps		 = MAIN_CHANNEL_FPS;
+	config.bitrate		 = MAIN_CHANNEL_BIT_RATE;
+	config.gop		 = MAIN_CHANNEL_GOP;
+	config.vbr		 = MAIN_CHANNEL_VBR;
+	config.qp_range.i_min_qp = MAIN_CHANNEL_I_MIN_QP;
+	config.qp_range.i_max_qp = MAIN_CHANNEL_I_MAX_QP;
+	config.qp_range.p_min_qp = MAIN_CHANNEL_P_MIN_QP;
+	config.qp_range.p_max_qp = MAIN_CHANNEL_P_MAX_QP;
+	ret = wdr_get_from_partition(&vi_part_cfg, rt_which_sensor(channel_id));
 	if (!ret) {
 		RT_LOGW("get info fram part: w&h = %d, %d, venc_format = %d, wdr = %d, flicker = %d",
 			vi_part_cfg.width, vi_part_cfg.height, vi_part_cfg.venc_format,
@@ -1834,59 +2522,74 @@ static int setup_recoder(void)
 		if (vi_part_cfg.width && vi_part_cfg.height) {
 			config.width  = vi_part_cfg.width;
 			config.height = vi_part_cfg.height;
-		} else {
-			config.width  = 2560;
-			config.height = 1440;
 		}
+
 		if (vi_part_cfg.venc_format == 2)
 			config.encodeType = 2;
 		else if (vi_part_cfg.venc_format == 1)
 			config.encodeType = 0;
 
-		if (vi_part_cfg.flicker_mode == 1)
-			config.fps = 16;
-
+		//if (vi_part_cfg.flicker_mode == 1)
+		//	config.fps = 16;
+		config.fps = vi_part_cfg.fps;
 		config.enable_wdr = vi_part_cfg.wdr;
-	} else
-#endif
-	{
-		config.width      = 1920;
-		config.height     = 1088;
-		config.enable_wdr = 0;
 	}
-
-	config.profile	= XM_Video_H264ProfileMain;
-	config.level	  = XM_Video_H264Level51;
+	config.profile	= AW_Video_H264ProfileMain;
+	config.level	  = AW_Video_H264Level51;
 	config.drop_frame_num = 0;
-	config.output_mode    = OUTPUT_MODE_STREAM;
-	config.pixelformat = RT_PIXEL_NUM;
+	config.output_mode    = MAIN_CHANNEL_OUT_MODE;
+	config.pixelformat = MAIN_CHANNEL_PXL_FMT;
 
-	ioctl_config(recoder, &config);
-#if CSI_COMPILE_ERROR
-	/* reduce fps from 16 to 15 */
-	if (vi_part_cfg.flicker_mode == 1) {
-		int dst_fps = 15;
+	config.venc_video_signal.video_format = DEFAULT;
+	config.venc_video_signal.full_range_flag = 1;
+	config.venc_video_signal.src_colour_primaries = VENC_BT709;
+	config.venc_video_signal.dst_colour_primaries = VENC_BT709;
+	config.breduce_refrecmem = MAIN_CHANNEL_REDUCE_REFREC_MEM;
+	config.enable_sharp = 1;//default enable sharp.
+#if 0//!defined CONFIG_RT_MEDIA_DUAL_SENSOR
+	RT_LOGW("sigle sensor enter online mode");
+	config.bonline_channel = 1;
+	config.share_buf_num = 2;
+#endif
+	ret = ioctl_config(recoder, &config);
+	rt_vin_sensor_fps_change_callback(config.channelId);
+	if (ret != 0) {
+		RT_LOGE("config err ret %d", ret);
+		ioctl_destroy(recoder);
+		return -1;
+	}
 
-		comp_set_config(recoder->vi_comp, COMP_INDEX_VI_CONFIG_Dynamic_SET_FPS, (void *)dst_fps);
+	return ret;
+}
+static int setup_recoder(void)
+{
+	int single_channel_id	= CSI_SENSOR_0_VIPP_0;
+	video_recoder *recoder_single  = &rt_media_devp->recoder[single_channel_id];
+#if defined CONFIG_RT_MEDIA_DUAL_SENSOR && RT_SECOND_SENSOR_KERNEL_START
+	int dual_channel_id		= CSI_SENSOR_1_VIPP_0;
+	video_recoder *recoder_dual  = &rt_media_devp->recoder[dual_channel_id];
+#endif
+
+	RT_LOGW("* start setup_recoder");
+
+	setup_recoder_config(single_channel_id);
+
+	if (recoder_single->bvin_is_ready || bvin_is_ready_rt_not_probe[single_channel_id]) {
+		rt_media_devp->bcsi_status_set[single_channel_id] = 1;
+		ioctl_start(recoder_single);
+	} else {
+		recoder_single->bsetup_recorder_finish = 1;
+	}
+
+#if defined CONFIG_RT_MEDIA_DUAL_SENSOR && RT_SECOND_SENSOR_KERNEL_START
+	setup_recoder_config(dual_channel_id);
+	if (recoder_dual->bvin_is_ready || bvin_is_ready_rt_not_probe[dual_channel_id]) {
+		rt_media_devp->bcsi_status_set[dual_channel_id] = 1;
+		ioctl_start(recoder_dual);
+	} else {
+		recoder_dual->bsetup_recorder_finish = 1;
 	}
 #endif
-	if (cur_enable_high_fps == 1) {
-		recoder->enable_high_fps = 1;
-
-		ret = comp_set_config(recoder->vi_comp, COMP_INDEX_VI_CONFIG_ENABLE_HIGH_FPS, NULL);
-		if (ret < 0) {
-			RT_LOGE("COMP_INDEX_VI_CONFIG_ENABLE_HIGH_FPS failed, ret = %d", ret);
-			return -EFAULT;
-		}
-	}
-	if (recoder->bvin_is_ready || bvin_is_ready_2) {
-		ioctl_start(recoder);
-	} else {
-		recoder->bsetup_recorder_finish = 1;
-	}
-
-	if (cur_enable_high_fps == 1)
-		ioctl_pause(recoder);
 
 	RT_LOGW("finish");
 	return 0;
@@ -1896,20 +2599,22 @@ int rt_vin_is_ready(int channel_id)
 {
 	int ret = 0;
 	RT_LOGD("rt_vin_is_ready vinc%d", channel_id);
-	if (channel_id == 0) {
-		if (rt_media_devp) {
-			video_recoder *recoder = &rt_media_devp->recoder[channel_id];
-			if (recoder->bsetup_recorder_finish) {
-				ioctl_start(recoder);
-			} else {
-				RT_LOGW("rt_media thread not ready");
-				recoder->bvin_is_ready = 1;
-			}
+	if (rt_media_devp) {
+		video_recoder *recoder = &rt_media_devp->recoder[channel_id];
+		rt_media_devp->bcsi_status_set[channel_id] = 1;
+		if (recoder->bsetup_recorder_finish) {
+			ioctl_start(recoder);
 		} else {
-			RT_LOGW("rt_media not probe yet");
-			bvin_is_ready_2 = 1;
+			RT_LOGW("%d rt_media thread not ready", channel_id);
+			recoder->bvin_is_ready = 1;
 		}
+	} else {
+		RT_LOGW("%d rt_media not probe yet", channel_id);
+		bvin_is_ready_rt_not_probe[channel_id] = 1;
+		g_csi_status_pair[channel_id].bset = 1;
+		g_csi_status_pair[channel_id].status = 1;
 	}
+
 	return ret;
 }
 EXPORT_SYMBOL(rt_vin_is_ready);
@@ -1922,6 +2627,7 @@ static int thread_setup(void *param)
 }
 
 #if defined CONFIG_VIN_INIT_MELIS
+#if 0
 static int rt_media_record_start(void *dev, void *data, int len)
 {
 	int ret = 0;
@@ -1930,6 +2636,16 @@ static int rt_media_record_start(void *dev, void *data, int len)
 	RT_LOGW("rpmsg notify start");
 	ioctl_start(recoder);
 	return ret;
+}
+#endif
+#endif
+
+#if defined CONFIG_VIN_INIT_MELIS
+static int rt_media_csi_err(void *dev, void *data, int len)
+{
+	RT_LOGE("melis rpmsg notify csi is err");
+	rt_media_devp->bcsi_err = 1;
+	return 0;
 }
 #endif
 
@@ -1952,7 +2668,6 @@ static int rt_media_probe(struct platform_device *pdev)
 #if defined(CONFIG_OF)
 	node = pdev->dev.of_node;
 #endif
-
 	/*register or alloc the device number.*/
 	if (g_rt_media_dev_major) {
 		dev = MKDEV(g_rt_media_dev_major, g_rt_media_dev_minor);
@@ -1973,13 +2688,21 @@ static int rt_media_probe(struct platform_device *pdev)
 		RT_LOGW("malloc mem for cedar device err\n");
 		return -ENOMEM;
 	}
-	RT_LOGD("rt_media_devp %d vi%p ven%p", rt_media_devp->recoder[0].activate_vi_flag, rt_media_devp->recoder[0].vi_comp, rt_media_devp->recoder[0].venc_comp);
 	memset(rt_media_devp, 0, sizeof(struct rt_media_dev));
-	RT_LOGD("rt_media_devp %d vi%p ven%p", rt_media_devp->recoder[0].activate_vi_flag, rt_media_devp->recoder[0].vi_comp, rt_media_devp->recoder[0].venc_comp);
 	rt_media_devp->platform_dev = &pdev->dev;
 
-	for (i					= 0; i < VIDEO_INPUT_CHANNEL_NUM; i++)
+	for (i = 0; i < VIDEO_INPUT_CHANNEL_NUM; i++) {
 		rt_media_devp->recoder[i].state = RT_MEDIA_STATE_IDLE;
+#if !defined CONFIG_VIN_INIT_MELIS
+//if e907 not enable, default vin is ready.
+		rt_media_devp->bcsi_status_set[i] = 1;
+		rt_media_devp->recoder[i].bvin_is_ready = 1;
+#endif
+	}
+
+#if defined CONFIG_VIN_INIT_MELIS
+	rpmsg_notify_add("e907_rproc@0", "rt-media", rt_media_csi_err, rt_media_devp);
+#endif
 
 	/* Create char device */
 	devno = MKDEV(g_rt_media_dev_major, g_rt_media_dev_minor);
@@ -1994,18 +2717,16 @@ static int rt_media_probe(struct platform_device *pdev)
 
 	RT_LOGW("rt_media install end!!!\n");
 	RT_LOGD("rt_media_devp %d vi%p ven%p", rt_media_devp->recoder[0].activate_vi_flag, rt_media_devp->recoder[0].vi_comp, rt_media_devp->recoder[0].venc_comp);
-#if ENABLE_SETUP_RECODER_IN_KERNEL
-	rt_media_devp->setup_thread = kthread_create(thread_setup, rt_media_devp, "rt_media thread");
-	sched_setscheduler(rt_media_devp->setup_thread, SCHED_FIFO, &param);
-	wake_up_process(rt_media_devp->setup_thread);
-// #if defined CONFIG_VIN_INIT_MELIS
-// 	rpmsg_notify_add("e907_rproc@0", "rt-media", rt_media_record_start, rt_media_devp);
-// #endif
+#if defined CONFIG_RT_MEDIA_SETUP_RECORDER_IN_KERNEL && defined CONFIG_VIDEO_RT_MEDIA
+	if (!rt_media_devp->bcsi_err) {
+		rt_media_devp->setup_thread = kthread_create(thread_setup, rt_media_devp, "rt_media thread");
+		sched_setscheduler(rt_media_devp->setup_thread, SCHED_FIFO, &param);
+		wake_up_process(rt_media_devp->setup_thread);
+	}
 #endif
 
 	return 0;
 }
-
 static int rt_media_remove(struct platform_device *pdev)
 {
 	dev_t dev;

@@ -176,6 +176,9 @@ extern struct __lcd_panel jd9161z_panel;
 #ifdef CONFIG_LCD_SUPPORT_ICN6202
 extern struct __lcd_panel icn6202_panel;
 #endif
+#ifdef CONFIG_LCD_SUPPORT_ICN6202_2LANE
+extern struct __lcd_panel icn6202_2lane_panel;
+#endif
 #ifdef CONFIG_LCD_SUPPORT_NT35510_MIPI
 extern struct __lcd_panel nt35510_panel;
 #endif

@@ -890,8 +890,15 @@ static int axp803_bat_power_probe(struct platform_device *pdev)
 	struct axp20x_dev *axp_dev = dev_get_drvdata(pdev->dev.parent);
 	struct power_supply_config psy_cfg = {};
 	struct axp803_bat_power *bat_power;
+	struct device_node *node = pdev->dev.of_node;
 	int i, irq;
 	int ret = 0;
+
+	if (!of_device_is_available(node)) {
+		pr_err("axp803-battery device is not configed\n");
+		return -ENODEV;
+	}
+
 
 	if (!axp_dev->irq) {
 		pr_err("can not register axp803 bat without irq\n");
@@ -1028,6 +1035,8 @@ static void axp803_bat_power_shutdown(struct platform_device *pdev)
 {
 	struct axp803_bat_power *bat_power = platform_get_drvdata(pdev);
 
+	cancel_delayed_work_sync(&bat_power->bat_supply_mon);
+
 	axp803_set_bat_chg_cur(bat_power, bat_power->dts_info.pmu_shutdown_chgcur);
 }
 
@@ -1036,6 +1045,7 @@ static int axp803_bat_power_suspend(struct platform_device *pdev, pm_message_t s
 {
 	struct axp803_bat_power *bat_power = platform_get_drvdata(pdev);
 
+	cancel_delayed_work_sync(&bat_power->bat_supply_mon);
 	axp803_set_bat_chg_cur(bat_power, bat_power->dts_info.pmu_suspend_chgcur);
 
 	axp803_bat_virq_dts_set(bat_power, false);
@@ -1047,6 +1057,7 @@ static int axp803_bat_power_resume(struct platform_device *pdev)
 {
 	struct axp803_bat_power *bat_power = platform_get_drvdata(pdev);
 
+	schedule_delayed_work(&bat_power->bat_supply_mon, 0);
 	axp803_set_bat_chg_cur(bat_power, bat_power->dts_info.pmu_runtime_chgcur);
 
 	axp803_bat_virq_dts_set(bat_power, true);

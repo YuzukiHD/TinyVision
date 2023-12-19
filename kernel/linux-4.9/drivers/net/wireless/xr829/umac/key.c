@@ -231,7 +231,6 @@ void mac80211_key_removed(struct ieee80211_key_conf *key_conf)
 	 */
 	synchronize_rcu();
 }
-EXPORT_SYMBOL_GPL(mac80211_key_removed);
 
 static void __mac80211_set_default_key(struct ieee80211_sub_if_data *sdata,
 					int idx, bool uni, bool multi)
@@ -650,7 +649,6 @@ void mac80211_iter_keys(struct ieee80211_hw *hw,
 	}
 	mutex_unlock(&local->key_mtx);
 }
-EXPORT_SYMBOL(mac80211_iter_keys);
 
 void mac80211_disable_keys(struct ieee80211_sub_if_data *sdata)
 {
@@ -692,7 +690,6 @@ void mac80211_gtk_rekey_notify(struct ieee80211_vif *vif, const u8 *bssid,
 
 	cfg80211_gtk_rekey_notify(sdata->dev, bssid, replay_ctr, gfp);
 }
-EXPORT_SYMBOL_GPL(mac80211_gtk_rekey_notify);
 
 void mac80211_get_key_tx_seq(struct ieee80211_key_conf *keyconf,
 			      struct ieee80211_key_seq *seq)
@@ -732,7 +729,6 @@ void mac80211_get_key_tx_seq(struct ieee80211_key_conf *keyconf,
 		WARN_ON(1);
 	}
 }
-EXPORT_SYMBOL(mac80211_get_key_tx_seq);
 
 void mac80211_get_key_rx_seq(struct ieee80211_key_conf *keyconf,
 			      int tid, struct ieee80211_key_seq *seq)
@@ -766,4 +762,3 @@ void mac80211_get_key_rx_seq(struct ieee80211_key_conf *keyconf,
 		break;
 	}
 }
-EXPORT_SYMBOL(mac80211_get_key_rx_seq);

@@ -76,14 +76,14 @@ ccflags-y += -DSUPPORT_EPTA
 ccflags-y += -DSUPPORT_DPLL_CHECK
 #ccflags-y += -DSUPPORT_NON_HT40_CHIP
 ccflags-y += -DBOOT_NOT_READY_FIX
+ccflags-y += -DSUPPORT_STA_AP_COEX
 
 #This is use for old p2p mode, say yes to add P2P0 interface
-ccflags-y += -DOLD_P2P_MODE
+#ccflags-y += -DOLD_P2P_MODE
 
 ## for interal debug.
 ccflags-y += -DSUPPORT_FW_DBG_INF
 #ccflags-y += -DERROR_HANG_DRIVER
-ccflags-y += -DQUEUE_GEN_IF_TABLE
 
 # Debug for hwx_BUG12:P2P setting crash
 ccflags-y += -DDEBUG_P2P_SETTING_CRASH

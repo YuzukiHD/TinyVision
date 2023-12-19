@@ -961,6 +961,7 @@ struct disp_lcd_panel_fun {
 	int (*reset_panel)(unsigned int sel);
 	/*see the definition of struct disp_lcd_esd_info */
 	int (*set_esd_info)(struct disp_lcd_esd_info *p_info);
+	int (*panel_id_check)(unsigned int sel);
 };
 
 struct disp_enhance_para {

@@ -73,9 +73,9 @@ VIPLite driver version number defines.
 
 #define VERSION_MINOR		8
 
-#define VERSION_SUB_MINOR	0
+#define VERSION_SUB_MINOR	1
 
 /* a string for patch version number defines */
-#define VERSION_PATCH           "0-AW-2022-04-21"
+#define VERSION_PATCH           "0-AW-2022-07-26"
 
 #endif

@@ -326,6 +326,55 @@ static int sunxi_clk_fators_is_enabled(struct clk_hw *hw)
 	return val ? 1 : 0;
 }
 
+static u32 sunxi_clk_get_factor_sdmval(unsigned long rate, struct sunxi_clk_factors *factor, struct clk_factors_value *value)
+{
+	u32 sdm_val, sdm_freq, step_value, pre_div;
+	u64 x2, wave_step;
+	struct sunxi_clk_factors_config *config = factor->config;
+
+	sdm_freq = 315 + factor->sdm_freq * 5;
+
+	/* @TODO:we can't confirm the position of pre_div now */
+	if (config->mwidth)
+		pre_div = value->factorm;
+	else
+		pre_div = value->factord1;
+
+	x2 = factor->sdm_factor * (value->factorn + 1);
+	if (x2 >= 1000) {
+		pr_err("clk: invalid sdm_factor: %d\n", factor->sdm_factor);
+		return -1;
+	}
+	/*
+	 * 1. pre_div=0
+	 *	SDM_CLK_SEL->24M
+	 *	fix coefficient=2^17*2/24 = 10922.5
+	 * 2. pre_div=1
+	 *	SDM_CLK_SEL->12M
+	 *	fix coefficient=2^17*2/12 = 21845
+	 **/
+	if (pre_div)
+		wave_step = 218450 * x2 * sdm_freq;
+	else
+		wave_step = 109225 * x2 * sdm_freq;
+
+	do_div(wave_step, 100000000);
+	step_value = (u32)wave_step;
+	pr_debug("clk: wave_step:0x%x %s:%d\n", step_value, __func__, __LINE__);
+
+	sdm_val = (wave_step << 20);
+	/* enanle SDM */
+	sdm_val = SET_BITS(31, 1, sdm_val, 1);
+	/* choose freq_mode */
+	sdm_val = SET_BITS(29, 2, sdm_val, factor->freq_mode << 1);
+	/* choose sdm_freq */
+	sdm_val = SET_BITS(17, 2, sdm_val, factor->sdm_freq);
+	/* choose sdm_clk */
+	sdm_val = SET_BITS(19, 1, sdm_val, pre_div);
+	pr_debug("clk: sdm_val:0x%x %s:%d\n", sdm_val, __func__, __LINE__);
+	return sdm_val;
+}
+
 static unsigned long sunxi_clk_factors_recalc_rate(struct clk_hw *hw, unsigned long parent_rate)
 {
 	unsigned long reg;
@@ -334,6 +383,7 @@ static unsigned long sunxi_clk_factors_recalc_rate(struct clk_hw *hw, unsigned l
 	struct sunxi_clk_factors *factor = to_clk_factor(hw);
 	struct sunxi_clk_factors_config *config = factor->config;
 	unsigned long flags = 0;
+	u32 sdmval;
 
 	if (!factor->calc_rate)
 		return 0;
@@ -385,6 +435,19 @@ static unsigned long sunxi_clk_factors_recalc_rate(struct clk_hw *hw, unsigned l
 		factor_val.frac_mode = 0xffff;
 		factor_val.frac_freq = 0xffff;
 	}
+
+	if (factor->sdm_enable == DTS_SDM_ON) {
+		sdmval = sunxi_clk_get_factor_sdmval(parent_rate, factor, &factor_val);
+		pr_info("clk: name:%s have sdm_enable, val:0x%x\n", clk_hw_get_name(&factor->hw), sdmval);
+		factor_writel(factor, sdmval, (void __iomem *)config->sdmpat);
+		reg = SET_BITS(config->sdmshift, config->sdmwidth, reg, 1);
+	} else if (factor->sdm_enable == CODE_SDM) {
+		if (config->sdmwidth) {
+			factor_writel(factor, config->sdmval, (void __iomem *)config->sdmpat);
+			reg = SET_BITS(config->sdmshift, config->sdmwidth, reg, 1);
+		}
+	}
+	factor_writel(factor, reg, factor->reg);
 
 	return factor->calc_rate(parent_rate, &factor_val);
 }
@@ -476,7 +539,6 @@ static int sunxi_clk_factors_set_flat_facotrs(struct sunxi_clk_factors *factor,
 	return 0;
 }
 
-
 static int sunxi_clk_factors_set_rate(struct clk_hw *hw, unsigned long rate, unsigned long parent_rate)
 {
 	unsigned long reg;
@@ -485,6 +547,7 @@ static int sunxi_clk_factors_set_rate(struct clk_hw *hw, unsigned long rate, uns
 	struct sunxi_clk_factors *factor = to_clk_factor(hw);
 	struct sunxi_clk_factors_config *config = factor->config;
 	unsigned long flags = 0;
+	u32 sdmval;
 
 	if (!factor->get_factors)
 		return 0;
@@ -509,10 +572,18 @@ static int sunxi_clk_factors_set_rate(struct clk_hw *hw, unsigned long rate, uns
 	sunxi_clk_disable_plllock(factor);
 
 	reg = factor_readl(factor, factor->reg);
-	if (config->sdmwidth) {
-		factor_writel(factor, config->sdmval, (void __iomem *)config->sdmpat);
+	if (factor->sdm_enable == DTS_SDM_ON) {
+		sdmval = sunxi_clk_get_factor_sdmval(rate, factor, &factor_val);
+		pr_info("clk: name:%s have sdm_enable, val:0x%x\n", clk_hw_get_name(&factor->hw), sdmval);
+		factor_writel(factor, sdmval, (void __iomem *)config->sdmpat);
 		reg = SET_BITS(config->sdmshift, config->sdmwidth, reg, 1);
+	} else if (factor->sdm_enable == CODE_SDM) {
+		if (config->sdmwidth) {
+			factor_writel(factor, config->sdmval, (void __iomem *)config->sdmpat);
+			reg = SET_BITS(config->sdmshift, config->sdmwidth, reg, 1);
+		}
 	}
+
 	if (config->nwidth)
 		reg = SET_BITS(config->nshift, config->nwidth, reg, factor_val.factorn);
 	if (config->kwidth)
@@ -586,6 +657,19 @@ void sunxi_clk_set_factor_lock_mode(struct factor_init_data *factor,
 		factor->lock_mode = PLL_LOCK_NONE_MODE;
 }
 
+/*
+ *  sunxi_clk_set_factor_sdm_info
+ */
+void sunxi_clk_set_factor_sdm_info(struct factor_init_data *factor,
+		struct clk_sdm_info sdm_info)
+{
+	factor->sdm_enable = sdm_info.sdm_enable;
+	factor->sdm_factor = sdm_info.sdm_factor;
+	factor->freq_mode  = sdm_info.freq_mode;
+	factor->sdm_freq   = sdm_info.sdm_freq;
+	return;
+}
+
 /**
  * clk_register_factors - register a factors clock with
  * the clock framework
@@ -650,6 +734,10 @@ struct clk *sunxi_clk_register_factors(struct device *dev, void __iomem *base,
 	factors->get_factors = init_data->get_factors;
 	factors->calc_rate = init_data->calc_rate;
 	factors->flags = init_data->flags;
+	factors->sdm_enable = init_data->sdm_enable;
+	factors->sdm_factor = init_data->sdm_factor;
+	factors->freq_mode = init_data->freq_mode;
+	factors->sdm_freq = init_data->sdm_freq;
 #ifdef CONFIG_PM_SLEEP
 	if (!strcmp(init.name, "pll_cpu") ||
 		!strcmp(init.name, "pll_ddr0") ||

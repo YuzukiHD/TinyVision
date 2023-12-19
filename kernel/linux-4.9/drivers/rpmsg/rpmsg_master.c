@@ -46,6 +46,16 @@ static DEFINE_IDA(rpmsg_minor_ida);
 #define dev_to_ctrldev(dev) container_of(dev, struct rpmsg_ctrldev, dev)
 #define cdev_to_ctrldev(i_cdev) container_of(i_cdev, struct rpmsg_ctrldev, cdev)
 
+struct rpmsg_ept_notify {
+	struct rpmsg_ctrldev *ctrl;
+	char name[32];
+	int id;
+	struct list_head list;
+	struct list_head notify;
+	struct completion complete;
+	uint32_t status;
+};
+
 /**
  * struct rpmsg_ctrldev - control device for instantiating endpoint devices
  * @rpdev:	underlaying rpmsg device
@@ -62,16 +72,8 @@ struct rpmsg_ctrldev {
 	struct mutex lock;
 	struct list_head epts;
 	struct list_head wait;
-};
 
-struct rpmsg_ept_notify {
-	struct rpmsg_ctrldev *ctrl;
-	char name[32];
-	int id;
-	struct list_head list;
-	struct list_head notify;
-	struct completion complete;
-	uint32_t status;
+	struct rpmsg_ept_notify ctrl_notify;
 };
 
 struct class *rpmsg_ctrldev_get_class(void)
@@ -162,7 +164,8 @@ static void rpmsg_ctrldev_notify_del(struct rpmsg_ctrldev *ctrldev,
 				struct rpmsg_ept_notify *notify)
 {
 	mutex_lock(&ctrldev->lock);
-	list_del(&notify->notify);
+	if (!list_empty(&notify->notify))
+		list_del_init(&notify->notify);
 	mutex_unlock(&ctrldev->lock);
 }
 
@@ -195,7 +198,8 @@ static void rpmsg_ctrldev_epts_del(struct rpmsg_ctrldev *ctrldev,
 				struct rpmsg_ept_notify *notify)
 {
 	mutex_lock(&ctrldev->lock);
-	list_del(&notify->list);
+	if (!list_empty(&notify->list))
+		list_del_init(&notify->list);
 	mutex_unlock(&ctrldev->lock);
 }
 
@@ -242,12 +246,13 @@ static int rpmsg_eptdev_release(struct rpmsg_ctrldev *ctrldev, int id)
 		return -ENODEV;
 	}
 
+	reinit_completion(&notify->complete);
 	/* add to notify chain */
 	rpmsg_ctrldev_notify_add(ctrldev, notify);
 
 	strncpy(msg.name, notify->name, 32);
 	/* tell remote close this endpoint */
-	ret = rpmsg_trysend(ctrldev->rpdev->ept, &msg, sizeof(msg));
+	ret = rpmsg_send(ctrldev->rpdev->ept, &msg, sizeof(msg));
 	if (ret)
 		goto out;
 
@@ -335,6 +340,87 @@ del_notify:
 	return ret;
 }
 
+static int rpmsg_eptdev_clear(struct rpmsg_ctrldev *ctrldev, const char *name)
+{
+	int ret;
+	struct rpmsg_ctrl_msg msg;
+	struct rpmsg_ept_notify *notify;
+
+	msg.ctrl_id = ctrldev->dev.id;
+	msg.id = 0;
+	msg.cmd = RPMSG_RESET_GRP_CLIENT;
+
+	notify = &ctrldev->ctrl_notify;
+
+	/* add to notify chain */
+	rpmsg_ctrldev_notify_add(ctrldev, notify);
+	strncpy(msg.name, name, 32);
+	reinit_completion(&notify->complete);
+	/* tell remote close this endpoint */
+	ret = rpmsg_trysend(ctrldev->rpdev->ept, &msg, sizeof(msg));
+	if (ret)
+		goto out;
+
+	/* wait endpoint notify */
+	ret = wait_for_completion_timeout(&notify->complete, WAIT_TIMEOUT);
+	if (!ret) {
+		dev_err(&ctrldev->dev, "clear %s group failed(timeout)\n", name);
+		ret = -ETIMEDOUT;
+		goto out;
+	}
+
+	if (notify->status != RPMSG_ACK_OK) {
+		rpmsg_print_ack_str(&ctrldev->dev, notify->status);
+		ret = -EFAULT;
+		goto out;
+	}
+
+	ret = 0;
+out:
+	rpmsg_ctrldev_notify_del(ctrldev, notify);
+	return ret;
+}
+
+static int rpmsg_eptdev_reset(struct rpmsg_ctrldev *ctrldev)
+{
+	int ret;
+	struct rpmsg_ctrl_msg msg;
+	struct rpmsg_ept_notify *notify;
+
+	notify = &ctrldev->ctrl_notify;
+
+	msg.ctrl_id = ctrldev->dev.id;
+	msg.id = 0;
+	msg.cmd = RPMSG_RESET_ALL_CLIENT;
+
+	reinit_completion(&notify->complete);
+	/* add to notify chain */
+	rpmsg_ctrldev_notify_add(ctrldev, notify);
+	/* tell remote close this endpoint */
+	ret = rpmsg_trysend(ctrldev->rpdev->ept, &msg, sizeof(msg));
+	if (ret)
+		goto out;
+
+	/* wait endpoint notify */
+	ret = wait_for_completion_timeout(&notify->complete, WAIT_TIMEOUT);
+	if (!ret) {
+		dev_err(&ctrldev->dev, "reset rpmsg_ctrl group failed(timeout)\n");
+		ret = -ETIMEDOUT;
+		goto out;
+	}
+
+	if (notify->status != RPMSG_ACK_OK) {
+		rpmsg_print_ack_str(&ctrldev->dev, notify->status);
+		ret = -EFAULT;
+		goto out;
+	}
+
+	ret = 0;
+out:
+	rpmsg_ctrldev_notify_del(ctrldev, notify);
+	return ret;
+}
+
 static int rpmsg_ctrldev_open(struct inode *inode, struct file *filp)
 {
 	struct rpmsg_ctrldev *ctrldev = cdev_to_ctrldev(inode->i_cdev);
@@ -362,16 +448,15 @@ static long rpmsg_ctrldev_ioctl(struct file *fp, unsigned int cmd,
 	void __user *argp = (void __user *)arg;
 	struct rpmsg_ept_info info;
 
-	if (cmd != RPMSG_CREATE_EPT_IOCTL  && cmd != RPMSG_DESTROY_EPT_IOCTL)
-		return -EINVAL;
-
 	if (copy_from_user(&info, argp, sizeof(info)))
 		return -EFAULT;
 
-	if (cmd == RPMSG_CREATE_EPT_IOCTL) {
-
+	switch (cmd) {
+	case RPMSG_CREATE_EPT_IOCTL: {
+		if (!argp)
+			return -EINVAL;
 		/* get unique id for ept */
-		ret = ida_simple_get(&rpmsg_ept_ida, 0, 0, GFP_KERNEL);
+		ret = ida_simple_get(&rpmsg_ept_ida, 1, 0, GFP_KERNEL);
 		if (ret < 0)
 			return -EFAULT;
 
@@ -383,16 +468,38 @@ static long rpmsg_ctrldev_ioctl(struct file *fp, unsigned int cmd,
 
 		if (copy_to_user(argp, &info, sizeof(info)))
 			return -EFAULT;
-
 		return 0;
-	} else if (cmd == RPMSG_DESTROY_EPT_IOCTL) {
+	} break;
 
+	case RPMSG_DESTROY_EPT_IOCTL: {
+		if (!argp)
+			return -EINVAL;
 		dev_info(&ctrldev->dev, "close /dev/rpmsg%d endpoint\r\n", info.id);
 		ret = rpmsg_eptdev_release(ctrldev, info.id);
 		if (ret)
 			return ret;
-
 		return 0;
+	} break;
+
+	case RPMSG_REST_EPT_GRP_IOCTL: {
+		if (!argp)
+			return -EINVAL;
+		dev_info(&ctrldev->dev, "clear %s group\r\n", info.name);
+		ret = rpmsg_eptdev_clear(ctrldev, info.name);
+		if (ret)
+			return ret;
+		return 0;
+	} break;
+	case RPMSG_DESTROY_ALL_EPT_IOCTL: {
+		dev_info(&ctrldev->dev, "reset %s\r\n", dev_name(&ctrldev->dev));
+		ret = rpmsg_eptdev_reset(ctrldev);
+		if (ret)
+			return ret;
+		return 0;
+	} break;
+
+	default:
+		break;
 	}
 
 	dev_warn(&ctrldev->dev, "Undown konw cmd=0x%x\r\n", cmd);
@@ -436,12 +543,8 @@ static int rpmsg_ctrldev_cb(struct rpmsg_device *rpdev, void *data, int len,
 
 static void rpmsg_ctrldev_release_device(struct device *dev)
 {
-	struct rpmsg_ctrldev *ctrldev = dev_to_ctrldev(dev);
-
 	ida_simple_remove(&rpmsg_ctrl_ida, dev->id);
 	rpmsg_ctrldev_put_devt(MINOR(dev->devt));
-
-	kfree(ctrldev);
 }
 
 static ssize_t open_store(struct device *dev, struct device_attribute *attr,
@@ -461,7 +564,7 @@ static ssize_t open_store(struct device *dev, struct device_attribute *attr,
 		name[count] = '\0';
 
 	/* get unique id for ept */
-	ret = ida_simple_get(&rpmsg_ept_ida, 0, 0, GFP_KERNEL);
+	ret = ida_simple_get(&rpmsg_ept_ida, 1, 0, GFP_KERNEL);
 	if (ret < 0)
 		return -EFAULT;
 
@@ -505,6 +608,61 @@ static ssize_t close_store(struct device *dev, struct device_attribute *attr,
 }
 static DEVICE_ATTR_WO(close);
 
+static ssize_t clear_store(struct device *dev, struct device_attribute *attr,
+			 const char *buf, size_t count)
+{
+	int ret;
+	struct rpmsg_ctrldev *ctrl = dev_get_drvdata(dev);
+	char name[32];
+
+	if (count == 0)
+		return count;
+
+	memcpy(name, buf, count > 32 ? 32:count);
+	if (name[count - 1] == '\n')
+		name[count - 1] = '\0';
+	else
+		name[count] = '\0';
+
+	dev_dbg(&ctrl->dev, "clear %s endpoint\r\n", name);
+
+	/* notify remote create endpoint */
+	ret = rpmsg_eptdev_clear(ctrl, name);
+	if (ret)
+		return ret;
+
+	return count;
+
+}
+static DEVICE_ATTR_WO(clear);
+
+static ssize_t reset_store(struct device *dev, struct device_attribute *attr,
+			 const char *buf, size_t count)
+{
+	int ret;
+	struct rpmsg_ctrldev *ctrl = dev_get_drvdata(dev);
+	char name[32];
+
+	if (count == 0)
+		return count;
+
+	memcpy(name, buf, count > 32 ? 32:count);
+	if (name[count - 1] == '\n')
+		name[count - 1] = '\0';
+	else
+		name[count] = '\0';
+
+	dev_dbg(&ctrl->dev, "reset rpmsg_ctrl\r\n");
+
+	/* notify remote create endpoint */
+	ret = rpmsg_eptdev_reset(ctrl);
+	if (ret)
+		return ret;
+
+	return count;
+
+}
+static DEVICE_ATTR_WO(reset);
 
 static int rpmsg_ctrldev_probe(struct rpmsg_device *rpdev)
 {
@@ -555,6 +713,8 @@ static int rpmsg_ctrldev_probe(struct rpmsg_device *rpdev)
 
 	device_create_file(&ctrldev->dev, &dev_attr_open);
 	device_create_file(&ctrldev->dev, &dev_attr_close);
+	device_create_file(&ctrldev->dev, &dev_attr_clear);
+	device_create_file(&ctrldev->dev, &dev_attr_reset);
 
 	dev_set_drvdata(&rpdev->dev, ctrldev);
 	dev_set_drvdata(&ctrldev->dev, ctrldev);
@@ -562,6 +722,9 @@ static int rpmsg_ctrldev_probe(struct rpmsg_device *rpdev)
 	list_add(&ctrldev->list, &g_rpmsg_ctrldev_list);
 	if (mutex_is_locked(&g_list_lock))
 			mutex_unlock(&g_list_lock);
+
+	init_completion(&ctrldev->ctrl_notify.complete);
+	rpmsg_ctrldev_notify_add(ctrldev, &ctrldev->ctrl_notify);
 
 	/* wo need to announce the new ept to remote */
 	rpdev->announce = rpdev->src != RPMSG_ADDR_ANY;
@@ -582,13 +745,24 @@ free_ctrldev:
 static void rpmsg_ctrldev_remove(struct rpmsg_device *rpdev)
 {
 	struct rpmsg_ctrldev *ctrldev = dev_get_drvdata(&rpdev->dev);
+	struct rpmsg_ept_notify *pos, *tmp;
 
 	dev_dbg(&rpdev->dev, "%s is removed\n", dev_name(&rpdev->dev));
 
-	list_del(&ctrldev->list);
+	/* remove all sub rpmsg client */
+	list_for_each_entry_safe(pos, tmp, &ctrldev->epts, list) {
+		rpmsg_ctrldev_epts_del(ctrldev, pos);
+		devm_kfree(&ctrldev->dev, pos);
+		ida_simple_remove(&rpmsg_ept_ida, pos->id);
+	}
+
+	rpmsg_ctrldev_notify_del(ctrldev, &ctrldev->ctrl_notify);
+	if (!list_empty(&ctrldev->list))
+		list_del_init(&ctrldev->list);
 	device_del(&ctrldev->dev);
 	put_device(&ctrldev->dev);
 	cdev_del(&ctrldev->cdev);
+	kfree(ctrldev);
 }
 
 static struct rpmsg_device_id rpmsg_driver_ctrldev_id_table[] = {

@@ -13,9 +13,13 @@
  * the License, or (at your option) any later version.
  *
  */
+#include <linux/debugfs.h>
+#include "xr_version.h"
+#include "os_intf.h"
+#include "xradio.h"
 #include "debug.h"
 
-#define XRADIO_DBG_DEFAULT (XRADIO_DBG_ALWY | XRADIO_DBG_ERROR | XRADIO_DBG_WARN) //|XRADIO_DBG_MSG)
+#define XRADIO_DBG_DEFAULT (XRADIO_DBG_ALWY | XRADIO_DBG_ERROR)// | XRADIO_DBG_WARN) //|XRADIO_DBG_MSG)
 
 u8 dbg_common = XRADIO_DBG_DEFAULT;
 u8 dbg_cfg = XRADIO_DBG_DEFAULT;
@@ -138,7 +142,7 @@ static inline bool is_dhcp(u8 *eth_data)
 	return (bool)0;
 }
 
-void xradio_parse_frame(const char *func, u8 *eth_data, u8 tx, u32 flags)
+void xradio_parse_frame(u8 *eth_data, u8 tx, u32 flags)
 {
 	char protobuf[512] = {0};
 	char *proto_msg = &protobuf[0];
@@ -192,7 +196,127 @@ void xradio_parse_frame(const char *func, u8 *eth_data, u8 tx, u32 flags)
 				   ipaddr_s[2], ipaddr_s[3]);
 			PT_MSG_PUT(PF_IPADDR, "-%d.%d.%d.%d(d)", ipaddr_d[0], ipaddr_d[1],
 				   ipaddr_d[2], ipaddr_d[3]);
+			xradio_printf("wlan0 %s: %s\n", tx ? "TX" : "RX", protobuf);
 		}
-		xradio_dbg(XRADIO_DBG_ALWY, "%s: %s--%s\n", func, tx ? "TX-" : "RX-", protobuf);
+	}
+}
+
+static int xradio_version_show(struct seq_file *seq, void *v)
+{
+	seq_printf(seq, "Driver Label:%s\n", XRADIO_VERSION);
+	return 0;
+}
+
+static int xradio_version_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, &xradio_version_show, inode->i_private);
+}
+
+static int xradio_generic_open(struct inode *inode, struct file *file)
+{
+	return 0;
+}
+
+static const struct file_operations fops_version = {
+	.open = xradio_version_open,
+	.read = seq_read,
+	.llseek = seq_lseek,
+	.release = single_release,
+	.owner = THIS_MODULE,
+};
+
+extern u16 txparse_flags;
+extern u16 rxparse_flags;
+
+static ssize_t xradio_parse_flags_set(struct file *file,
+				const char __user *user_buf,
+				size_t count, loff_t *ppos)
+{
+	char buf[30] = { 0 };
+	char *start = &buf[0];
+	char *endptr = NULL;
+
+	count = (count > 29 ? 29 : count);
+
+	if (!count)
+		return -EINVAL;
+	if (copy_from_user(buf, user_buf, count))
+		return -EFAULT;
+
+	txparse_flags = simple_strtoul(buf, &endptr, 16);
+	start = endptr + 1;
+	if (start < buf + count)
+		rxparse_flags = simple_strtoul(start, &endptr, 16);
+
+	txparse_flags &= 0x7fff;
+	rxparse_flags &= 0x7fff;
+
+	xradio_dbg(XRADIO_DBG_ALWY, "txparse=0x%04x, rxparse=0x%04x\n",
+			txparse_flags, rxparse_flags);
+	return count;
+}
+
+static ssize_t xradio_parse_flags_get(struct file *file,
+		char __user *user_buf, size_t count, loff_t *ppos)
+{
+	char buf[100];
+	size_t size = 0;
+	sprintf(buf, "txparse=0x%04x, rxparse=0x%04x\n",
+			txparse_flags, rxparse_flags);
+
+	size = strlen(buf);
+
+	return simple_read_from_buffer(user_buf, count, ppos, buf, size);
+}
+
+static const struct file_operations fops_parse_flags = {
+	.open = xradio_generic_open,
+	.write = xradio_parse_flags_set,
+	.read = xradio_parse_flags_get,
+	.llseek = default_llseek,
+};
+
+int xradio_debug_init_common(struct xradio_priv *priv)
+{
+	int ret = -ENOMEM;
+
+	struct xradio_debug_common *d = NULL;
+
+#define ERR_LINE  do { goto err; } while (0)
+
+	d = xradio_k_zmalloc(sizeof(struct xradio_debug_common));
+	if (!d) {
+		xradio_dbg(XRADIO_DBG_ERROR, "malloc failed.\n");
+		return ret;
+	}
+
+	priv->debug = d;
+
+	d->debugfs_phy = debugfs_create_dir("xradio", NULL);
+	if (!d->debugfs_phy)
+		ERR_LINE;
+
+	if (!debugfs_create_file("version", S_IRUSR, d->debugfs_phy,
+				priv, &fops_version))
+		ERR_LINE;
+
+	if (!debugfs_create_file("parse_flags", S_IRUSR | S_IWUSR,
+				d->debugfs_phy, priv, &fops_parse_flags))
+		ERR_LINE;
+
+	return 0;
+err:
+	debugfs_remove_recursive(d->debugfs_phy);
+	xradio_k_free(d);
+	return ret;
+}
+
+void xradio_debug_deinit_common(struct xradio_priv *priv)
+{
+	struct xradio_debug_common *d = priv->debug;
+
+	if (d) {
+		priv->debug = NULL;
+		xradio_k_free(d);
 	}
 }

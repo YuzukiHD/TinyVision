@@ -368,10 +368,6 @@
 #define ADC1_OP_MIC1_CUR		2
 #define ADC1_OP_MIC2_CUR		0
 
-/* gain select */
-#define MIC1_GAIN_SHIFT		1
-#define MIC2_GAIN_SHIFT		2
-
 struct sunxi_clk {
 	struct clk *pllaudio;
 	struct clk *dacclk;
@@ -385,10 +381,10 @@ struct sunxi_regulator {
 };
 
 struct sunxi_dts {
-	u32 lineout_vol;
-	u32 mic1gain;
-	u32 mic2gain;
-	u32 adc_dtime;
+	unsigned int lineout_vol;
+	unsigned int mic1gain;
+	unsigned int mic2gain;
+	unsigned int adc_dtime;
 	bool lineout_single;	/* true: single mode; false: differ mode */
 	bool mic1_single;
 	bool mic2_single;
@@ -408,6 +404,43 @@ struct sunxi_dap {
 	struct mutex mutex;
 };
 
+struct sunxi_codec_runtime {
+	/* input: micin and linein have common parts, need manage */
+	unsigned int mic1gain;
+	unsigned int mic2gain;
+	bool mic1_single;
+	bool mic2_single;
+
+	unsigned int lineinlgain;
+	unsigned int lineinrgain;
+
+	bool mic1_run;
+	bool mic2_run;
+	bool linein_run;
+
+	struct mutex input_mutex;
+
+	/* output: only lineout, unneed manage. */
+};
+
+enum SUNXI_kCONTROL_SHIFT {
+	KCONTROL_SHIFT_MIC1_GAIN = 0,
+	KCONTROL_SHIFT_MIC2_GAIN,
+	KCONTROL_SHIFT_LINEINL_GAIN,
+	KCONTROL_SHIFT_LINEINR_GAIN,
+};
+
+enum SUNXI_WIDGET_SHIFT {
+	WIDGET_SHIFT_ADC1 = 0,
+	WIDGET_SHIFT_ADC2,
+	WIDGET_SHIFT_MIC1_INPUT_SELECT,
+	WIDGET_SHIFT_MIC2_INPUT_SELECT,
+	WIDGET_SHIFT_MIC1_GAIN,
+	WIDGET_SHIFT_MIC2_GAIN,
+	WIDGET_SHIFT_LINEINL_GAIN,
+	WIDGET_SHIFT_LINEINR_GAIN,
+};
+
 struct sunxi_codec {
 	struct platform_device *pdev;
 
@@ -421,9 +454,7 @@ struct sunxi_codec {
 	unsigned int pa_pin_max;
 	struct pa_config *pa_config;
 
-	/* others params */
-	bool mic1gain_run;
-	bool mic2gain_run;
+	struct sunxi_codec_runtime runtime;
 };
 
 #endif /* __SND_SUN8IW21_CODEC_H */

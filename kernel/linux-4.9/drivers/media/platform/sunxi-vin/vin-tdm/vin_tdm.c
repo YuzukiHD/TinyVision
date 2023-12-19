@@ -196,19 +196,24 @@ static void tdm_rx_lbc_cal_para(struct tdm_rx_dev *tdm_rx)
 	else
 		lbc->cmp_ratio = clamp(TDM_LBC_RATIO, 256, 1024);
 
-	if (lbc->cmp_ratio == 1024) {
-		lbc->is_lossy = 0;
-		lbc->start_qp = 1;
-	} else if (lbc->cmp_ratio >= 682) {
-		lbc->is_lossy = 1;
-		lbc->start_qp = 1;
-	} else if (lbc->cmp_ratio >= 512) {
-		lbc->is_lossy = 1;
-		lbc->start_qp = 2;
+	if (tdm_rx->tdm_fmt->input_bit_width == RAW_12BIT) {
+		if (lbc->cmp_ratio >= 682)
+			lbc->start_qp = 1;
+		else if (lbc->cmp_ratio >= 512)
+			lbc->start_qp = 2;
+		else
+			lbc->start_qp = 3;
 	} else {
-		lbc->is_lossy = 1;
-		lbc->start_qp = 3;
+		if (lbc->cmp_ratio > 512)
+			lbc->start_qp = 0;
+		else
+			lbc->start_qp = 1;
 	}
+
+	if (lbc->cmp_ratio == 1024)
+		lbc->is_lossy = 0;
+	else
+		lbc->is_lossy = 1;
 
 	lbc->mb_th = 0x18;/*12, 24, 36, 48*/
 	lbc->mb_num = clamp((int)DIV_ROUND_UP(tdm_rx->format.width, mb_len), 3, 88);
@@ -242,6 +247,8 @@ static void tdm_rx_cpy(struct tdm_rx_dev *source, struct tdm_rx_dev *rx)
 	rx->buf_size = source->buf_size;
 	rx->buf_cnt = source->buf_cnt;
 	rx->ws.wdr_mode = source->ws.wdr_mode;
+	rx->ws.data_fifo_depth = source->ws.data_fifo_depth;
+	rx->ws.head_fifo_depth = source->ws.head_fifo_depth;
 }
 
 static int set_chn_use(struct tdm_dev *tdm, unsigned int bits)
@@ -370,8 +377,9 @@ static int tdm_set_rx_cfg(struct tdm_rx_dev *tdm_rx, unsigned int en)
 {
 	struct tdm_dev *tdm = container_of(tdm_rx, struct tdm_dev, tdm_rx[tdm_rx->id]);
 	u32 size, tatol;
-	u16 rx_pkg_line_words;
+	u16 rx_pkg_line_words = 0;
 	int ret, i;
+	__maybe_unused int j;
 	unsigned int tdm_buf_num;
 
 	if (en) {
@@ -386,13 +394,29 @@ static int tdm_set_rx_cfg(struct tdm_rx_dev *tdm_rx, unsigned int en)
 			csic_tdm_rx_data_fifo_depth(tdm->id, tdm_rx->id, tdm->tx_cfg.data_depth);
 			csic_tdm_rx_head_fifo_depth(tdm->id, tdm_rx->id, tdm->tx_cfg.head_depth);
 		} else {
-			if (tdm_rx->id == 0 || tdm_rx->id == 1) {
-				csic_tdm_rx_data_fifo_depth(tdm->id, tdm_rx->id, (512)/2);
-				csic_tdm_rx_head_fifo_depth(tdm->id, tdm_rx->id, (32)/2);
+#if defined CONFIG_WDR
+			if (tdm_rx->ws.data_fifo_depth && tdm_rx->ws.head_fifo_depth) {
+				csic_tdm_rx_data_fifo_depth(tdm->id, tdm_rx->id, tdm_rx->ws.data_fifo_depth);
+				csic_tdm_rx_head_fifo_depth(tdm->id, tdm_rx->id, tdm_rx->ws.head_fifo_depth);
 			} else {
-				csic_tdm_rx_data_fifo_depth(tdm->id, tdm_rx->id, 0);
-				csic_tdm_rx_head_fifo_depth(tdm->id, tdm_rx->id, 0);
+				csic_tdm_rx_data_fifo_depth(tdm->id, tdm_rx->id, (512)/4);
+				csic_tdm_rx_head_fifo_depth(tdm->id, tdm_rx->id, (32)/4);
 			}
+#else
+			if (tdm_rx->ws.data_fifo_depth && tdm_rx->ws.head_fifo_depth) {
+				csic_tdm_rx_data_fifo_depth(tdm->id, tdm_rx->id, tdm_rx->ws.data_fifo_depth);
+				csic_tdm_rx_head_fifo_depth(tdm->id, tdm_rx->id, tdm_rx->ws.head_fifo_depth);
+			} else {
+				if (tdm_rx->id == 0 || tdm_rx->id == 1) {
+					csic_tdm_rx_data_fifo_depth(tdm->id, tdm_rx->id, (512)/2);
+					csic_tdm_rx_head_fifo_depth(tdm->id, tdm_rx->id, (32)/2);
+				} else {
+					csic_tdm_rx_data_fifo_depth(tdm->id, tdm_rx->id, (512)/4);
+					csic_tdm_rx_head_fifo_depth(tdm->id, tdm_rx->id, (32)/4);
+					vin_warn("use ioctl VIDIOC_SET_TDM_DEPTH setting max_ch to make work stable!\n");
+				}
+			}
+#endif
 		}
 		if (tdm_rx->ws.pkg_en) {
 			csic_tdm_rx_pkg_enable(tdm->id, tdm_rx->id);
@@ -430,6 +454,7 @@ static int tdm_set_rx_cfg(struct tdm_rx_dev *tdm_rx, unsigned int en)
 			else
 				tdm_buf_num = 0;
 		} else {
+#ifndef CONFIG_TDM_ONE_BUFFER
 			if (tdm_rx->sensor_fps <= 30)
 				tdm_buf_num = 2;
 			else if (tdm_rx->sensor_fps <= 60)
@@ -438,12 +463,16 @@ static int tdm_set_rx_cfg(struct tdm_rx_dev *tdm_rx, unsigned int en)
 				tdm_buf_num = 4;
 			else
 				tdm_buf_num = TDM_BUFS_NUM;
+#else
+			tdm_buf_num = 1;
+#endif
 		}
 		if (tdm_buf_num) {
 			if (tdm_rx->ws.pkg_en)
 				size = ALIGN(tdm_rx->width * tdm_rx->tdm_fmt->input_bit_width, 512) * tdm_rx->heigtht / 8 + ALIGN(tdm_rx->heigtht, 64);
-			else if (tdm_rx->ws.lbc_en)
+			else //tdm_rx->ws.lbc_en
 				size = ALIGN(rx_pkg_line_words, 8) * tdm_rx->heigtht * 4 + ALIGN(tdm_rx->heigtht, 64);
+#ifndef CONFIG_TDM_ONE_BUFFER
 			ret = tdm_rx_bufs_alloc(tdm_rx, size, tdm_buf_num);
 			if (ret)
 				return ret;
@@ -451,6 +480,43 @@ static int tdm_set_rx_cfg(struct tdm_rx_dev *tdm_rx, unsigned int en)
 			for (i = 0; i < tdm_buf_num; i++) {
 				csic_tdm_rx_set_address(tdm->id, tdm_rx->id, (unsigned long)tdm_rx->buf[i].dma_addr);
 			}
+#else
+#ifdef CONFIG_TDM_ONE_BUFFER_WITH_TWORX
+			for (j = 0 ; j < TDM_RX_NUM; j++) {
+				if (tdm->tdm_rx_buf_en[j] == 1) {
+					vin_print("tdm_rx%d use tdm_rx%d buffer\n", tdm_rx->id, j);
+					csic_tdm_rx_set_buf_num(tdm->id, tdm_rx->id, (tdm_buf_num + 1) - 1);
+					for (i = 0; i < tdm_buf_num; i++) {
+						csic_tdm_rx_set_address(tdm->id, tdm_rx->id, (unsigned long)tdm->tdm_rx[j].buf[i].dma_addr);
+						csic_tdm_rx_set_address(tdm->id, tdm_rx->id, (unsigned long)tdm->tdm_rx[j].buf[i].dma_addr);
+					}
+					break;
+				}
+			}
+			if (j == TDM_RX_NUM) {
+				vin_print("tdm_rx%d to alloc buffer\n", tdm_rx->id);
+				ret = tdm_rx_bufs_alloc(tdm_rx, size, tdm_buf_num);
+				if (ret)
+					return ret;
+				/* tdm need two buffer */
+				csic_tdm_rx_set_buf_num(tdm->id, tdm_rx->id, (tdm_buf_num + 1) - 1);
+				for (i = 0; i < tdm_buf_num; i++) {
+					csic_tdm_rx_set_address(tdm->id, tdm_rx->id, (unsigned long)tdm_rx->buf[i].dma_addr);
+					csic_tdm_rx_set_address(tdm->id, tdm_rx->id, (unsigned long)tdm_rx->buf[i].dma_addr);
+				}
+			}
+#else
+			ret = tdm_rx_bufs_alloc(tdm_rx, size, tdm_buf_num);
+			if (ret)
+				return ret;
+			/* tdm need two buffer */
+			csic_tdm_rx_set_buf_num(tdm->id, tdm_rx->id, (tdm_buf_num + 1) - 1);
+			for (i = 0; i < tdm_buf_num; i++) {
+				csic_tdm_rx_set_address(tdm->id, tdm_rx->id, (unsigned long)tdm_rx->buf[i].dma_addr);
+				csic_tdm_rx_set_address(tdm->id, tdm_rx->id, (unsigned long)tdm_rx->buf[i].dma_addr);
+			}
+#endif
+#endif
 		} else
 			csic_tdm_rx_set_buf_num(tdm->id, tdm_rx->id, 0);
 
@@ -524,7 +590,7 @@ static int tdm_cal_rx_chn_cfg_mode(struct tdm_rx_dev *tdm_rx, enum rx_chn_cfg_mo
 	if (tdm->stream_cnt && last_mode != *mode)
 		csic_tdm_set_rx_chn_cfg_mode(tdm->id, *mode);
 
-	vin_log(VIN_LOG_TDM, "tdm%d work on %s mode, now rx chn cfg mode is%d\n",
+	vin_log(VIN_LOG_TDM, "tdm%d work on %s mode, now rx chn cfg mode is %d\n",
 		tdm->id, tdm->work_mode ? "offline":"online", *mode);
 	return 0;
 }
@@ -584,7 +650,7 @@ static int sunxi_tdm_top_s_stream(struct tdm_rx_dev *rx, int enable)
 		csic_tdm_top_enable(tdm->id);
 		if (tdm->ws.tdm_en)
 			csic_tdm_enable(tdm->id);
-		vin_log(VIN_LOG_TDM, "%s rx mode %d, tx mode %di, work mode %d\n",
+		vin_log(VIN_LOG_TDM, "%s rx mode %d, tx mode %d, work mode %d\n",
 			__func__, tdm->ws.rx_chn_mode, tdm->ws.tx_chn_mode, tdm->work_mode);
 		csic_tdm_set_rx_chn_cfg_mode(tdm->id, tdm->ws.rx_chn_mode);
 		csic_tdm_set_tx_chn_cfg_mode(tdm->id, tdm->ws.tx_chn_mode);
@@ -601,7 +667,20 @@ static int sunxi_tdm_top_s_stream(struct tdm_rx_dev *rx, int enable)
 			csic_tdm_set_tx_fifo_depth(tdm->id, tdm->tx_cfg.head_depth, tdm->tx_cfg.data_depth);
 			csic_tdm_set_tx_t2_cycle(tdm->id, tdm->tx_cfg.t2_cycle = 0xfa0);
 		} else {
-			csic_tdm_set_tx_fifo_depth(tdm->id, 32/2, 512/2);
+			if (rx->ws.data_fifo_depth && rx->ws.head_fifo_depth) {
+				csic_tdm_set_tx_fifo_depth(tdm->id, rx->ws.head_fifo_depth, min(rx->ws.data_fifo_depth, (u16)192));
+			} else {
+#if defined CONFIG_WDR
+				csic_tdm_set_tx_fifo_depth(tdm->id, 32/4, 512/4);
+#else
+				if (rx->id == 0 || rx->id == 1) {
+					csic_tdm_set_tx_fifo_depth(tdm->id, 32/2, min(512/2, 192));
+				} else {
+					csic_tdm_set_tx_fifo_depth(tdm->id, 32/4, 512/4);
+					vin_warn("use ioctl VIDIOC_SET_TDM_DEPTH setting max_ch to make work stable!\n");
+				}
+#endif
+			}
 			csic_tdm_set_tx_t2_cycle(tdm->id, tdm->tx_cfg.t2_cycle = 0x0);
 		}
 		if (tdm->ws.speed_dn_en) {
@@ -1333,6 +1412,147 @@ static void __sunxi_tdm_wdr_reset(struct tdm_dev *tdm)
 	}
 #endif
 }
+
+static void __sunxi_tdm_reset_v2(struct tdm_dev *tdm)
+{
+	struct vin_md *vind = dev_get_drvdata(tdm->tdm_rx[0].subdev.v4l2_dev->dev);
+	struct vin_core *vinc = NULL;
+	struct csi_dev *csi = NULL;
+	struct tdm_rx_dev *tdm_rx = NULL;
+	struct isp_dev *isp = NULL;
+	struct prs_cap_mode mode = {.mode = VCAP};
+	bool flags = 1;
+	int i = 0;
+	bool need_ve_callback = false;
+
+	/*****************stop*******************/
+	for (i = 0; i < VIN_MAX_DEV; i++) {
+		if (vind->vinc[i] == NULL)
+			continue;
+		if (!vin_streaming(&vind->vinc[i]->vid_cap))
+			continue;
+		if (!tdm->tdm_rx_reset[vind->vinc[i]->tdm_rx_sel])
+			continue;
+
+		tdm_rx = &tdm->tdm_rx[vind->vinc[i]->tdm_rx_sel];
+
+		if (vind->vinc[i]->tdm_rx_sel == tdm_rx->id) {
+			vinc = vind->vinc[i];
+			vinc->vid_cap.frame_delay_cnt = 1;
+			if (i == 0)
+				need_ve_callback = true;
+
+			if (flags) {
+				isp = container_of(vinc->vid_cap.pipe.sd[VIN_IND_ISP], struct isp_dev, subdev);
+				bsp_isp_set_para_ready(isp->id, PARA_NOT_READY);
+#if defined CONFIG_D3D
+				bsp_isp_clr_d3d_rec_en(isp->id);
+				isp->d3d_rec_reset = 1;
+#endif
+				csic_prs_capture_stop(vinc->csi_sel);
+
+				csic_prs_disable(vinc->csi_sel);
+				csic_isp_bridge_disable(0);
+
+				csic_tdm_rx_disable(tdm->id, vinc->tdm_rx_sel);
+				csic_tdm_rx_cap_disable(tdm->id, vinc->tdm_rx_sel);
+				vin_print("%s:tdm_rx%d reset!!!\n", __func__, vinc->tdm_rx_sel);
+				tdm_rx = &tdm->tdm_rx[vinc->tdm_rx_sel];
+				if (tdm_rx->ws.wdr_mode == ISP_DOL_WDR_MODE) {
+					csic_tdm_rx_disable(tdm->id, vinc->tdm_rx_sel + 1);
+					csic_tdm_rx_cap_disable(tdm->id, vinc->tdm_rx_sel + 1);
+					vin_print("%s:tdm_rx%d reset!!!\n", __func__, vinc->tdm_rx_sel + 1);
+				} else if (tdm_rx->ws.wdr_mode == ISP_3FDOL_WDR_MODE) {
+					csic_tdm_rx_disable(tdm->id, vinc->tdm_rx_sel + 1);
+					csic_tdm_rx_cap_disable(tdm->id, vinc->tdm_rx_sel + 1);
+					csic_tdm_rx_disable(tdm->id, vinc->tdm_rx_sel + 2);
+					csic_tdm_rx_cap_disable(tdm->id, vinc->tdm_rx_sel + 2);
+					vin_print("%s:tdm_rx%d && tdm_rx%d reset!!!\n", __func__, vinc->tdm_rx_sel + 1, vinc->tdm_rx_sel + 2);
+				}
+
+				bsp_isp_clr_irq_status(isp->id, ISP_IRQ_EN_ALL);
+				bsp_isp_capture_stop(isp->id);
+
+				flags = 0;
+			}
+
+			vipp_chn_cap_disable(vinc->vipp_sel);
+
+			//csic_dma_int_clear_status(vinc->vipp_sel, DMA_INT_ALL);
+			//csic_dma_top_disable(vinc->vipp_sel);
+		}
+	}
+
+	/*****************start*******************/
+	flags = 1;
+	for (i = 0; i < VIN_MAX_DEV; i++) {
+		if (vind->vinc[i] == NULL)
+			continue;
+		if (!vin_streaming(&vind->vinc[i]->vid_cap))
+			continue;
+		if (!tdm->tdm_rx_reset[vind->vinc[i]->tdm_rx_sel])
+			continue;
+
+		tdm_rx = &tdm->tdm_rx[vind->vinc[i]->tdm_rx_sel];
+
+		if (vind->vinc[i]->tdm_rx_sel == tdm_rx->id) {
+			vinc = vind->vinc[i];
+
+			//csic_dma_top_enable(vinc->vipp_sel);
+
+			vipp_chn_cap_enable(vinc->vipp_sel);
+			vinc->vin_status.frame_cnt = 0;
+			vinc->vin_status.lost_cnt = 0;
+#ifdef CONFIG_TDM_ONE_BUFFER_WITH_TWORX
+			vinc->vid_cap.frame_delay_cnt = 2;
+#endif
+
+			if (flags) {
+				isp = container_of(vinc->vid_cap.pipe.sd[VIN_IND_ISP], struct isp_dev, subdev);
+				bsp_isp_set_para_ready(isp->id, PARA_READY);
+				bsp_isp_capture_start(isp->id);
+				isp->isp_frame_number = 0;
+
+				csic_isp_bridge_enable(0);
+
+				csic_tdm_rx_enable(tdm->id, vinc->tdm_rx_sel);
+				csic_tdm_rx_cap_enable(tdm->id, vinc->tdm_rx_sel);
+				tdm_rx = &tdm->tdm_rx[vinc->tdm_rx_sel];
+				if (tdm_rx->ws.wdr_mode == ISP_DOL_WDR_MODE) {
+					csic_tdm_rx_enable(tdm->id, vinc->tdm_rx_sel + 1);
+					csic_tdm_rx_cap_enable(tdm->id, vinc->tdm_rx_sel + 1);
+				} else if (tdm_rx->ws.wdr_mode == ISP_3FDOL_WDR_MODE) {
+					csic_tdm_rx_enable(tdm->id, vinc->tdm_rx_sel + 1);
+					csic_tdm_rx_cap_enable(tdm->id, vinc->tdm_rx_sel + 1);
+					csic_tdm_rx_enable(tdm->id, vinc->tdm_rx_sel + 2);
+					csic_tdm_rx_cap_enable(tdm->id, vinc->tdm_rx_sel + 2);
+				}
+
+				csic_prs_enable(vinc->csi_sel);
+				csi = container_of(vinc->vid_cap.pipe.sd[VIN_IND_CSI], struct csi_dev, subdev);
+				csic_prs_capture_start(vinc->csi_sel, csi->bus_info.ch_total_num, &mode);
+				flags = 0;
+			}
+		}
+	}
+
+	if (vinc) {
+		tdm->tdm_rx_reset[vinc->tdm_rx_sel] = 0;
+		tdm_rx = &tdm->tdm_rx[vinc->tdm_rx_sel];
+		if (tdm_rx->ws.wdr_mode == ISP_DOL_WDR_MODE) {
+			tdm->tdm_rx_reset[vinc->tdm_rx_sel + 1] = 0;
+		} else if (tdm_rx->ws.wdr_mode == ISP_3FDOL_WDR_MODE) {
+			tdm->tdm_rx_reset[vinc->tdm_rx_sel + 1] = 0;
+			tdm->tdm_rx_reset[vinc->tdm_rx_sel + 2] = 0;
+		}
+	}
+
+	if (need_ve_callback) {
+		vinc = vind->vinc[0];
+		if (vinc->ve_online_cfg.ve_online_en && vinc->vid_cap.online_csi_reset_callback)
+			vinc->vid_cap.online_csi_reset_callback(vinc->id);
+	}
+}
 #endif
 
 static void __sunxi_tdm_reset(struct tdm_dev *tdm)
@@ -1608,8 +1828,10 @@ static irqreturn_t tdm_isr(int irq, void *priv)
 			csic_tdm_internal_clear_status0(tdm->id, RX3_FRM_ERR_PD);
 			tdm_rx_set_reset(tdm, 3);
 		}
-#endif
+		__sunxi_tdm_reset_v2(tdm);
+#else
 		__sunxi_tdm_reset(tdm);
+#endif
 	}
 
 	if (status.rx_btype_err) {
@@ -1832,29 +2054,19 @@ static irqreturn_t tdm_isr(int irq, void *priv)
 		if (csic_tdm_internal_get_status1(tdm->id, LBC0_ERROR)) {
 			vin_err("tdm%d rx0 lbc error!\n", tdm->id);
 			csic_tdm_internal_clear_status1(tdm->id, LBC0_ERROR);
+			tdm_rx_set_reset(tdm, 0);
 		}
 		if (csic_tdm_internal_get_status1(tdm->id, LBC1_ERROR)) {
 			vin_err("tdm%d rx1 lbc error!\n", tdm->id);
 			csic_tdm_internal_clear_status1(tdm->id, LBC1_ERROR);
+			tdm_rx_set_reset(tdm, 1);
 		}
+		__sunxi_tdm_reset_v2(tdm);
 	}
 
 	if (status.tdm_lbc_fifo_full) {
 		csic_tdm_int_clear_status(tdm->id, RDM_LBC_FIFO_FULL_INT_EN);
 		vin_err("tdm%d lbc fifo overflow!\n", tdm->id);
-	}
-#else
-	if (status.rx_comp_err) {
-		csic_tdm_int_clear_status(tdm->id, RX_COMP_ERR_INT_EN);
-		if (csic_tdm_internal_get_status1(tdm->id, RX0_COMP_ERR_PD)) {
-			vin_err("tdm%d rx0 compose error!\n", tdm->id);
-			csic_tdm_internal_clear_status1(tdm->id, RX0_COMP_ERR_PD);
-		}
-		if (csic_tdm_internal_get_status1(tdm->id, RX1_COMP_ERR_PD)) {
-			vin_err("tdm%d rx1 compose error!\n", tdm->id);
-			csic_tdm_internal_clear_status1(tdm->id, RX1_COMP_ERR_PD);
-		}
-		__sunxi_tdm_reset(tdm);
 	}
 #endif
 	spin_unlock_irqrestore(&tdm->slock, flags);
@@ -1862,10 +2074,29 @@ static irqreturn_t tdm_isr(int irq, void *priv)
 	return IRQ_HANDLED;
 }
 
+#if defined CONFIG_VIN_INIT_MELIS
+static int tdm_enable_irq(void *dev, void *data, int len)
+{
+	struct tdm_dev *tdm = dev;
+	int ret;
+
+	/* Enable ISP iommu bypass */
+#if defined CONFIG_ARCH_SUN8IW21P1
+	vin_iommu_en(ISP_IOMMU_MASTER, true);
+#endif
+	ret = request_irq(tdm->irq, tdm_isr, IRQF_SHARED, tdm->pdev->name, tdm);
+	if (ret)
+		vin_err("tdm%d request tdm failed\n", tdm->id);
+
+	return ret;
+}
+#endif
+
 static int tdm_probe(struct platform_device *pdev)
 {
 	struct device_node *np = pdev->dev.of_node;
 	struct tdm_dev *tdm = NULL;
+	__maybe_unused char name[16];
 	unsigned int i;
 	int ret = 0;
 
@@ -1908,11 +2139,28 @@ static int tdm_probe(struct platform_device *pdev)
 			vin_err("failed to get TDM IRQ resource\n");
 			goto unmap;
 		}
+#if !defined CONFIG_VIN_INIT_MELIS
 		ret = request_irq(tdm->irq, tdm_isr, IRQF_SHARED, tdm->pdev->name, tdm);
 		if (ret) {
 			vin_err("tdm%d request tdm failed\n", tdm->id);
 			goto unmap;
 		}
+#if defined CONFIG_ARCH_SUN8IW21P1
+		vin_iommu_en(ISP_IOMMU_MASTER, true);
+#endif
+#else
+		of_property_read_u32(np, "delay_init", &tdm->delay_init);
+		if (tdm->delay_init == 0) {
+			ret = request_irq(tdm->irq, tdm_isr, IRQF_SHARED, tdm->pdev->name, tdm);
+			if (ret) {
+				vin_err("tdm%d request irq failed\n", tdm->id);
+				goto unmap;
+			}
+		} else {
+			sprintf(name, "tdm%d", tdm->id);
+			rpmsg_notify_add("e907_rproc@0", name, tdm_enable_irq, tdm);
+		}
+#endif
 	}
 
 	spin_lock_init(&tdm->slock);

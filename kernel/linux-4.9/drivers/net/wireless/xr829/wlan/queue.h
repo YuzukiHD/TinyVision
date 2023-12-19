@@ -79,11 +79,7 @@ struct xradio_queue {
 	bool                      overfull;
 	spinlock_t                lock;
 	u8                        queue_id;
-#ifdef QUEUE_GEN_IF_TABLE
-	u8                        generation[XRWL_MAX_VIFS];
-#else
 	u8                        generation;
-#endif
 	struct timer_list	        gc;
 	unsigned long             ttl;
 };

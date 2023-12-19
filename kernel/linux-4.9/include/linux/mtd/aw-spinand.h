@@ -23,6 +23,8 @@
 #define ECC_LIMIT	(1 << 4)
 #define ECC_ERR		(2 << 4)
 
+#define SPI_SELECT_ODDNUM_BLACK 0x10
+
 #define SECBLK_READ		_IO('V', 20)
 #define SECBLK_WRITE		_IO('V', 21)
 #define SECBLK_IOCTL		_IO('V', 22)

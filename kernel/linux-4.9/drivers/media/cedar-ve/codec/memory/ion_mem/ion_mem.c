@@ -289,7 +289,7 @@ void *mem_ion_phy2vir(struct mem_interface *interface, unsigned long addr_phy)
 	}
 
 	if (flag == 0)
-		loge("ion_alloc_phy2vir failed, do not find physical address: 0x%lx \n", addr_phy);
+		logw("ion_alloc_phy2vir failed, do not find physical address: 0x%lx \n", addr_phy);
 
 	return addr_vir;
 }

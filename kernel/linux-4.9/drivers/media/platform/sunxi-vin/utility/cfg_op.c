@@ -236,7 +236,7 @@ static int get_all_keys_value(char *buffer, void *section, char *keys[],
 			      void *value[])
 {
 	char buf[LINE_MAX_CHAR_NUM + 1];
-	char key_ptr[MAX_NAME_LEN], val_ptr[MAX_VALUE_LEN];
+	char key_ptr[LINE_MAX_CHAR_NUM + 1], val_ptr[LINE_MAX_CHAR_NUM + 1];
 	int n, n_keys = 0, ret;
 	unsigned int i, buf_len;
 
@@ -348,7 +348,7 @@ int cfg_get_one_key_value(char *buffer, struct cfg_mainkey *scts,
 			  struct cfg_subkey *subkey)
 {
 	int ret, len;
-	char str_tmp[MAX_NAME_LEN];
+	char str_tmp[MAX_VALUE_LEN];
 	char *endp;
 
 	if (scts == NULL || subkey == NULL)

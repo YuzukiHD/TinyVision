@@ -347,6 +347,7 @@ struct xradio_common;
 #define WSM_KEY_TYPE_AES_PAIRWISE	(5)
 #define WSM_KEY_TYPE_WAPI_GROUP		(6)
 #define WSM_KEY_TYPE_WAPI_PAIRWISE	(7)
+#define WSM_KEY_TYPE_IGTK_GROUP		(8)
 
 /* Key indexes */
 #define WSM_KEY_MAX_INDEX		(10)
@@ -529,7 +530,6 @@ struct xradio_common;
 /*get device temperature*/
 #define WSM_MIB_ID_GET_TEMPERATURE		0x1080
 
-/*enable/disable CE test config*/
 #define WSM_MIB_ID_CE_TEST_CONFIG		0x1081
 
 /* 4.21 BlockAckPolicy */
@@ -1461,6 +1461,12 @@ struct wsm_add_key {
 			u8 keyId;		/* Key ID */
 			u8 reserved[3];
 		} __packed wapiGroupKey;
+		struct {
+			u8 igtkKeyData[16];  /* IGTK key data */
+			u8 keyId;    /* Key ID */
+			u8 reserved[3];
+			u8 ipn[8];     /* IGTK packet number */
+		} __packed igtkGroupKey;
 	} __packed;
 } __packed;
 

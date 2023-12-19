@@ -240,6 +240,21 @@ static int part_erase(struct mtd_info *mtd, struct erase_info *instr)
 	return ret;
 }
 
+static int part_erase_4k(struct mtd_info *mtd, struct erase_info *instr)
+{
+	struct mtd_part *part = mtd_to_part(mtd);
+	int ret;
+
+	instr->addr += part->offset;
+	ret = part->master->_erase_4k(part->master, instr);
+	if (ret) {
+		if (instr->fail_addr != MTD_FAIL_ADDR_UNKNOWN)
+			instr->fail_addr -= part->offset;
+		instr->addr -= part->offset;
+	}
+	return ret;
+}
+
 void mtd_erase_callback(struct erase_info *instr)
 {
 	if (instr->mtd->_erase == part_erase) {
@@ -483,6 +498,7 @@ static struct mtd_part *allocate_partition(struct mtd_info *master,
 
 	slave->mtd.priv = master;
 	slave->mtd._erase = part_erase;
+	slave->mtd._erase_4k = part_erase_4k;
 	slave->master = master;
 	slave->offset = part->offset;
 

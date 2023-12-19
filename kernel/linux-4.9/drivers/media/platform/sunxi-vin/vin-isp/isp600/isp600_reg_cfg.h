@@ -80,6 +80,8 @@
 #define ISP_STAT_HIST1_MEM_SIZE			0x0400
 #define ISP_STAT_PLTM_LUM_SIZE			0x0780
 
+#define ISP_STAT_HIST0_MEM_OFS			0x5a80
+
 /*save and load statistics*/
 #define ISP_STAT_PLTM_PKX_SIZE			0x3000
 #define ISP_STAT_D3D_K_SIZE			0x0300

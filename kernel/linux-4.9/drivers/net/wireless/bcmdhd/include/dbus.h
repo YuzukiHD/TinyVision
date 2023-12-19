@@ -2,14 +2,14 @@
  * Dongle BUS interface Abstraction layer
  *   target serial buses like USB, SDIO, SPI, etc.
  *
- * Copyright (C) 1999-2017, Broadcom Corporation
- * 
+ * Copyright (C) 1999-2019, Broadcom.
+ *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
  * under the terms of the GNU General Public License version 2 (the "GPL"),
  * available at http://www.broadcom.com/licenses/GPLv2.php, with the
  * following added to such license:
- * 
+ *
  *      As a special exception, the copyright holders of this software give you
  * permission to link this software with independent modules, and to copy and
  * distribute the resulting executable under terms of your choice, provided that
@@ -17,7 +17,7 @@
  * the license of that module.  An independent module is a module which is not
  * derived from this software.  The special exception does not apply to any
  * modifications of the software.
- * 
+ *
  *      Notwithstanding the above, under no circumstances may you combine this
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
@@ -25,13 +25,14 @@
  *
  * <<Broadcom-WL-IPTag/Open:>>
  *
- * $Id: dbus.h 596371 2015-10-30 22:43:47Z $
+ * $Id: dbus.h 686618 2017-02-23 07:20:43Z $
  */
 
 #ifndef __DBUS_H__
 #define __DBUS_H__
 
 #include "typedefs.h"
+#include <dhd_linux.h>
 
 extern uint dbus_msglevel;
 #define DBUS_ERROR_VAL	0x0001
@@ -191,7 +192,8 @@ typedef struct dbus_extdl {
 struct dbus_callbacks;
 struct exec_parms;
 
-typedef void *(*probe_cb_t)(void *arg, const char *desc, uint32 bustype, uint32 hdrlen);
+typedef void *(*probe_cb_t)(void *arg, const char *desc, uint32 bustype,
+	uint16 bus_no, uint16 slot, uint32 hdrlen);
 typedef void (*disconnect_cb_t)(void *arg);
 typedef void *(*exec_cb_t)(struct exec_parms *args);
 
@@ -285,7 +287,7 @@ typedef struct dbus_pub {
 	int ntxq, nrxq, rxsize;
 	void *bus;
 	struct shared_info *sh;
-    void *dev_info;
+	void *dev_info;
 } dbus_pub_t;
 
 #define BUS_INFO(bus, type) (((type *) bus)->pub->bus)
@@ -413,12 +415,6 @@ extern void dbus_bus_fw_get(void *bus, uint8 **fw, int *fwlen, int *decomp);
 extern int dbus_bus_osl_register(int vid, int pid, probe_cb_t prcb, disconnect_cb_t discb,
 	void *prarg, dbus_intf_t **intf, void *param1, void *param2);
 extern int dbus_bus_osl_deregister(void);
-#ifdef BCM_REQUEST_FW
-extern int dbus_usb_reg_notify(void* semaphore);
-extern void dbus_usb_unreg_notify(void);
-extern int dbus_usbos_reg_notify(void* semaphore);
-extern void dbus_usbos_unreg_notify(void);
-#endif
 
 /*
  * Bus-specific, OS-specific, HW-specific Interface
@@ -435,9 +431,7 @@ extern void *dbus_get_fw_nvfile(int devid, int chiprev, uint8 **fw, int *fwlen, 
 extern void dbus_release_fw_nvfile(void *firmware);
 #endif  /* #if defined(BCM_REQUEST_FW) */
 
-
 #if defined(EHCI_FASTPATH_TX) || defined(EHCI_FASTPATH_RX)
-
 
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 0))
 	/* Backward compatibility */
@@ -463,7 +457,7 @@ extern void dbus_release_fw_nvfile(void *firmware);
 	typedef unsigned int __hc32;
 #else
 	#error Two-argument functions needed
-#endif
+#endif // endif
 
 /* Private USB opcode base */
 #define EHCI_FASTPATH		0x31

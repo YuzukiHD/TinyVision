@@ -198,6 +198,15 @@ void os_mem_free(struct device *dev, struct vin_mm *mem_man)
 }
 EXPORT_SYMBOL_GPL(os_mem_free);
 
+extern void sunxi_enable_device_iommu(unsigned int master_id, bool flag);
+void vin_iommu_en(unsigned int mester_id, bool en)
+{
+#if defined CONFIG_SUNXI_IOMMU && defined CONFIG_VIN_IOMMU
+	sunxi_enable_device_iommu(mester_id, en);
+#endif
+}
+EXPORT_SYMBOL_GPL(vin_iommu_en);
+
 MODULE_AUTHOR("raymonxiu");
 MODULE_LICENSE("Dual BSD/GPL");
 MODULE_DESCRIPTION("Video front end OSAL for sunxi");

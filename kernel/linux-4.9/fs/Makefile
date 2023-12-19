@@ -10,7 +10,7 @@ obj-y :=	open.o read_write.o file_table.o super.o \
 		ioctl.o readdir.o select.o dcache.o inode.o \
 		attr.o bad_inode.o file.o filesystems.o namespace.o \
 		seq_file.o xattr.o libfs.o fs-writeback.o \
-		pnode.o splice.o sync.o utimes.o \
+		pnode.o splice.o sync.o utimes.o\
 		stack.o fs_struct.o statfs.o fs_pin.o nsfs.o
 
 ifeq ($(CONFIG_BLOCK),y)
@@ -130,3 +130,4 @@ obj-y				+= exofs/ # Multiple modules
 obj-$(CONFIG_CEPH_FS)		+= ceph/
 obj-$(CONFIG_PSTORE)		+= pstore/
 obj-$(CONFIG_EFIVAR_FS)		+= efivarfs/
+obj-$(CONFIG_EROFS_FS)          += erofs/

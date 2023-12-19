@@ -10,6 +10,30 @@
 #define to_rproc(d) container_of(d, struct rproc, dev)
 
 /* Expose the loaded / running firmware name via sysfs */
+static ssize_t trace_show(struct device *dev, struct device_attribute *attr,
+			  char *buf)
+{
+	struct rproc *rproc = to_rproc(dev);
+	struct rproc_mem_entry *tmp, *trace;
+	int len, offset = 0;
+
+	list_for_each_entry_safe(trace, tmp, &rproc->traces, node) {
+#ifndef CONFIG_SUNXI_RPROC_TRACE_DEV
+		len = min(strnlen(trace->va, trace->len), PAGE_SIZE - offset);
+		memcpy(buf + offset, trace->va, len);
+#else
+		len = sunxi_rproc_trace_read(trace->va, trace->len, buf + offset, PAGE_SIZE - offset);
+#endif
+		offset += len;
+		if (offset >= PAGE_SIZE)
+			break;
+	}
+
+	return offset;
+}
+static DEVICE_ATTR_RO(trace);
+
+/* Expose the loaded / running firmware name via sysfs */
 static ssize_t firmware_show(struct device *dev, struct device_attribute *attr,
 			  char *buf)
 {
@@ -70,7 +94,7 @@ static const char * const rproc_state_string[] = {
 	[RPROC_SUSPENDED]	= "suspended",
 	[RPROC_RUNNING]		= "running",
 	[RPROC_CRASHED]		= "crashed",
-	[RPROC_DELETED]		= "deleted",
+	[RPROC_EARLY_BOOT]		= "earlyboot",
 	[RPROC_LAST]		= "invalid",
 };
 
@@ -127,6 +151,7 @@ static struct attribute *rproc_attrs[] = {
 	&dev_attr_firmware.attr,
 	&dev_attr_state.attr,
 	&dev_attr_name.attr,
+	&dev_attr_trace.attr,
 	NULL
 };
 

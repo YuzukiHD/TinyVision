@@ -20,14 +20,13 @@
 #include <unistd.h>		/*close/read/write*/
 #include "sunxi_ce.h"
 
-//#define CONFIG_USE_ION
-//#define AES_FUNCTION_TEST
-#define AES_TEST_MAX
 
 #include <sys/mman.h>	/*mmap*/
 #include "ion.h"
 
 #define DATA_SIZE	(128 * 1024)
+
+int aes_class_test(int fd, enum enum_ase_class aes_mode);
 
 #define HEXDUMP_LINE_CHR_CNT 16
 static int sunxi_hexdump(const unsigned char *buf, int bytes)
@@ -201,6 +200,7 @@ int aes_test_max(int fd)
 	struct sunxi_cache_range cache_range;
 	u32 data_size = DATA_LEN;
 	u8 *data = NULL;
+
 	u8 key[16] = {
 	0xFF, 0xEE, 0xDD, 0xCC, 0xBB, 0xAA, 0x99, 0x88,
 	0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, 0x00
@@ -616,6 +616,16 @@ int ce_test(void)
 	}
 #endif
 
+#define AES_CLASS_TEST_MAX
+#ifdef AES_CLASS_TEST_MAX
+	aes_class_test(ce_fd, ENUM_AES_MODE_ECB);
+	aes_class_test(ce_fd, ENUM_AES_MODE_CBC);
+	aes_class_test(ce_fd, ENUM_DES_MODE_ECB);
+	aes_class_test(ce_fd, ENUM_DES_MODE_CBC);
+	aes_class_test(ce_fd, ENUM_DES3_MODE_ECB);
+	aes_class_test(ce_fd, ENUM_DES3_MODE_CBC);
+#endif
+
 	close(ce_fd);
     return 0;
 
@@ -736,4 +746,212 @@ int main(int argc, const char *argv[])
 	}
 #endif
 	return 0;
+}
+
+#define AES_TEST_DATALEN (4096)
+int aes_class_test(int fd, enum enum_ase_class aes_mode)
+{
+	int ret = -1;
+	struct sunxi_cache_range cache_range;
+	u32 data_size = AES_TEST_DATALEN;
+	u8 *data = NULL;
+	crypto_aes_req_ctx_t *aes_ctx = NULL;
+	u8 *tmp = NULL;
+	int orign_len = 0;
+	int channel_id = -1;
+	u32 cmp_size, offset, i;
+
+	u8 *ptr_key = NULL, *ptr_iv = NULL;
+	u8 key_length = 0, iv_length = 0;
+	unsigned char alg_method = (aes_mode & APP_AES_METHON_MASK) >> 8;
+	// unsigned char alg_mode = aes_mode && APP_AES_MODE_MASK;
+	// printf("aes mode = %d  alg_method = %d\n", aes_mode ,alg_method);
+	if (alg_method == SS_METHOD_AES) {
+		u8 ase_key[16] = { 0xFF, 0xEE, 0xDD, 0xCC, 0xBB, 0xAA,
+				   0x99, 0x88, 0x77, 0x66, 0x55, 0x44,
+				   0x33, 0x22, 0x11, 0x00 };
+		u8 ase_iv[16] = { 0x00, 0x11, 0x22, 0x33, 0x44, 0x55,
+				  0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB,
+				  0xCC, 0xDD, 0xEE, 0xFF };
+		ptr_key = ase_key;
+		key_length = sizeof(ase_key);
+		ptr_iv = ase_iv;
+		iv_length = sizeof(ase_iv);
+		printf("&&&&&&&&&&&&&& test AES &&&&&&&&&&&&&&&\n");
+	} else if (alg_method == SS_METHOD_DES) {
+		u8 des_key[8] = {
+			0xFF, 0xEE, 0xDD, 0xCC, 0xBB, 0xAA, 0x99, 0x00,
+		};
+		u8 des_iv[8] = {
+			0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x00,
+		};
+		ptr_key = des_key;
+		key_length = sizeof(des_key);
+		ptr_iv = des_iv;
+		iv_length = sizeof(des_iv);
+		printf("&&&&&&&&&&&&&& test DES &&&&&&&&&&&&&&&\n");
+	} else if (alg_method == SS_METHOD_3DES) {
+		u8 des3_key[24] = {
+			0xFF, 0xEE, 0xDD, 0xCC, 0xBB, 0xAA, 0x99, 0x00,
+			0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x00,
+			0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x00,
+		};
+		u8 des3_iv[8] = {
+			0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x00,
+		};
+		ptr_key = des3_key;
+		key_length = sizeof(des3_key);
+		ptr_iv = des3_iv;
+		iv_length = sizeof(des3_iv);
+		printf("&&&&&&&&&&&&&& test 3DES &&&&&&&&&&&&&&&\n");
+	} else {
+		printf("error aes mode = %d  alg_method = %d\n", aes_mode,
+		       alg_method);
+		return -1;
+	}
+
+	printf("data_size = 0x%x\n", data_size);
+	aes_ctx = (crypto_aes_req_ctx_t *)malloc(sizeof(crypto_aes_req_ctx_t));
+	if (aes_ctx == NULL) {
+		printf(" malloc data buffer fail\n");
+		return -1;
+	}
+	memset(aes_ctx, 0x0, sizeof(crypto_aes_req_ctx_t));
+	aes_ctx->iv_buffer = ptr_iv;
+	aes_ctx->iv_length = iv_length;
+	aes_ctx->key_buffer = ptr_key;
+	aes_ctx->key_length = key_length;
+	aes_ctx->aes_mode = aes_mode;
+	aes_ctx->dir = AES_DIR_ENCRYPT;
+
+#ifdef CONFIG_USE_ION
+	aes_ctx->ion_flag = 1;
+	aes_ctx->src_phy = ion_buf.phys_data.phys_addr;
+	aes_ctx->src_buffer = ion_buf.vir_addr;
+	aes_ctx->src_length = data_size;
+	aes_ctx->dst_phy = ion_buf.phys_data.phys_addr + data_size;
+	aes_ctx->dst_buffer = ion_buf.vir_addr + data_size;
+	aes_ctx->dst_length = data_size;
+	printf("src_phy = 0x%lx dst_phy = 0x%lx\n", aes_ctx->src_phy,
+	       aes_ctx->dst_phy);
+#else
+	/*malloc dst buf*/
+	data = (u8 *)malloc(data_size);
+	if (data == NULL) {
+		printf("%s: malloc dest buffer fail\n", __func__);
+		ret = -1;
+		goto fail;
+	}
+	aes_ctx->dst_buffer = data;
+	aes_ctx->dst_length = data_size;
+
+	/*malloc src buf*/
+	data = (u8 *)malloc(data_size);
+	if (data == NULL) {
+		printf(" malloc data buffer fail\n");
+		ret = -1;
+		goto fail;
+	}
+	memset(data, 0x78, data_size);
+	aes_ctx->src_buffer = data;
+	aes_ctx->src_length = data_size;
+#endif
+
+	/*backup src_data*/
+	tmp = (u8 *)malloc(data_size);
+	if (tmp == NULL) {
+		printf(" malloc data buffer fail\n");
+		ret = -1;
+		goto fail;
+	}
+	memset(tmp, 0x0, data_size);
+	memcpy(tmp, aes_ctx->src_buffer, data_size);
+	orign_len = aes_ctx->src_length;
+
+	/*reques channel*/
+	ret = ioctl(fd, CE_IOC_REQUEST, &channel_id);
+	if (ret) {
+		printf("%s: CE_IOC_REQUEST fail\n", __func__);
+		goto fail;
+	}
+	aes_ctx->channel_id = channel_id;
+
+	/*encrypt*/
+	ret = ioctl(fd, CE_IOC_AES_CRYPTO, (unsigned long)aes_ctx);
+	if (ret) {
+		printf("%s: encrypt fail\n", __func__);
+		goto fail;
+	}
+
+	/*change dst to src*/
+	sunxi_hexdump(aes_ctx->dst_buffer, aes_ctx->dst_length);
+	memcpy(aes_ctx->src_buffer, aes_ctx->dst_buffer, aes_ctx->dst_length);
+	memset(aes_ctx->dst_buffer, 0x0, aes_ctx->dst_length);
+
+	if (aes_ctx->ion_flag) {
+		/* flush cache */
+		cache_range.start = (long)ion_buf.vir_addr;
+		cache_range.end =
+			(long)(ion_buf.vir_addr + ion_buf.buf_len - 1);
+		ret = ioctl(ion_buf.ion_fd, ION_IOC_SUNXI_FLUSH_RANGE,
+			    &cache_range);
+		if (ret) {
+			printf("before aes decrypto,flush cache error\n");
+		}
+	}
+	printf("orign_len = 0x%x\n", aes_ctx->dst_length);
+	aes_ctx->dir = AES_DIR_DECRYPT;
+	aes_ctx->src_length = aes_ctx->dst_length;
+
+	/*decrypt*/
+	ret = ioctl(fd, CE_IOC_AES_CRYPTO, (unsigned long)aes_ctx);
+	if (ret) {
+		printf("%s: decrypt fail\n", __func__);
+		goto fail;
+	}
+
+	cmp_size = 4096;
+	if (data_size & (4096 - 1)) {
+		printf("data not align\n");
+	}
+
+	for (i = 0x0; i < data_size / 4096; i++) {
+		offset = cmp_size * i;
+		if (memcmp(tmp + offset, aes_ctx->dst_buffer + offset,
+			   cmp_size)) {
+			printf("error: aes_mode = 0x%x memcmp fail (%d)\n",
+			       aes_mode, i);
+			printf("src: \n");
+			sunxi_hexdump(tmp + offset, cmp_size);
+			printf("dst: \n");
+			sunxi_hexdump(aes_ctx->dst_buffer + offset, cmp_size);
+			goto fail;
+		} else {
+			//printf ("############aes_cbc_test pass: %d#############\n\n\n", cmp_size);
+		}
+	}
+
+	printf("############aes_test_max end#############\n");
+	ret = 0x0;
+
+fail:
+	if (ioctl(fd, CE_IOC_FREE, &channel_id) < 0)
+		printf("CE_IOC_FREE error\n");
+	if (aes_ctx->dst_buffer && (aes_ctx->ion_flag != 1)) {
+		printf("dst free\n");
+		free(aes_ctx->dst_buffer);
+	}
+	if (aes_ctx->src_buffer && (aes_ctx->ion_flag != 1)) {
+		printf("src free\n");
+		free(aes_ctx->src_buffer);
+	}
+	if (aes_ctx) {
+		printf("aes_ctx free\n");
+		free(aes_ctx);
+	}
+	if (tmp) {
+		printf("tmp free\n");
+		free(tmp);
+	}
+	return ret;
 }

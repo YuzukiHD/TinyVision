@@ -2,13 +2,13 @@
 * Allwinner ephy driver.
 *
 * Copyright(c) 2022-2027 Allwinnertech Co., Ltd.
-* Author: xuminghui <xuminghui@allwinnertech.com>
 *
 * This file is licensed under the terms of the GNU General Public
 * License version 2.  This program is licensed "as is" without any
 * warranty of any kind, whether express or implied.
 */
-//#define DEBUG
+
+/* #define DEBUG */
 #include <linux/kernel.h>
 #include <linux/string.h>
 #include <linux/errno.h>
@@ -30,8 +30,21 @@
 #include <asm/io.h>
 #include <asm/irq.h>
 
-#define AC300_EPHY	"ac300-ephy"
-#define AC300_DEV	"ac300"
+#define AC300_EPHY		"ac300-ephy"
+#define AC300_DEV		"ac300"
+
+#ifdef CONFIG_ARCH_SUN8IW21
+#define EPHY_CALI_BASE		0
+#define EPHY_CALI_BIT		BIT(29)
+#define EPHY_BGS_MASK		0x0f000000
+#define EPHY_BGS_OFFSET		24
+/*
+ * Ephy diagram test
+ * This macro will cause all cpu stuck
+ * Use it carefully
+ */
+/* #define EPHY_100M_ED_TEST */
+#endif
 
 struct ephy_res {
 	struct phy_device *ac300;
@@ -41,53 +54,68 @@ struct ephy_res {
 
 static struct ephy_res ac300_ephy;
 
-__attribute__((unused)) s32 sunxi_ephy_read_sid(u16 *p_ephy_cali)
+static int sunxi_ephy_read_sid(u32 *buf)
 {
-	s32 ret = 0;
-	u8 buf[6];
+	int ret;
 
-	if (!p_ephy_cali) {
-		pr_info("%s's pointer type args are NULL!\n", __func__);
-		return -1;
-	}
-	ret = sunxi_efuse_readn(EFUSE_OEM_NAME, buf, 6);
-	if (ret != 0) {
-		pr_info("sunxi_efuse_readn failed:%d\n", ret);
+	if (!buf)
+		return -EINVAL;
+
+	ret = sunxi_efuse_readn(EFUSE_FTCP_NAME, buf, 4);
+	if (ret)
 		return ret;
-	}
-	*p_ephy_cali = buf[0] + (buf[1] << 8);
 
-	return ret;
+	return 0;
 }
 
-void sunxi_ephy_config_fixed(struct phy_device *phydev, bool disable_auto_offset)
+void sunxi_ephy_config_new_init(struct phy_device *phydev)
 {
-	phy_write(phydev, 0x1f, 0x0100);	/*switch to Page 1 */
-	phy_write(phydev, 0x12, 0x4824);	/*Disable APS */
+	phy_write(phydev, 0x1f, 0x0100);	/* switch to Page 1 */
+	phy_write(phydev, 0x12, 0x4824);	/* Disable APS */
 
-	phy_write(phydev, 0x1f, 0x0200);	/*switch to Page 2 */
-	phy_write(phydev, 0x18, 0x0000);	/*PHYAFE TRX optimization */
+	phy_write(phydev, 0x1f, 0x0200);	/* switch to Page 2 */
+	phy_write(phydev, 0x18, 0x0000);	/* PHYAFE TRX optimization */
 
-	phy_write(phydev, 0x1f, 0x0600);	/*switch to Page 6 */
-	phy_write(phydev, 0x14, 0x780b);	/*PHYAFE TX optimization */
-	phy_write(phydev, 0x13, 0xf000);	/*PHYAFE RX optimization */
+	phy_write(phydev, 0x1f, 0x0600);	/* switch to Page 6 */
+	phy_write(phydev, 0x14, 0x7809);	/* PHYAFE TX optimization */
+	phy_write(phydev, 0x13, 0xf000);	/* PHYAFE RX optimization */
 	phy_write(phydev, 0x10, 0x5523);
 	phy_write(phydev, 0x15, 0x3533);
 
-	phy_write(phydev, 0x1f, 0x0800);	/*switch to Page 8 */
-	if (disable_auto_offset)
-		phy_write(phydev, 0x1d, 0x0844);	/*disable auto offset */
-	phy_write(phydev, 0x18, 0x00bc);	/*PHYAFE TRX optimization */
+	phy_write(phydev, 0x1f, 0x0800);	/* switch to Page 8 */
+	phy_write(phydev, 0x1d, 0x0844);	/* disable auto offset */
+	phy_write(phydev, 0x18, 0x00bc);	/* PHYAFE TRX optimization */
+
+	phy_write(phydev, 0x1f, 0x0000);	/* switch to Page 0 */
 }
 
-void sunxi_ephy_config_cali(struct phy_device *phydev, u16 ephy_cali)
+void sunxi_ephy_config_old_init(struct phy_device *phydev)
 {
-	int value;
+	phy_write(phydev, 0x1f, 0x0100);	/* switch to Page 1 */
+	phy_write(phydev, 0x12, 0x4824);	/* Disable APS */
+
+	phy_write(phydev, 0x1f, 0x0200);	/* switch to Page 2 */
+	phy_write(phydev, 0x18, 0x0000);	/* PHYAFE TRX optimization */
+
+	phy_write(phydev, 0x1f, 0x0600);	/* switch to Page 6 */
+	phy_write(phydev, 0x14, 0x780b);	/* PHYAFE TX optimization */
+	phy_write(phydev, 0x13, 0xf000);	/* PHYAFE RX optimization */
+	phy_write(phydev, 0x15, 0x1530);
+	phy_write(phydev, 0x1f, 0x0800);	/* switch to Page 8 */
+	phy_write(phydev, 0x18, 0x00bc);	/* PHYAFE TRX optimization */
+
+	phy_write(phydev, 0x1f, 0x0000);	/* switch to Page 0 */
+}
+
+void sunxi_ephy_config_cali(struct phy_device *phydev, u32 ephy_cali)
+{
+	int value, bgs_adjust;
 
 	/* Adjust BGS value of 0x06 reg */
 	value = phy_read(phydev, 0x06);
 	value &= ~(0x0F << 12);
-	value |= (0x0F & (0x05 + ephy_cali)) << 12;
+	bgs_adjust = (ephy_cali & EPHY_BGS_MASK) >> EPHY_BGS_OFFSET;
+	value |= (0xF & (EPHY_CALI_BASE + bgs_adjust)) << 12;
 	phy_write(phydev, 0x06, value);
 }
 
@@ -120,37 +148,52 @@ void sunxi_ephy_disable_802_3az_ieee(struct phy_device *phydev)
 	phy_write(phydev, 0x18, 0x0000);
 }
 
+#ifdef EPHY_100M_ED_TEST
+static void ephy_debug_test(void *info)
+{
+	while (1)
+		;
+}
+#endif
+
 static int ephy_config_init(struct phy_device *phydev)
 {
 	int value;
 	int ret;
-	u16 ephy_cali = 0;
+	u32 ephy_cali;
 
 	ret = sunxi_ephy_read_sid(&ephy_cali);
 	if (ret) {
 		pr_err("ephy cali efuse read fail!\n");
-		return -1;
+		return -EINVAL;
 	}
 
 	sunxi_ephy_config_cali(ac300_ephy.ac300, ephy_cali);
 
 	/*
-	 * BIT9: the flag of calibration value
+	 * EPHY_CALI_BIT: the flag of calibration value
 	 * 0: Normal
 	 * 1: Low level of calibration value
 	 */
-
-	if (ephy_cali & BIT(9)) {
-		pr_debug("ac300:ephy cali efuse read: fixed!\n");
-		sunxi_ephy_config_fixed(phydev, 1);
+	if (ephy_cali & EPHY_CALI_BIT) {
+		pr_debug("Low level ephy, use new init\n");
+		sunxi_ephy_config_new_init(phydev);
 	} else {
-		pr_debug("ac300:ephy cali efuse read: default!\n");
-		sunxi_ephy_config_fixed(phydev, 0);
+		pr_debug("Normal ephy, use old init\n");
+		sunxi_ephy_config_old_init(phydev);
 	}
 
 	sunxi_ephy_disable_intelligent_ieee(phydev);	/* Disable Intelligent IEEE */
 	sunxi_ephy_disable_802_3az_ieee(phydev);	/* Disable 802.3az IEEE */
 	phy_write(phydev, 0x1f, 0x0000);		/* Switch to Page 0 */
+
+#ifdef EPHY_100M_ED_TEST
+	phy_write(phydev, 0x1f, 0x0000);		/* Switch to Page 0 */
+	phy_write(phydev, 0x00, 0x2100);		/* Force 100M Mode */
+	phy_write(phydev, 0x1f, 0x0000);		/* Switch to Page 0 */
+	phy_write(phydev, 0x13, 0x0100);		/* Force TX output@TXP/TXN */
+	on_each_cpu(ephy_debug_test, NULL, 1);		/* Stuck all cpu for ephy eye diagram test */
+#endif
 
 	value = phy_read(ac300_ephy.ac300, 0x06);
 	if (phydev->interface == PHY_INTERFACE_MODE_RMII)
@@ -191,10 +234,10 @@ static void ac300_enable(struct phy_device *phydev)
 	phy_write(phydev, 0x05, 0xa81f);
 
 	mdelay(10);
-	phy_write(phydev, 0x06, 0x5811);
+	phy_write(phydev, 0x06, 0x0811);
 
 	mdelay(10);
-	phy_write(phydev, 0x06, 0x5810);
+	phy_write(phydev, 0x06, 0x0810);
 }
 
 static void ac300_disable(struct phy_device *phydev)
@@ -271,4 +314,4 @@ MODULE_DEVICE_TABLE(mdio, ac300_tbl);
 MODULE_DESCRIPTION("Allwinner phy drivers");
 MODULE_AUTHOR("wujiayi <wujiayi@allwinnertech.com>");
 MODULE_LICENSE("GPL");
-MODULE_VERSION("1.1.0");
+MODULE_VERSION("1.1.1");

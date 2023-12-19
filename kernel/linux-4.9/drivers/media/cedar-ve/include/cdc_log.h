@@ -23,27 +23,29 @@
 #define LOG_TAG "cedarc"
 #endif
 
-#define ENABLE_LOG_LEVEL 1
+enum CDC_LOG_LEVEL_TYPE {
+    LOG_LEVEL_VERBOSE = 2,
+    LOG_LEVEL_DEBUG = 3,
+    LOG_LEVEL_INFO = 4,
+    LOG_LEVEL_WARNING = 5,
+    LOG_LEVEL_ERROR = 6,
+};
 
-#define LOG_LEVEL_DEBUG "debug"
-#define LOG_LEVEL_INFO "info"
-#define LOG_LEVEL_VERBOSE "verbose"
-#define LOG_LEVEL_WARNING "warn"
-#define LOG_LEVEL_ERROR "error"
+extern enum CDC_LOG_LEVEL_TYPE CDC_GLOBAL_LOG_LEVEL;
+extern const char *CDC_LOG_LEVEL_NAME[7];
 
-#if ENABLE_LOG_LEVEL
-#define logd(fmt, arg...) printk(KERN_DEBUG "%s:%s <%s:%u> " fmt "\n", LOG_LEVEL_DEBUG, LOG_TAG, __FUNCTION__, __LINE__, ##arg)
-#define logi(fmt, arg...) printk(KERN_INFO "%s:%s <%s:%u> " fmt "\n", LOG_LEVEL_INFO, LOG_TAG, __FUNCTION__, __LINE__, ##arg)
-//#define logv(fmt, arg...) printk(KERN_INFO"%s:%s <%s:%u> "fmt"\n", LOG_LEVEL_VERBOSE, LOG_TAG, __FUNCTION__, __LINE__, ##arg)
-#define logv(fmt, arg...)
-#else
-#define logd(fmt, arg...)
-#define logi(fmt, arg...)
-#define logv(fmt, arg...)
-#endif
+#define CDCLOG(level, fmt, arg...)  \
+	do { \
+		if (level >= CDC_GLOBAL_LOG_LEVEL) \
+			printk("%s: %s <%s:%u>: " fmt "\n", \
+				CDC_LOG_LEVEL_NAME[level], LOG_TAG, __FUNCTION__, __LINE__, ##arg); \
+	} while (0)
 
-#define logw(fmt, arg...) printk(KERN_WARNING "%s:%s <%s:%u> " fmt "\n", LOG_LEVEL_WARNING, LOG_TAG, __FUNCTION__, __LINE__, ##arg)
-#define loge(fmt, arg...) printk(KERN_ERR "%s:%s <%s:%u> " fmt "\n", LOG_LEVEL_ERROR, LOG_TAG, __FUNCTION__, __LINE__, ##arg)
+#define loge(fmt, arg...) CDCLOG(LOG_LEVEL_ERROR, "\033[40;31m" fmt "\033[0m", ##arg)
+#define logw(fmt, arg...) CDCLOG(LOG_LEVEL_WARNING, fmt, ##arg)
+#define logi(fmt, arg...) CDCLOG(LOG_LEVEL_INFO, fmt, ##arg)
+#define logd(fmt, arg...) CDCLOG(LOG_LEVEL_DEBUG, fmt, ##arg)
+#define logv(fmt, arg...) CDCLOG(LOG_LEVEL_VERBOSE, fmt, ##arg)
 
 #define CEDARC_PRINTF_LINE logd("Run this line")
 

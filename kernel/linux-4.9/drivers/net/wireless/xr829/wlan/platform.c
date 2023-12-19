@@ -27,7 +27,6 @@
 #include <linux/types.h>
 //#include <linux/power/scenelock.h>
 #include <linux/power/aw_pm.h>
-#define WLAN_WOW_SUPPORT
 MODULE_AUTHOR("XRadioTech");
 MODULE_DESCRIPTION("XRadioTech WLAN driver");
 MODULE_LICENSE("GPL");
@@ -74,7 +73,7 @@ int xradio_wlan_power(int on)
 			return ret;
 	}
 	sunxi_wlan_set_power(on);
-	mdelay(100);
+	mdelay(50);
 	return ret;
 }
 
@@ -112,23 +111,17 @@ int xradio_request_gpio_irq(struct device *dev, void *sbus_priv)
 	ret = devm_request_irq(dev, gpio_irq_handle,
 					(irq_handler_t)xradio_gpio_irq_handler,
 					IRQF_TRIGGER_RISING|IRQF_NO_SUSPEND, "xradio_irq", sbus_priv);
-	if (IS_ERR_VALUE(ret)) {
+	if (ret < 0) {
 			gpio_irq_handle = 0;
 			xradio_dbg(XRADIO_DBG_ERROR, "%s: request_irq FAIL!ret=%d\n",
 					__func__, ret);
 		}
-#if defined (WLAN_WOW_SUPPORT) &&  !defined(CONFIG_ARCH_SUN50IW11P1) && !defined(CONFIG_ARCH_SUN50IW10P1) && !defined(CONFIG_ARCH_SUN8IW21P1)
-	enable_irq_wake(gpio_irq_handle);
-#endif
 	return ret;
 }
 
 void xradio_free_gpio_irq(struct device *dev, void *sbus_priv)
 {
 	struct sbus_priv *self = (struct sbus_priv *)sbus_priv;
-#if defined (WLAN_WOW_SUPPORT) &&  !defined(CONFIG_ARCH_SUN50IW11P1) && !defined(CONFIG_ARCH_SUN50IW10P1) && !defined(CONFIG_ARCH_SUN8IW21P1)
-		disable_irq_wake(gpio_irq_handle);
-#endif
 		devm_free_irq(dev, gpio_irq_handle, self);
 		gpio_irq_handle = 0;
 }

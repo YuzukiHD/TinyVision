@@ -26,12 +26,14 @@
 #include "low_cmd.h"
 #include "data_test.h"
 
+u16  txparse_flags;
+u16  rxparse_flags;
+
 void xradio_wake_up_tx_work(void *priv)
 {
 	struct xradio_priv *_priv = (struct xradio_priv *)priv;
 
 	xradio_k_atomic_add(1, &_priv->th_tx);
-
 	wake_up(&_priv->txrx_wq);
 }
 
@@ -56,6 +58,12 @@ int xradio_tx_cmd_process(void *priv, char *buffer, uint16_t len)
 	int pad_len = 0;
 
 	static u8 seq_number;
+	if (!_priv->txrx_enable) {
+		txrx_printk(XRADIO_DBG_ERROR, "txrx thread not ready.\n");
+		return -EPERM;
+	}
+
+	xradio_k_mutex_lock(&_priv->tx_mutex);
 
 	pad_len = SKB_DATA_ADDR_ALIGNMENT -
 		  ((len + sizeof(struct xradio_hdr)) % SKB_DATA_ADDR_ALIGNMENT);
@@ -65,6 +73,7 @@ int xradio_tx_cmd_process(void *priv, char *buffer, uint16_t len)
 	skb = xradio_alloc_skb(total_len, __func__);
 	if (!skb) {
 		txrx_printk(XRADIO_DBG_ERROR, "xradio alloc skb failed.\n");
+		xradio_k_mutex_unlock(&_priv->tx_mutex);
 		return -ENOMEM;
 	}
 
@@ -88,13 +97,20 @@ int xradio_tx_cmd_process(void *priv, char *buffer, uint16_t len)
 		xradio_crc_16(tx_buff + sizeof(struct xradio_hdr) + pad_len, len));
 
 	ret = xradio_queue_put(&_priv->tx_queue[XR_CMD], skb, seq_number);
-	if (!ret) {
-		seq_number++;
-		xradio_wake_up_tx_work(_priv);
-	} else {
-		txrx_printk(XRADIO_DBG_ERROR, "xradio queue is full, push cmd failed.\n");
-		xraido_free_skb_any(skb);
+
+	if (ret) {
+		txrx_printk(XRADIO_DBG_MSG,
+				"tx cmd queue will full, tx cmd pause:%d\n",
+				xradio_queue_get_queue_num(&_priv->tx_queue[XR_CMD]));
+		xradio_k_atomic_set(&_priv->tx_cmd_pause, 1);
+		xradio_k_sem_take(&_priv->tx_cmd_sem);
 	}
+
+	seq_number++;
+
+	xradio_wake_up_tx_work(_priv);
+
+	xradio_k_mutex_unlock(&_priv->tx_mutex);
 	return ret;
 }
 
@@ -108,6 +124,15 @@ int xradio_tx_net_process(struct xradio_priv *priv, struct sk_buff *skb)
 	u8 *pos = NULL;
 	int ret = -1;
 	static u8 seq_number;
+
+
+	if (!priv->txrx_enable) {
+		txrx_printk(XRADIO_DBG_ERROR, "txrx thread not ready.\n");
+		return -1;
+	}
+
+	if (txparse_flags)
+		xradio_parse_frame(skb->data, 1, txparse_flags);
 
 	pad_len = sizeof(struct xradio_hdr);
 
@@ -160,46 +185,74 @@ int xradio_tx_net_process(struct xradio_priv *priv, struct sk_buff *skb)
 
 	hdr->checksum = xradio_k_cpu_to_le16(xradio_crc_16((u8 *)hdr + pad_len, len));
 
-	txrx_printk(XRADIO_DBG_MSG, "type:%2.2X, seq number:%d, len:%d\n", XR_REQ_DATA, seq_number,
-		    len);
+	txrx_printk(XRADIO_DBG_MSG, "type:%2.2X, seq number:%d, len:%d\n",
+			XR_REQ_DATA, seq_number, len);
 
 	ret = xradio_queue_put(&priv->tx_queue[XR_DATA], skb, seq_number);
-	if (!ret) {
-		seq_number++;
-		xradio_wake_up_tx_work(priv);
-	} else {
-		txrx_printk(XRADIO_DBG_WARN, "tx data queue will full, tx data pause\n");
+
+	if (ret && !(xradio_k_atomic_read(&priv->tx_data_pause))) {
 		xradio_net_tx_pause(priv);
-		xradio_k_atomic_set(&priv->tx_pause, 1);
+		xradio_k_atomic_set(&priv->tx_data_pause, 1);
+		txrx_printk(XRADIO_DBG_MSG, "tx data queue will full, tx data pause:%d\n",
+				xradio_queue_get_queue_num(&priv->tx_queue[XR_DATA]));
 	}
+
+	seq_number++;
+
+	xradio_wake_up_tx_work(priv);
 
 	return ret;
 }
 
-static int xradio_rx_net_process(struct xradio_priv *priv, struct sk_buff *skb, u16 len, u8 seq)
+static int xradio_rx_net_process(struct xradio_priv *priv,
+		struct sk_buff *skb, u16 len, u8 seq)
 {
 	if (!priv || !skb)
 		return -EFAULT;
 	skb_trim(skb, len);
-	// xradio_parse_frame(__func__, skb->data, 0, 0xffff);
+
+	if (rxparse_flags)
+		xradio_parse_frame(skb->data, 0, rxparse_flags);
+
 	xradio_net_data_input(priv, skb);
 
 	return 0;
 }
 
-static int xradio_rx_cmd_process(struct xradio_priv *priv, struct sk_buff *skb, u16 len, u8 seq)
+static int xradio_rx_cmd_process(struct xradio_priv *priv,
+		struct sk_buff *skb, u16 len, u8 seq)
 {
 	struct cmd_payload *cmd = NULL;
-	int ret = -1;
+	int ret = 0;
 
 	if (!priv || !skb)
 		return -EFAULT;
 
 	cmd = (struct cmd_payload *)skb->data;
+
+	if (cmd->type == XR_WIFI_DEV_RX_PAUSE) {
+		priv->rx_pause_state = 1;
+		if (!xradio_k_atomic_read(&priv->tx_data_pause)) {
+			xradio_net_tx_pause(priv);
+			xradio_k_atomic_set(&priv->tx_data_pause, 1);
+		}
+		txrx_printk(XRADIO_DBG_MSG, "device rx pause\n");
+		goto end;
+	} else if (cmd->type == XR_WIFI_DEV_RX_RESUME) {
+		priv->rx_pause_state = 0;
+		if (xradio_k_atomic_read(&priv->tx_data_pause)) {
+			xradio_k_atomic_set(&priv->tx_data_pause, 0);
+			xradio_net_tx_resume(priv);
+		}
+		txrx_printk(XRADIO_DBG_MSG, "device rx resume\n");
+		goto end;
+	}
+
 	if (cmd->type >= XR_WIFI_DEV_HAND_WAY_RES && cmd->type <= XR_WIFI_DEV_KERNEL_MAX)
 		ret = xradio_low_cmd_push(skb->data, len);
 	else
 		ret = xradio_up_cmd_push(skb->data, len);
+end:
 	xradio_free_skb(skb, __func__);
 	return ret;
 }
@@ -302,25 +355,50 @@ static struct sk_buff *xradio_get_tx_buff(struct xradio_priv *priv)
 	skb = xradio_queue_get(&priv->tx_queue[XR_CMD]);
 
 	if (!skb) {
+
 		skb = xradio_queue_get(&priv->tx_queue[XR_DATA]);
+		if (!skb)
+			return skb;
 
-		if (xradio_k_atomic_read(&priv->tx_pause) &&
-		    xradio_queue_get_queue_num(&priv->tx_queue[XR_DATA]) < XRWL_MAX_QUEUE_SZ / 2) {
-			txrx_printk(XRADIO_DBG_WARN, "tx data resume\n");
 
-			xradio_net_tx_resume(priv);
-
-			xradio_k_atomic_set(&priv->tx_pause, 0);
-		}
 	}
 	return skb;
+}
+
+static void xradio_check_tx_resume(struct xradio_priv *priv)
+{
+	/*Resume sending when the queue water level is below 80%*/
+	if (xradio_k_atomic_read(&priv->tx_data_pause) &&
+		xradio_queue_get_queue_num(&priv->tx_queue[XR_DATA]) <
+		priv->tx_queue[XR_DATA].capacity * 1 / 5) {
+
+		txrx_printk(XRADIO_DBG_MSG, "tx data resume:%d,%d\n",
+			xradio_k_atomic_read(&priv->tx_data_pause),
+			xradio_queue_get_queue_num(&priv->tx_queue[XR_DATA]));
+
+		xradio_k_atomic_set(&priv->tx_data_pause, 0);
+
+		xradio_net_tx_resume(priv);
+	}
+
+	if (xradio_k_atomic_read(&priv->tx_cmd_pause) &&
+		xradio_queue_get_queue_num(&priv->tx_queue[XR_CMD]) <
+		priv->tx_queue[XR_CMD].capacity * 4 / 5) {
+
+		txrx_printk(XRADIO_DBG_MSG, "tx cmd resume:%d,%d\n",
+			xradio_k_atomic_read(&priv->tx_cmd_pause),
+			xradio_queue_get_queue_num(&priv->tx_queue[XR_CMD]));
+
+		xradio_k_atomic_set(&priv->tx_cmd_pause, 0);
+
+		xradio_k_sem_give(&priv->tx_cmd_sem);
+	}
 }
 
 static int xradio_txrx_thread(void *data)
 {
 	struct xradio_priv *priv = (struct xradio_priv *)data;
-	struct sk_buff *tx_skb = NULL, *next_txskb = NULL, *rx_skb = NULL;
-	struct xradio_hdr *cur_hdr = NULL, *next_hdr = NULL;
+	struct sk_buff *tx_skb = NULL, *rx_skb = NULL;
 	int rx = 0, tx = 0, term = 0;
 	int status = 0;
 	int rx_len = 0;
@@ -330,13 +408,12 @@ static int xradio_txrx_thread(void *data)
 
 	while (1) {
 		status = wait_event_interruptible(priv->txrx_wq, ({
-							  rx = !xradio_hwio_rx_pending();
+							  rx = xradio_hwio_rx_pending();
 							  tx = xradio_k_atomic_read(&priv->th_tx);
 							  term = xradio_k_thread_should_stop(
 								  &priv->txrx_thread);
 							  (rx || tx || term || rx_len);
 						  }));
-
 		if (term) {
 			txrx_printk(XRADIO_DBG_ALWY, "xradio tx rx thread exit!\n");
 			break;
@@ -347,35 +424,23 @@ static int xradio_txrx_thread(void *data)
 				rx_len = xradio_rx_process(priv, rx_skb);
 		}
 
-		if (tx) {
-			if (tx_skb == NULL)
-				tx_skb = xradio_get_tx_buff(priv);
-
-			while (tx_skb) {
-				if (tx_status == 0) {
-					next_txskb = xradio_get_tx_buff(priv);
-
-					if (next_txskb) {
-						cur_hdr = (struct xradio_hdr *)tx_skb->data;
-
-						next_hdr = (struct xradio_hdr *)next_txskb->data;
-
-						cur_hdr->next_len = xradio_k_cpu_to_le16(
-							le16_to_cpu(next_hdr->cur_len) +
-							le16_to_cpu(next_hdr->offset));
-					}
-				}
-
+		if (tx && !priv->rx_pause_state) {
+			tx_skb = xradio_get_tx_buff(priv);
+			if (tx_skb) {
 				tx_status = xradio_hwio_write(tx_skb);
-
 				if (tx_status == 0) {
 					xradio_free_tx_buff(priv, tx_skb);
-
 					if (xradio_k_atomic_read(&priv->th_tx) > 0)
 						xradio_k_atomic_dec(&priv->th_tx);
-
-					tx_skb = next_txskb;
+					xradio_check_tx_resume(priv);
+				} else {
+					txrx_printk(XRADIO_DBG_ERROR, "hwio exception, reset it\n");
+					xradio_hwio_deinit(priv);
+					msleep(2000);
+					xradio_hwio_init(priv);
 				}
+			} else {
+				msleep(5);
 			}
 		}
 	}
@@ -386,8 +451,14 @@ static int xradio_txrx_thread(void *data)
 void xradio_unregister_trans(struct xradio_priv *priv)
 {
 	txrx_printk(XRADIO_DBG_ALWY, "txrx thread unregister.\n");
-	wake_up(&priv->txrx_wq);
-	xradio_k_thread_delete(&priv->txrx_thread);
+
+	if (priv->txrx_enable) {
+
+		wake_up(&priv->txrx_wq);
+
+		xradio_k_thread_delete(&priv->txrx_thread);
+
+	}
 }
 
 int xradio_register_trans(struct xradio_priv *priv)
@@ -395,14 +466,22 @@ int xradio_register_trans(struct xradio_priv *priv)
 	xradio_k_atomic_set(&priv->th_tx, 0);
 	xradio_k_atomic_set(&priv->th_rx, 0);
 
-	xradio_k_atomic_set(&priv->tx_pause, 0);
+	xradio_k_atomic_set(&priv->tx_data_pause, 0);
+
+	xradio_k_atomic_set(&priv->tx_cmd_pause, 0);
 
 	init_waitqueue_head(&priv->txrx_wq);
 
-	if (xradio_k_thread_create(&priv->txrx_thread, "xr_txrx", xradio_txrx_thread, (void *)priv,
-				   0, 4096)) {
+	xradio_k_mutex_init(&priv->tx_mutex);
+
+	xradio_k_sema_init(&priv->tx_cmd_sem, 0);
+
+	if (xradio_k_thread_create(&priv->txrx_thread, "xr_txrx",
+				xradio_txrx_thread, (void *)priv, 0, 4096)) {
 		txrx_printk(XRADIO_DBG_ERROR, "create tx and rx thread failed\n");
 		return -1;
 	}
+
+	priv->txrx_enable = 1;
 	return 0;
 }

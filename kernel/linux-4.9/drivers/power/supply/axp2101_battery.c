@@ -1891,6 +1891,12 @@ static int axp2101_battery_probe(struct platform_device *pdev)
 	struct axp2101_bat_power *bat_power;
 	struct power_supply_config psy_cfg = {};
 	struct axp20x_dev *axp_dev = dev_get_drvdata(pdev->dev.parent);
+	struct device_node *node = pdev->dev.of_node;
+
+	if (!of_device_is_available(node)) {
+		pr_err("axp2101-battery device is not configed\n");
+		return -ENODEV;
+	}
 
 	if (!axp_dev->irq) {
 		pr_err("can not register axp2101-charger without irq\n");
@@ -2062,6 +2068,7 @@ static void axp2101_virq_dts_set(void *data, bool enable)
 static void axp2101_bat_shutdown(struct platform_device *p)
 {
 	struct axp2101_bat_power *bat_power = platform_get_drvdata(p);
+	int i = 0;
 
 	/*
 	 * for reduce shutdown current
@@ -2069,6 +2076,7 @@ static void axp2101_bat_shutdown(struct platform_device *p)
 	regmap_write(bat_power->regmap, AXP2101_VBAT_H, 0);
 
 	cancel_delayed_work_sync(&bat_power->bat_chk);
+	cancel_delayed_work_sync(&bat_power->bat_supply_mon);
 
 	axp2101_icchg_set(bat_power, bat_power->dts_info.pmu_shutdown_chgcur);
 }
@@ -2081,6 +2089,7 @@ static int axp2101_bat_suspend(struct platform_device *p, pm_message_t state)
 		axp2101_icchg_set(bat_power, bat_power->dts_info.pmu_suspend_chgcur);
 
 	cancel_delayed_work_sync(&bat_power->bat_chk);
+	cancel_delayed_work_sync(&bat_power->bat_supply_mon);
 
 	axp2101_virq_dts_set(bat_power, false);
 	return 0;
@@ -2095,7 +2104,8 @@ static int axp2101_bat_resume(struct platform_device *p)
 	else
 		axp2101_icchg_set(bat_power, 0);
 
-	schedule_delayed_work(&bat_power->bat_chk, msecs_to_jiffies(500));
+	schedule_delayed_work(&bat_power->bat_chk, 0);
+	schedule_delayed_work(&bat_power->bat_supply_mon, 0);
 
 	axp2101_virq_dts_set(bat_power, true);
 	return 0;

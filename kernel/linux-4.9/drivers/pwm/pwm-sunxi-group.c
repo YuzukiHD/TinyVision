@@ -163,6 +163,19 @@ static int sunxi_pwm_get_config(struct platform_device *pdev, struct sunxi_pwm_c
 	return ret;
 }
 
+static int sunxi_pwm_get_polarity(struct pwm_chip *chip, int offset)
+{
+	unsigned int reg_offset;
+	u32 val = 0;
+
+	reg_offset = PWM_PCR_BASE + offset * PWM_PCR_REG_OFFSET;
+	val = sunxi_pwm_readl(chip, reg_offset);
+	if (val & BIT_MASK(8))
+		return PWM_POLARITY_NORMAL;
+	else
+		return PWM_POLARITY_INVERSED;
+}
+
 static int sunxi_pwm_set_polarity_single(struct pwm_chip *chip,
 			struct pwm_device *pwm, enum pwm_polarity polarity)
 {
@@ -1426,7 +1439,7 @@ static int sunxi_pwm_resume(struct device *dev)
 		pwm_config(&pwm->chip.pwms[i], duty_cycle, period);
 
 		polarity = pwm->chip.pwms[i].state.polarity;
-		pwm->chip.pwms[i].state.polarity = PWM_POLARITY_NORMAL;
+		pwm->chip.pwms[i].state.polarity = sunxi_pwm_get_polarity(&pwm->chip, i);
 		pwm_set_polarity(&pwm->chip.pwms[i], polarity);
 
 		if (pwm->chip.pwms[i].state.enabled == true) {

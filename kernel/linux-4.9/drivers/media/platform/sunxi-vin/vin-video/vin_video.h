@@ -36,11 +36,19 @@
 #endif
 
 #if defined CONFIG_ISP_SERVER_MELIS
-#define VIN_RESERVE_ADDR 0x43BFE000
-#define VIN1_RESERVE_ADDR 0x43BFF000
-#define VIN_RESERVE_SIZE 0x1000 /* 4k */
+#include "../vin-isp/isp_special_video/isp_ldci_video.h"
+#define LDCI0_VIDEO_CHN 12
+#define LDCI1_VIDEO_CHN 13
+#define LDCI2_VIDEO_CHN 14
 
-#define LIGNT_SENSOR_SIZE 128
+/* save isp parameter to flash */
+/* kener user write it to sector, boot0 read it and write to ddr */
+#define VIN_SENSOR0_RESERVE_ADDR 0x43BFE000 /*104~110 sector, size is 4k - 512b, boot0 read it and write to 0x43BFE000*/
+#define VIN_SENSOR1_RESERVE_ADDR 0x43BFF000 /*112~118 sector, size is 4k - 512b, boot0 read it and write to 0x43BFF000*/
+#define VIN_RESERVE_SIZE (0x1000 - 0x200) /* 4k - 512 */
+
+#define DAY_LIGNT_SENSOR_SIZE   96
+#define NIGHT_LIGNT_SENSOR_SIZE 40
 
 enum ir_mode {
 	DAY_MODE = 0,
@@ -56,14 +64,11 @@ typedef struct taglight_sensor_attr_s {
 } LIGHT_SENSOR_ATTR_S;
 
 typedef struct tagsensor_isp_config_s {
-	int sign;                    //id0: 0xAA66AA66, id1: 0xBB6666
+	int sign;                    //id0: 0xAA66AA66, id1: 0xBB66BB66
 	int crc;                     //checksum, crc32 check, if crc = 0, do check
 	int ver;                     //version, 0x01
 
-	int idx_gain_threshold;      //save ae_idx and gain threshold: the high 16 bit save ae_idx,the low 16 bit save again
-	int exp_threshold;           //save exp threshold
-
-	int light_enable;            //adc en, 1:use LIGHT_SENSOR_ATTR_S
+	int light_enable;            //boot0 adc en
 	int adc_mode;                //ADC mode, 0:the brighter the u16LightValue more, 1:the brighter the u16LightValue smaller
 	unsigned short light_def;    //adc threshold: 1,adc_mode=0:smaller than it enter night mode, greater than it or equal enter day mode;
 				     //2,adc_mode=1:greater than it enter night mode, smaller than it or equal enter day mode;
@@ -77,18 +82,55 @@ typedef struct tagsensor_isp_config_s {
 	unsigned short height;
 	unsigned short mirror;
 	unsigned short filp;
+	unsigned short fps;
 	unsigned short wdr_mode;     //hdr or normal mode, wdr_mode = 0 mean normal,  wdr_mode = 1 mean hdr
 	unsigned char flicker_mode;  //0:disable,1:50HZ,2:60HZ, default 50HZ
 
 	unsigned char venc_format;   //1:H264 2:H265
 	/* unsigned char reserv 256 */
-	unsigned char reserv[256];
+	unsigned char sensor_deinit; //sensor not init in melis
+	unsigned char get_yuv_en; //get melis yuv en
+	unsigned char light_sensor_en; //use LIGHT_SENSOR_ATTR_S en
+	unsigned char hdr_light_sensor_ratio; //LIGHT_SENSOR_ATTR_S hdr exposure ratio, default is 16
+	unsigned char lightadc_debug_en; //printf data about LIGHT_SENSOR_ATTR_S
+	unsigned char reserv[256 - 5];
 
-	LIGHT_SENSOR_ATTR_S linear[LIGNT_SENSOR_SIZE]; //day linear mode parameter, auto exp
-	LIGHT_SENSOR_ATTR_S linear_night;              //night linear mode parameter
-	LIGHT_SENSOR_ATTR_S hdr[LIGNT_SENSOR_SIZE];    //day hdr mode paramete
-	LIGHT_SENSOR_ATTR_S hdr_night;                 //night hdr mode parameter
-} SENSOR_ISP_CONFIG_S;
+	LIGHT_SENSOR_ATTR_S linear[DAY_LIGNT_SENSOR_SIZE]; //day linear mode parameter, auto exp
+	LIGHT_SENSOR_ATTR_S linear_night[NIGHT_LIGNT_SENSOR_SIZE]; //night linear mode parameter
+	LIGHT_SENSOR_ATTR_S hdr[DAY_LIGNT_SENSOR_SIZE];    //day hdr mode paramete
+	LIGHT_SENSOR_ATTR_S hdr_night[NIGHT_LIGNT_SENSOR_SIZE];    //night hdr mode parameter
+} SENSOR_ISP_CONFIG_S; //size is 3563 < 3584(3.5k)
+#pragma pack()
+
+/* kenel auto save isp parameter to flash, in order to use in next time */
+#define ISP0_NORFLASH_SAVE (VIN_SENSOR0_RESERVE_ADDR + 512 * 7) /*111 sector, size is 512b, kernel write to flash and boot0 read it and write to ISP0_NORFLASH_SAVE*/
+#define ISP1_NORFLASH_SAVE (VIN_SENSOR1_RESERVE_ADDR + 512 * 7) /*119 sector, size is 512b, kernel write to flash and boot0 read it and write to ISP1_NORFLASH_SAVE*/
+#define ISP0_THRESHOLD_PARAM_OFFSET 111  /*111 sector, size is 512b*/
+#define ISP1_THRESHOLD_PARAM_OFFSET 119  /*119 sector, size is 512b*/
+#define VIN_THRESHOLD_PARAM_SIZE (0x200) /* 512 */
+
+#pragma pack(1)
+struct isp_autoflash_config_s {
+	//ISP_SET_SAVE_AE
+	unsigned int ae_tble_idx;
+	unsigned int ev_analog_gain;
+	unsigned int ev_sensor_exp_line;
+	unsigned int ev_short_analog_gain;
+	unsigned int ev_short_sensor_exp_line;
+	unsigned int reserv1[11];
+
+	unsigned int melisyuv_sign_id;//id0: 0xAA11AA11, id1: 0xBB11BB11
+	unsigned int melisyuv_paddr;
+	unsigned int melisyuv_size;
+	unsigned int reserv2[45];
+
+	//sensor_list, melis identify sensor and then use this to notice kernel which sensor is use
+	unsigned int sensorlist_sign_id;//id0: 0xAA22AA22, id1: 0xBB22BB22
+	unsigned char sensor_name[20];
+	unsigned int sensor_twi_addr;
+	unsigned int sensor_detect_id;
+	unsigned int reserv3[56];
+ };
 #pragma pack()
 
 void *vin_map_kernel(unsigned long phys_addr, unsigned long size);
@@ -253,6 +295,9 @@ struct vin_vid_cap {
 	struct work_struct pipeline_reset_task;
 	unsigned long state;
 	unsigned int frame_delay_cnt;
+	bool lbc_align_en;
+	bool yuv_align_en;
+	bool width_stride_en;
 	struct dma_lbc_cmp lbc_cmp;
 	struct dma_bufa_threshold threshold;
 	void (*vin_buffer_process)(int id);

@@ -123,6 +123,10 @@ void xradio_iterate_vifs(void *data, u8 *mac, struct ieee80211_vif *vif);
 void xradio_rem_chan_timeout(struct work_struct *work);
 int xradio_set_macaddrfilter(struct xradio_common *hw_priv,
 							 struct xradio_vif *priv, u8 *data);
+void xradio_arp_init(void);
+int xradio_arp_updata(u8 *mac_addr, u8 *ip_addr, struct sk_buff *skb);
+void xradio_arp_clean(void);
+int xradio_arp_send_to_self(struct xradio_vif *priv, u8 *ip_addr);
 
 /* BT */
 void xradio_bt_timer(unsigned long arg);

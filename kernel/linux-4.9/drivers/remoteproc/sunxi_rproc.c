@@ -18,6 +18,7 @@
 #include <linux/err.h>
 #include <linux/interrupt.h>
 #include <linux/kernel.h>
+#include <linux/kthread.h>
 #include <linux/mfd/syscon.h>
 #include <linux/module.h>
 #include <linux/iommu.h>
@@ -31,51 +32,59 @@
 #include <linux/reset.h>
 #include <linux/mailbox_client.h>
 
-#include "sunxi_rproc_internal.h"
+#include "sunxi_remoteproc_internal.h"
 
 #define MBOX_NAME			"mbox-chan"
+#define MBOX_TX_NAME		"mbox-tx"
+#define MBOX_RX_NAME		"mbox-rx"
 
 static LIST_HEAD(sunxi_rproc_list);
 
-struct sunxi_resource_map_table {
-	u64 pa; /* Address of cpu's address */
-	u64 da; /* Address of rproc's address */
-	u32 len;
-	void __iomem *va;
-};
-
-struct sunxi_mbox {
-	char name[32];
-	struct mbox_chan *chan;
-	struct mbox_client client;
-	struct work_struct vq_work;
-	int notifyid;
-};
-
-struct sunxi_rproc {
-	struct sunxi_resource_map_table *mem_maps;
-	int mem_maps_cnt;
-	struct sunxi_mbox mb;
-	const char *core_name;
-
-	struct workqueue_struct *workqueue;
-	int irq;
-	struct sunxi_core *core;
-	struct list_head list;
-	struct rproc *rproc;
-	struct iommu_domain *domain;
-};
-
+#ifdef CONFIG_SUNXI_REMOTEPROC_WQ
 /*  mbox work funciton */
 static void sunxi_rproc_mb_vq_work(struct work_struct *work)
 {
 	struct sunxi_mbox *mb = container_of(work, struct sunxi_mbox, vq_work);
 	struct rproc *rproc = dev_get_drvdata(mb->client.dev);
+	struct sunxi_rproc *ddata = rproc->priv;
 
 	/* tell remoteproc that a virtqueue is interrupted */
-	if (rproc_vq_interrupt(rproc, mb->notifyid) == IRQ_NONE)
-		dev_dbg(&rproc->dev, "no message found in vq%d\n", mb->notifyid);
+	if (rproc_vq_interrupt(rproc, ddata->notifyid) == IRQ_NONE)
+		dev_dbg(&rproc->dev, "no message found in vq%d\n", ddata->notifyid);
 }
+#endif
+
+#ifdef CONFIG_SUNXI_REMOTEPROC_RT_THREAD
+static int sunxi_rproc_work_thread(void *data)
+{
+	struct rproc *rproc = data;
+	struct sunxi_rproc *ddata = rproc->priv;
+
+	dev_dbg(&rproc->dev, "%s thread start.\n", rproc->name);
+
+	while (1) {
+		ddata->notifyid = -1;
+		if (wait_event_interruptible(ddata->rq,
+					ddata->notifyid >= 0 ||
+					kthread_should_stop()))
+			break;
+
+		if (kthread_should_stop()) {
+			dev_dbg(&rproc->dev, "%s thread stop.\n", rproc->name);
+			break;
+		}
+
+		if (ddata->notifyid < 0)
+			continue;
+
+		/* tell remoteproc that a virtqueue is interrupted */
+		if (rproc_vq_interrupt(rproc, ddata->notifyid) == IRQ_NONE)
+			dev_dbg(&rproc->dev, "no message found in vq%d\n", ddata->notifyid);
+	}
+
+	return 0;
+}
+#endif
 
 static void sunxi_rproc_mb_rx_callback(struct mbox_client *cl, void *data)
 {
@@ -83,10 +92,17 @@ static void sunxi_rproc_mb_rx_callback(struct mbox_client *cl, void *data)
 	struct sunxi_mbox *mb = container_of(cl, struct sunxi_mbox, client);
 	struct sunxi_rproc *ddata = rproc->priv;
 
-	dev_dbg(&rproc->dev, "mbox recv data:0x%x\n", *(uint32_t *)data);
-	mb->notifyid = *(uint32_t *)data;
+	(void)mb;
 
+	dev_dbg(&rproc->dev, "mbox recv data:0x%x\n", *(uint32_t *)data);
+	ddata->notifyid = *(uint32_t *)data;
+
+#ifdef CONFIG_SUNXI_REMOTEPROC_WQ
 	queue_work(ddata->workqueue, &mb->vq_work);
+#endif
+#ifdef CONFIG_SUNXI_REMOTEPROC_RT_THREAD
+	wake_up_interruptible(&ddata->rq);
+#endif
 }
 
 static void sunxi_rproc_mb_tx_done(struct mbox_client *cl, void *msg, int r)
@@ -102,25 +118,61 @@ static int sunxi_rproc_request_mbox(struct rproc *rproc)
 	const char *name;
 	struct mbox_client *cl;
 
-	/* Static init mbox info */
-	strcpy(ddata->mb.name, MBOX_NAME);
-	ddata->mb.client.rx_callback = sunxi_rproc_mb_rx_callback;
-	ddata->mb.client.tx_block = false;
-	ddata->mb.client.tx_done = sunxi_rproc_mb_tx_done;
+	strcpy(ddata->mb[0].name, MBOX_NAME);
+	ddata->mb[0].client.rx_callback = sunxi_rproc_mb_rx_callback;
+	ddata->mb[0].client.tx_block = false;
+	ddata->mb[0].client.tx_done = sunxi_rproc_mb_tx_done;
 
-	name = ddata->mb.name;
-	cl = &ddata->mb.client;
+	name = ddata->mb[0].name;
+	cl = &ddata->mb[0].client;
 
 	/* set device parent */
 	cl->dev = dev->parent;
-	ddata->mb.chan = mbox_request_channel_byname(cl, name);
-	if (IS_ERR(ddata->mb.chan)) {
+	ddata->mb[0].chan = mbox_request_channel_byname(cl, name);
+	if (IS_ERR(ddata->mb[0].chan)) {
 		dev_warn(dev, "cannot get %s channel (ret=%ld)\n", name,
-						PTR_ERR(ddata->mb.chan));
+						PTR_ERR(ddata->mb[0].chan));
+			goto double_channel;
+	}
+
+#ifdef CONFIG_SUNXI_REMOTEPROC_WQ
+	INIT_WORK(&ddata->mb[0].vq_work, sunxi_rproc_mb_vq_work);
+#endif
+	ddata->mb[1].chan = NULL;
+
+	return 0;
+
+double_channel:
+	strcpy(ddata->mb[0].name, MBOX_TX_NAME);
+	strcpy(ddata->mb[1].name, MBOX_RX_NAME);
+	ddata->mb[0].client.rx_callback = sunxi_rproc_mb_rx_callback;
+	ddata->mb[0].client.tx_block = false;
+	ddata->mb[0].client.tx_done = sunxi_rproc_mb_tx_done;
+	ddata->mb[0].client.dev = dev->parent;
+	ddata->mb[1].client.rx_callback = sunxi_rproc_mb_rx_callback;
+	ddata->mb[1].client.tx_block = false;
+	ddata->mb[1].client.tx_done = sunxi_rproc_mb_tx_done;
+	ddata->mb[1].client.dev = dev->parent;
+
+	ddata->mb[0].chan = mbox_request_channel_byname(&ddata->mb[0].client,
+					ddata->mb[0].name);
+	if (IS_ERR(ddata->mb[0].chan)) {
+		dev_warn(dev, "cannot get %s channel (ret=%ld)\n", ddata->mb[0].name,
+						PTR_ERR(ddata->mb[0].chan));
 			goto err_probe;
 	}
 
-	INIT_WORK(&ddata->mb.vq_work, sunxi_rproc_mb_vq_work);
+	ddata->mb[1].chan = mbox_request_channel_byname(&ddata->mb[1].client,
+					ddata->mb[1].name);
+	if (IS_ERR(ddata->mb[1].chan)) {
+		dev_warn(dev, "cannot get %s channel (ret=%ld)\n", ddata->mb[1].name,
+						PTR_ERR(ddata->mb[1].chan));
+			goto err_probe;
+	}
+#ifdef CONFIG_SUNXI_REMOTEPROC_WQ
+	INIT_WORK(&ddata->mb[0].vq_work, sunxi_rproc_mb_vq_work);
+	INIT_WORK(&ddata->mb[1].vq_work, sunxi_rproc_mb_vq_work);
+#endif
 
 	return 0;
 
@@ -132,26 +184,37 @@ static void sunxi_rproc_free_mbox(struct rproc *rproc)
 {
 	struct sunxi_rproc *ddata = rproc->priv;
 
-	if (ddata->mb.chan)
-		mbox_free_channel(ddata->mb.chan);
-	ddata->mb.chan = NULL;
+	if (ddata->mb[0].chan)
+		mbox_free_channel(ddata->mb[0].chan);
+	ddata->mb[0].chan = NULL;
+	if (ddata->mb[1].chan)
+		mbox_free_channel(ddata->mb[1].chan);
+	ddata->mb[1].chan = NULL;
 }
 
 int sunxi_rproc_start(struct rproc *rproc)
 {
 	struct sunxi_rproc *ddata = rproc->priv;
 
+#ifdef CONFIG_SUNXI_RPROC_SHARE_IRQ
+	sunxi_arch_interrupt_save(ddata->share_irq);
+#endif
 	sunxi_core_set_start_addr(ddata->core, rproc->bootaddr);
-	sunxi_core_set_freq(ddata->core, 600*1000*1000);
 
 	return sunxi_core_start(ddata->core);
 }
 
 int sunxi_rproc_stop(struct rproc *rproc)
 {
+	int ret;
 	struct sunxi_rproc *ddata = rproc->priv;
 
-	return sunxi_core_stop(ddata->core);
+	ret = sunxi_core_stop(ddata->core);
+#ifdef CONFIG_SUNXI_RPROC_SHARE_IRQ
+	sunxi_arch_interrupt_restore(ddata->share_irq);
+#endif
+
+	return ret;
 }
 
 static void *sunxi_da_to_va(struct rproc *rproc, u64 da, int len)
@@ -179,14 +242,13 @@ static void *sunxi_da_to_va(struct rproc *rproc, u64 da, int len)
 static void sunxi_rproc_kick(struct rproc *rproc, int notifyid)
 {
 	struct sunxi_rproc *ddata = rproc->priv;
-//	int i;
 	int err;
 	struct sunxi_mbox *mb;
 	u32 *msg = NULL;
 
 	dev_dbg(&rproc->dev, "notifyid=%d kick\n", notifyid);
 
-	mb = &ddata->mb;
+	mb = &ddata->mb[0];
 
 	msg = devm_kzalloc(&rproc->dev, sizeof(u32), GFP_KERNEL);
 	if (!msg) {
@@ -245,17 +307,28 @@ static int sunxi_rproc_parse_dt(struct platform_device *pdev)
 	int ret = 0;
 	int i;
 
+	rproc->auto_boot = !of_property_read_bool(np, "no-auto-boot");
+
 	ret = of_property_read_string(np, "core-name", &ddata->core_name);
 	if (ret < 0) {
 		dev_err(dev, "fial to get core-name\n");
 		return -EINVAL;
 	}
 
+#ifdef CONFIG_SUNXI_RPROC_SHARE_IRQ
+	ret = of_property_read_string(np, "share-irq", &ddata->share_irq);
+	if (ret < 0) {
+		dev_err(dev, "fial to get share-irq\n");
+		return -EINVAL;
+	}
+#endif
+
 	ddata->core = sunxi_remote_core_find(ddata->core_name);
 	if (!ddata->core) {
-		dev_err(dev, "Failed to find remote core\n");
+		dev_err(dev, "Failed to find remote core(%s)\n", ddata->core_name);
 		return -ENXIO;
 	}
+	rproc->core = ddata->core;
 
 	ret = of_property_read_string(np, "firmware-name", &fw_name);
 	if (ret < 0) {
@@ -303,6 +376,8 @@ static int sunxi_rproc_parse_dt(struct platform_device *pdev)
 	map_array = devm_kcalloc(dev, ret * 3, sizeof(u32), GFP_KERNEL);
 	if (!map_array) {
 		dev_err(dev, "fail to alloc map_array\n");
+		devm_kfree(dev, ddata->mem_maps);
+		ddata->mem_maps = NULL;
 		return -ENOMEM;
 	}
 
@@ -342,6 +417,27 @@ static int sunxi_rproc_parse_dt(struct platform_device *pdev)
 		}
 	}
 
+#ifdef CONFIG_PM_SLEEP
+	ddata->support_standby = of_property_read_bool(np, "support-standby");
+
+	if (ddata->support_standby) {
+		dev_dbg(dev, "%s Support Standby.\n", rproc->name);
+		ddata->standby = sunxi_rproc_standby_find(ddata->core_name);
+		if (!ddata->standby) {
+			dev_err(dev, "Failed to find rproc standby struct\n");
+			ret = -ENODEV;
+			goto free_iomap;
+		}
+
+		ret = sunxi_rproc_standby_init(dev, ddata->standby);
+		if (ret) {
+			dev_err(dev, "Failed to init rproc standby\n");
+			goto free_iomap;
+		}
+	} else
+		ddata->standby = NULL;
+#endif
+
 	devm_kfree(dev, map_array);
 
 	return 0;
@@ -351,6 +447,7 @@ free_iomap:
 		iommu_unmap(ddata->domain, ddata->mem_maps[i].da, ddata->mem_maps[i].len);
 free_mem_maps:
 	devm_kfree(dev, ddata->mem_maps);
+	devm_kfree(dev, map_array);
 
 	return ret;
 }
@@ -372,6 +469,7 @@ static int sunxi_rproc_register_mem(struct rproc *rproc)
 			dev_err(dev, "Failed to get memory-region(ret=%d)\n", ret);
 			return ret;
 		}
+		len = resource_size(&r);
 
 		if (strcmp(np->name, "vdev0buffer") == 0) {
 			/* Initial reserved memory resources */
@@ -385,7 +483,6 @@ static int sunxi_rproc_register_mem(struct rproc *rproc)
 			dma_set_coherent_mask(dev, 0xffffffff);
 			va = NULL;
 		} else {
-			len = resource_size(&r);
 			va = devm_ioremap_wc(dev, r.start, len);
 			if (!PTR_ERR(va)) {
 				dev_err(dev, "Fialed to remap memory-region\n");
@@ -440,6 +537,11 @@ static int sunxi_rproc_probe(struct platform_device *pdev)
 	int enabled;
 	int ret;
 	bool has_iommu;
+#ifdef CONFIG_SUNXI_REMOTEPROC_RT_THREAD
+	struct sched_param param = {
+		.sched_priority = CONFIG_SUNXI_RPROC_RT_THREAD_PRIO,
+	};
+#endif
 
 	/* we need to read firmware name at first. */
 	ret = of_property_read_string(np, "firmware-name", &fw_name);
@@ -457,11 +559,13 @@ static int sunxi_rproc_probe(struct platform_device *pdev)
 	ddata = rproc->priv;
 	ddata->rproc = rproc;
 
+	sunxi_rproc_fw_ops_reload((struct rproc_fw_ops *)rproc->fw_ops);
+
 	platform_set_drvdata(pdev, rproc);
 
 	has_iommu = of_property_read_bool(np, "iommus");
 	if (has_iommu) {
-		dev_dbg(dev, "E907 use iommu.\r\n");
+		dev_dbg(dev, "use iommu.\r\n");
 		rproc->has_iommu = true;
 		ddata->domain = iommu_domain_alloc(dev->bus);
 		if (!ddata->domain) {
@@ -476,58 +580,99 @@ static int sunxi_rproc_probe(struct platform_device *pdev)
 
 	} else {
 		ddata->domain = NULL;
-		dev_dbg(dev, "E907 not use iommu.\r\n");
+		dev_dbg(dev, "not use iommu.\r\n");
 	}
 
+#ifdef CONFIG_SUNXI_REMOTEPROC_WQ
 	ddata->workqueue = create_workqueue(dev_name(dev));
 	if (!ddata->workqueue) {
 		dev_err(dev, "Cannot create workqueue\n");
 		ret = -ENOMEM;
 		goto free_domain;
 	}
+#endif
+#ifdef CONFIG_SUNXI_REMOTEPROC_RT_THREAD
+	ddata->task = kthread_create(sunxi_rproc_work_thread, rproc,
+					 "rproc-%s", rproc->name);
+
+	if (IS_ERR(ddata->task)) {
+		dev_err(dev, "Cannot create %s rt thread\n", rproc->name);
+		ret = PTR_ERR(ddata->task);
+		goto free_domain;
+	}
+
+	sched_setscheduler_nocheck(ddata->task, SCHED_FIFO, &param);
+	/*
+	 * We keep the reference to the task struct even if
+	 * the thread dies to avoid that the interrupt code
+	 * references an already freed task_struct.
+	 */
+	get_task_struct(ddata->task);
+	init_waitqueue_head(&ddata->rq);
+	wake_up_process(ddata->task);
+#endif
 
 	ret = sunxi_rproc_parse_dt(pdev);
 	if (ret)
 		goto destroy_workqueue;
 
-	sunxi_core_init(ddata->core);
+	ret = sunxi_core_init(pdev, ddata->core);
+	if (ret) {
+		dev_err(dev, "core: %s init failed\n", ddata->core_name);
+		goto destroy_workqueue;
+	}
 
 	ret = sunxi_rproc_request_mbox(rproc);
 	if (ret < 0) {
 		dev_err(dev, "sunxi_rproc_request_mbox failed\n");
-		goto destroy_workqueue;
+		goto free_core;
 	}
 
 	ret = sunxi_rproc_register_mem(rproc);
 	if (ret < 0) {
 		dev_err(dev, "Fialed to parser memory-region\n");
-		goto destroy_workqueue;
+		goto free_mbox;
 	}
 
 	/* check remote process whether already running */
 	enabled = sunxi_rproc_state(rproc);
 	if (enabled < 0) {
 		ret = enabled;
-		goto destroy_workqueue;
+		goto free_mbox;
 	}
 
 	if (enabled) {
 		atomic_inc(&rproc->power);
-		rproc->state = RPROC_RUNNING;
+		rproc->state = RPROC_EARLY_BOOT;
 	}
+
+	dev_dbg(dev, "%s: auto_boot = %s.\n", rproc->name,
+					rproc->auto_boot ? "true" : "false");
 
 	ret = rproc_add(rproc);
 	if (ret < 0)
 		goto free_mbox;
 
+#ifdef CONFIG_SUNXI_RPROC_SHARE_IRQ
+	sunxi_arch_create_debug_dir(rproc->dbg_dir, ddata->share_irq);
+#endif
 	list_add(&ddata->list, &sunxi_rproc_list);
 
 	return 0;
 
 free_mbox:
 	sunxi_rproc_free_mbox(rproc);
+free_core:
+	sunxi_core_deinit(ddata->core);
 destroy_workqueue:
+#ifdef CONFIG_SUNXI_REMOTEPROC_WQ
 	destroy_workqueue(ddata->workqueue);
+#endif
+#ifdef CONFIG_SUNXI_REMOTEPROC_RT_THREAD
+	kthread_stop(ddata->task);
+	put_task_struct(ddata->task);
+	ddata->task = NULL;
+#endif
 free_domain:
 	if (ddata->domain)
 		ddata->domain = NULL;
@@ -550,7 +695,18 @@ static int sunxi_rproc_remove(struct platform_device *pdev)
 
 	sunxi_rproc_free_mbox(rproc);
 
+#ifdef CONFIG_PM_SLEEP
+	if (ddata->support_standby)
+		sunxi_rproc_standby_exit(ddata->standby);
+#endif
+#ifdef CONFIG_SUNXI_REMOTEPROC_WQ
 	destroy_workqueue(ddata->workqueue);
+#endif
+#ifdef CONFIG_SUNXI_REMOTEPROC_RT_THREAD
+	kthread_stop(ddata->task);
+	put_task_struct(ddata->task);
+	ddata->task = NULL;
+#endif
 
 	sunxi_core_deinit(ddata->core);
 
@@ -561,12 +717,53 @@ static int sunxi_rproc_remove(struct platform_device *pdev)
 	if (ddata->domain)
 		ddata->domain = NULL;
 
-	rproc_free(rproc);
-
 	list_del(&ddata->list);
+
+	rproc_free(rproc);
 
 	return 0;
 }
+
+#ifdef CONFIG_PM_SLEEP
+static int sunxi_rproc_suspend(struct device *dev)
+{
+	struct rproc *rproc = dev_get_drvdata(dev);
+	struct sunxi_rproc *ddata = rproc->priv;
+
+	if (ddata->support_standby)
+		return sunxi_rproc_standby_suspend(ddata->standby);
+	else
+		return 0;
+}
+
+static int sunxi_rproc_resume(struct device *dev)
+{
+	struct rproc *rproc = dev_get_drvdata(dev);
+	struct sunxi_rproc *ddata = rproc->priv;
+
+	if (ddata->support_standby)
+		return sunxi_rproc_standby_resume(ddata->standby);
+	else
+		return 0;
+}
+
+static int sunxi_rproc_suspend_noirq(struct device *dev)
+{
+	struct rproc *rproc = dev_get_drvdata(dev);
+	struct sunxi_rproc *ddata = rproc->priv;
+
+	if (ddata->support_standby)
+		return sunxi_rproc_standby_suspend_noirq(ddata->standby);
+	else
+		return 0;
+}
+
+static struct dev_pm_ops sunxi_rproc_pm_ops = {
+	.suspend = sunxi_rproc_suspend,
+	.resume = sunxi_rproc_resume,
+	.suspend_noirq = sunxi_rproc_suspend_noirq,
+};
+#endif
 
 static struct platform_driver sunxi_rproc_driver = {
 	.probe = sunxi_rproc_probe,
@@ -574,6 +771,9 @@ static struct platform_driver sunxi_rproc_driver = {
 	.driver = {
 		.name = "sunxi-rproc",
 		.of_match_table = sunxi_rproc_match,
+#ifdef CONFIG_PM_SLEEP
+		.pm = &sunxi_rproc_pm_ops,
+#endif
 	},
 };
 
@@ -591,12 +791,8 @@ static void __exit sunxi_rproc_exit(void)
 	platform_driver_unregister(&sunxi_rproc_driver);
 }
 
-#ifdef CONFIG_SUNXI_RPROC_FASTBOOT
-postcore_initcall(sunxi_rproc_init);
-#else
-module_init(sunxi_rproc_init);
-#endif
-module_exit(sunxi_rproc_exit);
+SUNXI_RPROC_INITCALL(sunxi_rproc_init);
+SUNXI_RPROC_EXITCALL(sunxi_rproc_exit);
 
 MODULE_DESCRIPTION("SUNXI Remote Processor Control Driver");
 MODULE_AUTHOR("lijiajian <lijiajian@allwinnertech.com>");

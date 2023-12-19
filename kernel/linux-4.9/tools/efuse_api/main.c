@@ -18,14 +18,34 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/mman.h>
+
+#include "common.h"
 
 #include "efuse_ioctl.h"
+
 
 void help(void)
 {
 	printf("-ew <name> <offset> <data>: write key to efuse\n");
 	printf("-er <name> <offset> <read_len>: read key from efuse\n");
 	printf("-h  : help\n");
+}
+
+void sunxi_dump(char *buf, int count)
+{
+	int i, j;
+
+	for (j = 0; j < count; j += 16) {
+		for (i = 0; i < 16; i++) {
+			printf("%02x ", buf[j + i] & 0xff);
+			if (j + i >= count) {
+				break;
+			}
+		}
+		printf("\n");
+	}
+	printf("\n");
 }
 
 int main(int argc, char **argv)
@@ -57,6 +77,7 @@ int main(int argc, char **argv)
 	} else if (!strncmp(argv[1], "-h", 2)) {
 		help();
 	}
+
 	return 0;
 
 error:

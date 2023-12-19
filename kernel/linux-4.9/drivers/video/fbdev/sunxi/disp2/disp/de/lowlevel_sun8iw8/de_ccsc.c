@@ -202,6 +202,12 @@ int de_ccsc_init(struct disp_bsp_init_para *para)
 				      ch_id, base);
 
 				memory = disp_sys_malloc(sizeof(__icsc_reg_t));
+				if (NULL == memory) {
+					__wrn
+					    ("malloc ICcsc[%d][%d] memory fail! size=0x%x\n",
+					     screen_id, ch_id, sizeof(__icsc_reg_t));
+					return -1;
+				}
 
 				icsc_block[screen_id][ch_id].off = base;
 				icsc_block[screen_id][ch_id].val = memory;

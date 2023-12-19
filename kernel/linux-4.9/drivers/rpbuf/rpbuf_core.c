@@ -35,6 +35,8 @@ typedef int (*rpbuf_service_command_handler_t)(struct rpbuf_service *service,
 static LIST_HEAD(__rpbuf_links);
 static DEFINE_MUTEX(__rpbuf_links_lock);
 
+static void rpbuf_reset_controller(struct rpbuf_controller *controller);
+
 /* Remember to use __rpbuf_links_lock outside to protect this function */
 static inline struct rpbuf_link *rpbuf_find_link(void *token)
 {
@@ -90,6 +92,10 @@ static struct rpbuf_buffer *rpbuf_alloc_buffer_instance(struct device *dev,
 	strncpy(buffer->name, name, RPBUF_NAME_SIZE);
 
 	buffer->len = len;
+	init_waitqueue_head(&buffer->wait);
+	buffer->state = 0;
+	buffer->flags = 0;
+	buffer->offline = false;
 
 	return buffer;
 
@@ -119,8 +125,6 @@ static int rpbuf_alloc_buffer_payload_memory_default(struct rpbuf_controller *co
 		ret = -ENOMEM;
 		goto err_out;
 	}
-	dev_dbg(dev, "allocate payload memory: va 0x%pK, pa %pad, len %d\n",
-		va, &pa, buffer->len);
 	buffer->va = va;
 	buffer->pa = (phys_addr_t)pa;
 	buffer->da = (u64)pa;
@@ -134,14 +138,21 @@ err_out:
 static int rpbuf_alloc_buffer_payload_memory(struct rpbuf_controller *controller,
 					     struct rpbuf_buffer *buffer)
 {
+	int ret;
+
 	if (buffer->ops && buffer->ops->alloc_payload_memory)
-		return buffer->ops->alloc_payload_memory(buffer, buffer->priv);
-
-	if (controller->ops && controller->ops->alloc_payload_memory)
-		return controller->ops->alloc_payload_memory(controller, buffer,
+		ret = buffer->ops->alloc_payload_memory(buffer, buffer->priv);
+	else if (controller->ops && controller->ops->alloc_payload_memory)
+		ret = controller->ops->alloc_payload_memory(controller, buffer,
 							     controller->priv);
+	else
+		ret = rpbuf_alloc_buffer_payload_memory_default(controller, buffer);
 
-	return rpbuf_alloc_buffer_payload_memory_default(controller, buffer);
+	dev_info(controller->dev, "\"%s\" allocate payload memory: " \
+					"va 0x%pK, pa %pad, len %d\n", buffer->name,
+					buffer->va, &buffer->pa, buffer->len);
+
+	return ret;
 }
 
 static void rpbuf_free_buffer_payload_memory_default(struct rpbuf_controller *controller,
@@ -154,8 +165,6 @@ static void rpbuf_free_buffer_payload_memory_default(struct rpbuf_controller *co
 	va = (void *)buffer->va;
 	pa = (dma_addr_t)buffer->pa;
 
-	dev_dbg(dev, "free payload memory: va %pK, pa %pad, len %d\n",
-		va, &pa, buffer->len);
 	dma_free_coherent(dev, buffer->len, va, pa);
 }
 
@@ -163,13 +172,16 @@ static void rpbuf_free_buffer_payload_memory(struct rpbuf_controller *controller
 					     struct rpbuf_buffer *buffer)
 {
 	if (buffer->ops && buffer->ops->free_payload_memory)
-		return buffer->ops->free_payload_memory(buffer, buffer->priv);
-
-	if (controller->ops && controller->ops->free_payload_memory)
-		return controller->ops->free_payload_memory(controller, buffer,
+		buffer->ops->free_payload_memory(buffer, buffer->priv);
+	else if (controller->ops && controller->ops->free_payload_memory)
+		controller->ops->free_payload_memory(controller, buffer,
 							    controller->priv);
+	else
+		rpbuf_free_buffer_payload_memory_default(controller, buffer);
 
-	return rpbuf_free_buffer_payload_memory_default(controller, buffer);
+	dev_info(controller->dev, "\"%s\" free payload memory: " \
+					"va %pK, pa %pad, len %d\n", buffer->name,
+					buffer->va, &buffer->pa, buffer->len);
 }
 
 static void *rpbuf_addr_remap_default(struct rpbuf_controller *controller,
@@ -320,6 +332,9 @@ int rpbuf_register_service(struct rpbuf_service *service, void *token)
 
 	spin_unlock_irqrestore(&link->lock, flags);
 
+	if (link->controller)
+		wake_up_interruptible(&link->controller->wq);
+
 	ret = 0;
 unlock_service_lock:
 	mutex_unlock(&link->service_lock);
@@ -340,6 +355,12 @@ void rpbuf_unregister_service(struct rpbuf_service *service)
 	spin_lock_irqsave(&link->lock, flags);
 
 	pr_devel("unregister service 0x%px\n", service);
+
+	spin_unlock_irqrestore(&link->lock, flags);
+	/* we need to reset all connections, when unregister service */
+	if (link->controller)
+		rpbuf_reset_controller(link->controller);
+	spin_lock_irqsave(&link->lock, flags);
 
 	link->service = NULL;
 	service->link = NULL;
@@ -385,6 +406,8 @@ struct rpbuf_controller *rpbuf_create_controller(struct device *dev,
 	INIT_LIST_HEAD(&controller->remote_dummy_buffers);
 	INIT_LIST_HEAD(&controller->local_dummy_buffers);
 	idr_init(&controller->buffers);
+	idr_init(&controller->local_buffers);
+	init_waitqueue_head(&controller->wq);
 out:
 	return controller;
 }
@@ -395,6 +418,7 @@ void rpbuf_destroy_controller(struct rpbuf_controller *controller)
 	struct device *dev = controller->dev;
 	struct rpbuf_buffer *buffer;
 	struct rpbuf_buffer *tmp;
+	enum rpbuf_role role;
 	int id;
 
 	if (!controller) {
@@ -402,24 +426,62 @@ void rpbuf_destroy_controller(struct rpbuf_controller *controller)
 		return;
 	}
 
+	wake_up_interruptible(&controller->wq);
+	role = controller->role;
+
 	list_for_each_entry_safe(buffer, tmp, &controller->remote_dummy_buffers, dummy_list) {
 		list_del(&buffer->dummy_list);
+		if (buffer->allocated)
+			rpbuf_free_buffer_payload_memory(controller, buffer);
 		rpbuf_free_buffer_instance(dev, buffer);
 	}
 	list_for_each_entry_safe(buffer, tmp, &controller->local_dummy_buffers, dummy_list) {
 		list_del(&buffer->dummy_list);
+		if (buffer->allocated)
+			rpbuf_free_buffer_payload_memory(controller, buffer);
 		rpbuf_free_buffer_instance(dev, buffer);
+		if (role == RPBUF_ROLE_SLAVE)
+			idr_remove(&controller->local_buffers, buffer->id);
 	}
 	idr_for_each_entry(&controller->buffers, buffer, id) {
+		if (buffer->allocated)
+			rpbuf_free_buffer_payload_memory(controller, buffer);
 		rpbuf_free_buffer_instance(dev, buffer);
 	}
 	idr_destroy(&controller->buffers);
+	idr_destroy(&controller->local_buffers);
 
 	controller->priv = NULL;
 
 	devm_kfree(controller->dev, controller);
 }
 EXPORT_SYMBOL(rpbuf_destroy_controller);
+
+static void rpbuf_reset_controller(struct rpbuf_controller *controller)
+{
+	struct rpbuf_buffer *buffer, *tmp;
+	int id;
+
+	idr_for_each_entry(&controller->buffers, buffer, id) {
+		idr_remove(&controller->buffers, id);
+		buffer->offline = true;
+		list_add_tail(&buffer->dummy_list, &controller->local_dummy_buffers);
+		dev_dbg(controller->dev,
+			"buffer \"%s\" (id:%d): buffers -> local_dummy_buffers\n",
+			buffer->name, id);
+	}
+
+	list_for_each_entry_safe(buffer, tmp, &controller->remote_dummy_buffers, dummy_list) {
+		list_del(&buffer->dummy_list);
+		if (buffer->allocated) {
+			rpbuf_free_buffer_payload_memory(controller, buffer);
+			buffer->allocated = false;
+		}
+		dev_dbg(controller->dev, "buffer \"%s\": remote_dummy_buffers -> NULL\n",
+			buffer->name);
+		rpbuf_free_buffer_instance(controller->dev, buffer);
+	}
+}
 
 int rpbuf_register_controller(struct rpbuf_controller *controller,
 			      void *token, enum rpbuf_role role)
@@ -536,11 +598,35 @@ struct rpbuf_controller *rpbuf_get_controller_by_of_node(const struct device_nod
 }
 EXPORT_SYMBOL(rpbuf_get_controller_by_of_node);
 
+int rpbuf_wait_controller_ready(struct rpbuf_controller *controller, int timeout)
+{
+	struct rpbuf_link *link;
+
+	if (!controller || !controller->link) {
+		pr_err("(%s:%d) invalid arguments (%p, %p), Maybe rpbuf is not init?\n", __func__, __LINE__,
+				controller, controller->link);
+		return -EINVAL;;
+	}
+
+	link = controller->link;
+
+	if (wait_event_interruptible_timeout(controller->wq,
+					link->service, msecs_to_jiffies(timeout)) < 0)
+		return -ERESTARTSYS;
+
+	if (!link->service)
+		return -ETIMEDOUT;
+
+	return 0;
+}
+EXPORT_SYMBOL(rpbuf_wait_controller_ready);
+
 static const int rpbuf_service_message_content_len[RPBUF_SERVICE_CMD_MAX] = {
 	0, /* RPBUF_SERVICE_CMD_UNKNOWN */
 	sizeof(struct rpbuf_service_content_buffer_created),
 	sizeof(struct rpbuf_service_content_buffer_destroyed),
 	sizeof(struct rpbuf_service_content_buffer_transmitted),
+	sizeof(struct rpbuf_service_content_buffer_ack),
 };
 
 /*
@@ -645,6 +731,58 @@ out:
 	return ret;
 }
 
+static int rpbuf_notify_remotebuffer_complete(struct rpbuf_controller *controller,
+				struct rpbuf_buffer *buffer)
+{
+	int ret;
+	int msg_len;
+	struct rpbuf_link *link;
+	struct rpbuf_service *service;
+	struct rpbuf_service_content_buffer_ack content;
+	u8 msg[RPBUF_SERVICE_MESSAGE_LENGTH_MAX];
+
+	link = controller->link;
+	service = link->service;
+
+	content.id = buffer->id;
+	content.timediff = 0;
+
+	ret = rpbuf_compose_service_message(msg, RPBUF_SERVICE_CMD_BUFFER_ACK, &content);
+	if (ret < 0) {
+		dev_err(controller->dev, "failed to generate rpbuf service message\n");
+		return ret;
+	}
+	msg_len = ret;
+
+	if (!service->ops || !service->ops->notify) {
+		dev_err(service->dev, "service has not valid notify operation\n");
+		return -EINVAL;
+	}
+	ret = service->ops->notify(msg, msg_len, service->priv);
+	if (ret < 0) {
+		dev_err(service->dev, "notify error: %d\n", ret);
+		return ret;
+	}
+
+	return 0;
+}
+
+static int rpbuf_wait_for_remotebuffer_complete(struct rpbuf_controller *controller,
+				struct rpbuf_buffer *buffer)
+{
+	/* already get notify? */
+	if (!(buffer->state & RPBUF_FLAGS_GETNOTIFY)) {
+		if (wait_event_interruptible(buffer->wait,
+								(buffer->state & RPBUF_FLAGS_GETNOTIFY)))
+				return -ERESTARTSYS;
+	}
+
+	/* clear notify bit */
+	buffer->state &= ~RPBUF_FLAGS_GETNOTIFY;
+
+	return 0;
+}
+
 static int rpbuf_service_command_buffer_created_handler(struct rpbuf_service *service,
 							enum rpbuf_service_command cmd,
 							void *content)
@@ -736,16 +874,13 @@ static int rpbuf_service_command_buffer_created_handler(struct rpbuf_service *se
 			goto unlock_controller_lock;
 		}
 
-		if (role == RPBUF_ROLE_SLAVE) {
-			buffer->pa = cont->pa;
-			buffer->da = cont->da;
-			buffer->va = rpbuf_addr_remap(controller, buffer,
-						      buffer->pa, buffer->da,
-						      buffer->len);
-		}
+		if (role == RPBUF_ROLE_SLAVE)
+			id = buffer->id;
+		else
+			id = cont->id;
 
 		id = idr_alloc(&controller->buffers, buffer,
-			       cont->id, cont->id + 1, GFP_KERNEL);
+			       id, id + 1, GFP_KERNEL);
 		if (id < 0) {
 			dev_err(controller->dev, "idr_alloc for id %d failed: %d\n",
 				cont->id, id);
@@ -755,6 +890,25 @@ static int rpbuf_service_command_buffer_created_handler(struct rpbuf_service *se
 		buffer->id = id;
 
 		list_del(&buffer->dummy_list);
+
+		if (role == RPBUF_ROLE_SLAVE) {
+			buffer->pa = cont->pa;
+			buffer->da = cont->da;
+			buffer->va = rpbuf_addr_remap(controller, buffer,
+						      buffer->pa, buffer->da,
+						      buffer->len);
+		} else {
+			if (!buffer->allocated) {
+				ret = rpbuf_alloc_buffer_payload_memory(controller, buffer);
+				if (ret < 0) {
+					dev_err(controller->dev, "rpbuf_alloc_buffer_payload_memory failed\n");
+					ret = -ENOMEM;
+					idr_remove(&controller->buffers, buffer->id);
+					goto unlock_controller_lock;
+				}
+				buffer->allocated = true;
+			}
+		}
 
 		dev_dbg(controller->dev,
 			"buffer \"%s\" (id:%d): local_dummy_buffers -> buffers\n",
@@ -802,17 +956,36 @@ static int rpbuf_service_command_buffer_created_handler(struct rpbuf_service *se
 		}
 	}
 
-	ret = 0;
+	/* tell the remote controller, we are re-online */
+	if (is_available && buffer->offline) {
+		buffer->offline = false;
+		strncpy(content_back.name, buffer->name, RPBUF_NAME_SIZE);
+		content_back.id = buffer->id;
+		content_back.len = buffer->len;
+		content_back.pa = buffer->pa;
+		content_back.da = buffer->da;
+		content_back.is_available = 1;
 
-	if (is_available && buffer->cbs && buffer->cbs->available_cb) {
 		mutex_unlock(&link->controller_lock);
-		buffer->cbs->available_cb(buffer, buffer->priv);
+
+		ret = rpbuf_notify_by_link(link,
+					   RPBUF_SERVICE_CMD_BUFFER_CREATED,
+					   (void *)&content_back);
+		if (ret < 0) {
+			dev_err(controller->dev, "rpbuf_notify_by_link "
+				"BUFFER_CREATED failed: %d\n", ret);
+			goto out;
+		}
+		ret = 0;
 		goto out;
 	}
 
+	ret = 0;
 unlock_controller_lock:
 	mutex_unlock(&link->controller_lock);
 out:
+	if (is_available && buffer->cbs && buffer->cbs->available_cb)
+		buffer->cbs->available_cb(buffer, buffer->priv);
 	return ret;
 }
 
@@ -855,6 +1028,11 @@ static int rpbuf_service_command_buffer_destroyed_handler(struct rpbuf_service *
 		 * Now we delete it from the list.
 		 */
 		list_del(&buffer->dummy_list);
+
+		if (buffer->allocated) {
+			rpbuf_free_buffer_payload_memory(controller, buffer);
+			buffer->allocated = false;
+		}
 
 		dev_dbg(controller->dev, "buffer \"%s\": remote_dummy_buffers -> NULL\n",
 			buffer->name);
@@ -937,8 +1115,66 @@ static int rpbuf_service_command_buffer_transmitted_handler(struct rpbuf_service
 	mutex_unlock(&link->controller_lock);
 
 	if (buffer->cbs && buffer->cbs->rx_cb)
-		return buffer->cbs->rx_cb(buffer, buffer->va + cont->offset,
+		buffer->cbs->rx_cb(buffer, buffer->va + cont->offset,
 					  cont->data_len, buffer->priv);
+
+	/* tell the remote buffer that we received data */
+	if ((cont->flags & BUFFER_SYNC_TRANSMIT)) {
+		ret = rpbuf_notify_remotebuffer_complete(controller, buffer);
+		if (ret < 0) {
+			dev_warn(controller->dev, "buffer \"%s\" (id:%d) notify remote failed\n",
+							buffer->name, buffer->id);
+			ret = -EFAULT;
+			goto err_out;
+		}
+	}
+
+	return 0;
+
+err_out:
+	return ret;
+}
+
+static int rpbuf_service_command_buffer_ack_handler(struct rpbuf_service *service,
+							    enum rpbuf_service_command cmd,
+							    void *content)
+{
+	int ret;
+	struct rpbuf_link *link = service->link;
+	struct rpbuf_controller *controller;
+	unsigned long flags;
+	struct rpbuf_service_content_buffer_ack *cont = content;
+	struct rpbuf_buffer *buffer;
+
+	mutex_lock(&link->controller_lock);
+
+	spin_lock_irqsave(&link->lock, flags);
+	controller = link->controller;
+	if (!controller) {
+		dev_err(service->dev, "service 0x%px not linked with controller\n", service);
+		spin_unlock_irqrestore(&link->lock, flags);
+		mutex_unlock(&link->controller_lock);
+		ret = -ENOENT;
+		goto err_out;
+	}
+	spin_unlock_irqrestore(&link->lock, flags);
+
+	buffer = idr_find(&controller->buffers, cont->id);
+	if (!buffer) {
+		dev_warn(controller->dev, "no buffer with id %d in local\n", cont->id);
+		mutex_unlock(&link->controller_lock);
+		ret = -ENOENT;
+		goto err_out;
+	}
+
+	buffer->state |= RPBUF_FLAGS_GETNOTIFY;
+
+	dev_dbg(controller->dev, "buffer \"%s\" (id:%d) ACK from remote\n",
+		buffer->name, buffer->id);
+
+	mutex_unlock(&link->controller_lock);
+
+	wake_up_interruptible(&buffer->wait);
 
 	return 0;
 
@@ -952,6 +1188,7 @@ rpbuf_service_command_handlers[RPBUF_SERVICE_CMD_MAX] = {
 	rpbuf_service_command_buffer_created_handler,
 	rpbuf_service_command_buffer_destroyed_handler,
 	rpbuf_service_command_buffer_transmitted_handler,
+	rpbuf_service_command_buffer_ack_handler,
 };
 
 int rpbuf_service_get_notification(struct rpbuf_service *service, void *msg, int msg_len)
@@ -1063,6 +1300,11 @@ static int rpbuf_free_buffer_internal(struct rpbuf_buffer *buffer, int do_notify
 
 		list_del(&buffer->dummy_list);
 
+		if (buffer->allocated) {
+			rpbuf_free_buffer_payload_memory(controller, buffer);
+			buffer->allocated = false;
+		}
+
 		dev_dbg(dev, "buffer \"%s\": local_dummy_buffers -> NULL\n",
 			buffer->name);
 	} else {
@@ -1104,6 +1346,7 @@ static int rpbuf_free_buffer_internal(struct rpbuf_buffer *buffer, int do_notify
 			dummy_buffer->id = buffer->id;
 			dummy_buffer->pa = buffer->pa;
 			dummy_buffer->da = buffer->da;
+			dummy_buffer->allocated = buffer->allocated;
 		} else {
 			/*
 			 * The instance of 'buffer' will be freed later, so we
@@ -1123,6 +1366,8 @@ static int rpbuf_free_buffer_internal(struct rpbuf_buffer *buffer, int do_notify
 			dummy_buffer->id = buffer->id;
 			dummy_buffer->pa = buffer->pa;
 			dummy_buffer->da = buffer->da;
+			dummy_buffer->va = buffer->va;
+			dummy_buffer->allocated = buffer->allocated;
 			list_add_tail(&dummy_buffer->dummy_list,
 				      &controller->remote_dummy_buffers);
 
@@ -1135,8 +1380,8 @@ static int rpbuf_free_buffer_internal(struct rpbuf_buffer *buffer, int do_notify
 	 * Anyway MASTER frees payload memory here. Therefore users should ensure
 	 * that SLAVE won't access the payload memory afterwards.
 	 */
-	if (role == RPBUF_ROLE_MASTER)
-		rpbuf_free_buffer_payload_memory(controller, buffer);
+	if (role == RPBUF_ROLE_SLAVE)
+		idr_remove(&controller->local_buffers, buffer->id);
 
 	mutex_unlock(&link->controller_lock);
 
@@ -1186,30 +1431,22 @@ struct rpbuf_buffer *rpbuf_alloc_buffer(struct rpbuf_controller *controller,
 	buffer->ops = ops;
 	buffer->cbs = cbs;
 	buffer->priv = priv;
+	buffer->allocated = false;
 
 	mutex_lock(&link->controller_lock);
-
-	if (role == RPBUF_ROLE_MASTER) {
-		ret = rpbuf_alloc_buffer_payload_memory(controller, buffer);
-		if (ret < 0) {
-			dev_err(dev, "rpbuf_alloc_buffer_payload_memory failed\n");
-			mutex_unlock(&link->controller_lock);
-			goto err_free_instance;
-		}
-	}
 
 	dummy_buffer = rpbuf_find_dummy_buffer_by_name(
 			&controller->local_dummy_buffers, name);
 	if (dummy_buffer) {
 		dev_err(dev, "buffer \"%s\" already exists in 'local_dummy_buffers'\n", name);
 		mutex_unlock(&link->controller_lock);
-		goto err_free_payload_memory;
+		goto err_free_instance;
 	}
 	idr_for_each_entry(&controller->buffers, dummy_buffer, id) {
 		if (0 == strncmp(dummy_buffer->name, name, RPBUF_NAME_SIZE)) {
 			dev_err(dev, "buffer \"%s\" already exists in 'buffers'\n", name);
 			mutex_unlock(&link->controller_lock);
-			goto err_free_payload_memory;
+			goto err_free_instance;
 		}
 	}
 
@@ -1227,7 +1464,7 @@ struct rpbuf_buffer *rpbuf_alloc_buffer(struct rpbuf_controller *controller,
 				"(local: %d, remote: %d)\n",
 				buffer->len, dummy_buffer->len);
 			mutex_unlock(&link->controller_lock);
-			goto err_free_payload_memory;
+			goto err_free_instance;
 		}
 
 		if (role == RPBUF_ROLE_SLAVE) {
@@ -1236,15 +1473,48 @@ struct rpbuf_buffer *rpbuf_alloc_buffer(struct rpbuf_controller *controller,
 			buffer->va = rpbuf_addr_remap(controller, buffer,
 						      buffer->pa, buffer->da,
 						      buffer->len);
-		}
 
-		id = idr_alloc(&controller->buffers, buffer, 0, 0, GFP_KERNEL);
-		if (id < 0) {
-			dev_err(dev, "idr_alloc for new id failed: %d\n", id);
-			mutex_unlock(&link->controller_lock);
-			goto err_free_payload_memory;
+			id = idr_alloc(&controller->local_buffers, buffer, 0, 0, GFP_KERNEL);
+			if (id < 0) {
+				dev_err(dev, "idr_alloc for new id failed: %d\n", id);
+				mutex_unlock(&link->controller_lock);
+				goto err_free_instance;
+			}
+			buffer->id = id;
+
+			id = idr_alloc(&controller->buffers, buffer, id, id + 1, GFP_KERNEL);
+			if (id < 0) {
+				dev_err(dev, "idr_alloc for new id %d failed: %d\n", dummy_buffer->id, id);
+				idr_remove(&controller->local_buffers, buffer->id);
+				mutex_unlock(&link->controller_lock);
+				goto err_free_instance;
+			}
+		} else {
+			id = idr_alloc(&controller->buffers, buffer, dummy_buffer->id,
+						      dummy_buffer->id + 1, GFP_KERNEL);
+			if (id < 0) {
+				dev_err(dev, "idr_alloc for new id %d failed: %d\n", dummy_buffer->id, id);
+				mutex_unlock(&link->controller_lock);
+				goto err_free_instance;
+			}
+			buffer->id = id;
+
+			if (!dummy_buffer->allocated) {
+				ret = rpbuf_alloc_buffer_payload_memory(controller, buffer);
+				if (ret < 0) {
+					dev_err(dev, "rpbuf_alloc_buffer_payload_memory failed\n");
+					mutex_unlock(&link->controller_lock);
+					idr_remove(&controller->buffers, buffer->id);
+					goto err_free_instance;
+				}
+				dummy_buffer->allocated = true;
+			} else {
+				buffer->pa = dummy_buffer->pa;
+				buffer->da = dummy_buffer->da;
+				buffer->va = dummy_buffer->va;
+			}
+			buffer->allocated = dummy_buffer->allocated;
 		}
-		buffer->id = id;
 
 		/*
 		 * The instances of entries in 'remote_dummy_buffers' are not
@@ -1263,6 +1533,28 @@ struct rpbuf_buffer *rpbuf_alloc_buffer(struct rpbuf_controller *controller,
 		 * waiting for remote message to update it.
 		 */
 		list_add_tail(&buffer->dummy_list, &controller->local_dummy_buffers);
+
+		/*
+		 * buffer->id is determined by slave, because the slave may run on
+		 * bare metal and there no idr mechanism.
+		 */
+		if (role == RPBUF_ROLE_SLAVE) {
+			id = idr_alloc(&controller->local_buffers, buffer, 0, 0, GFP_KERNEL);
+			if (id < 0) {
+				dev_err(dev, "idr_alloc for new id failed: %d\n", id);
+				mutex_unlock(&link->controller_lock);
+				goto err_free_instance;
+			}
+			buffer->id = id;
+		} else {
+			ret = rpbuf_alloc_buffer_payload_memory(controller, buffer);
+			if (ret < 0) {
+				dev_err(dev, "rpbuf_alloc_buffer_payload_memory failed\n");
+				mutex_unlock(&link->controller_lock);
+				goto err_free_instance;
+			}
+			buffer->allocated = true;
+		}
 		dev_dbg(dev, "buffer \"%s\": NULL -> local_dummy_buffers\n",
 			buffer->name);
 	}
@@ -1293,12 +1585,6 @@ struct rpbuf_buffer *rpbuf_alloc_buffer(struct rpbuf_controller *controller,
 
 	return buffer;
 
-err_free_payload_memory:
-	if (role == RPBUF_ROLE_MASTER) {
-		mutex_lock(&link->controller_lock);
-		rpbuf_free_buffer_payload_memory(controller, buffer);
-		mutex_unlock(&link->controller_lock);
-	}
 err_free_instance:
 	rpbuf_free_buffer_instance(dev, buffer);
 err_out:
@@ -1311,6 +1597,20 @@ int rpbuf_free_buffer(struct rpbuf_buffer *buffer)
 	return rpbuf_free_buffer_internal(buffer, 1);
 }
 EXPORT_SYMBOL(rpbuf_free_buffer);
+
+int rpbuf_buffer_set_sync(struct rpbuf_buffer *buffer, bool sync)
+{
+	uint32_t flags = buffer->flags;
+
+	if (sync)
+		flags |= BUFFER_SYNC_TRANSMIT;
+	else
+		flags &= ~(BUFFER_SYNC_TRANSMIT);
+
+	buffer->flags = flags;
+
+	return 0;
+}
 
 int rpbuf_buffer_is_available(struct rpbuf_buffer *buffer)
 {
@@ -1370,17 +1670,30 @@ int rpbuf_transmit_buffer(struct rpbuf_buffer *buffer,
 	content.id = buffer->id;
 	content.offset = offset;
 	content.data_len = data_len;
+	content.flags = buffer->flags;
 
 	if (!rpbuf_buffer_is_available(buffer)) {
 		dev_err(dev, "buffer not available\n");
 		return -EACCES;
 	}
 
+	/* clear notify bit */
+	if ((buffer->flags & BUFFER_SYNC_TRANSMIT))
+		buffer->state &= ~RPBUF_FLAGS_GETNOTIFY;
+
 	ret = rpbuf_notify_by_link(link, RPBUF_SERVICE_CMD_BUFFER_TRANSMITTED,
 				   (void *)&content);
 	if (ret < 0) {
 		dev_err(dev, "rpbuf_notify_by_link BUFFER_TRANSMITTED failed: %d\n", ret);
 		return ret;
+	}
+
+	if ((buffer->flags & BUFFER_SYNC_TRANSMIT)) {
+		ret = rpbuf_wait_for_remotebuffer_complete(controller, buffer);
+		if (ret < 0) {
+			dev_err(dev, "rpbuf_wait_for_remotebuffer_complete BUFFER_ACK failed: %d\n", ret);
+			return ret;
+		}
 	}
 
 	return 0;

@@ -3,11 +3,10 @@
 #include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/ktime.h>
+#include <uapi_rt_media.h>
 
 #ifndef _RT_COMMON_H_
 #define _RT_COMMON_H_
-
-#define VIDEO_INPUT_CHANNEL_NUM (9)
 
 #ifndef LOG_TAG
 #define LOG_TAG "rt"
@@ -36,15 +35,15 @@ as: echo 4 > /proc/sys/kernel/printk   --> just printk RT_LOGE
 #define RT_LOGI(fmt, arg...)
 #else
 #define RT_LOGD(fmt, arg...) printk(KERN_DEBUG "%s:%s <%s:%u> " fmt "\n", RT_LOG_LEVEL_DEBUG, LOG_TAG, __FUNCTION__, __LINE__, ##arg)
-#define RT_LOGI(fmt, arg...) printk(KERN_INFO "%s:%s <%s:%u> " fmt "\n", RT_LOG_LEVEL_INFO, LOG_TAG, __FUNCTION__, __LINE__, ##arg)
+#define RT_LOGI(fmt, arg...)
 #endif
 
-#define RT_LOGTMP(fmt, arg...) printk(KERN_DEBUG "%s:%s <%s:%u> " fmt "\n", RT_LOG_LEVEL_DEBUG, LOG_TAG, __FUNCTION__, __LINE__, ##arg)
+#define RT_LOGS(fmt, arg...) printk(KERN_DEBUG "%s:%s <%s:%u> " fmt "\n", RT_LOG_LEVEL_DEBUG, LOG_TAG, __FUNCTION__, __LINE__, ##arg)
 
 #define RT_LOGW(fmt, arg...) printk(KERN_WARNING "%s:%s <%s:%u> " fmt "\n", RT_LOG_LEVEL_WARNING, LOG_TAG, __FUNCTION__, __LINE__, ##arg)
 #define RT_LOGE(fmt, arg...) printk(KERN_ERR "%s:%s <%s:%u> " fmt "\n", RT_LOG_LEVEL_ERROR, LOG_TAG, __FUNCTION__, __LINE__, ##arg)
 
-#define PRINTF_FUNCTION RT_LOGD("Run this line")
+#define PRINTF_FUNCTION RT_LOGW("Run this line")
 #define RT_ALIGN(x, a) ((a) * (((x) + (a)-1) / (a)))
 
 #ifndef PARAM_IN
@@ -75,6 +74,11 @@ typedef int error_type;
 #define ERROR_TYPE_UNEXIST (-3)
 #define ERROR_TYPE_STATE_ERROR (-4)
 #define ERROR_TYPE_ILLEGAL_PARAM (-5)
+#define ERROR_TYPE_VIN_ERR (-6)
+
+#if defined CONFIG_RT_MEDIA_DUAL_SENSOR
+#define RT_SECOND_SENSOR_KERNEL_START 0//set 1 to start second sensor kernel encoder
+#endif
 
 typedef struct video_frame_s {
 	unsigned int id;
@@ -131,13 +135,13 @@ typedef enum comp_command_type {
 	COMP_COMMAND_PAUSE	  = 2,
 	COMP_COMMAND_STOP	   = 3,
 	COMP_COMMAND_RESET_HIGH_FPS = 4,
-
+	COMP_COMMAND_EXIT	   = 5,
 	COMP_COMMAND_VENC_INPUT_FRAME_VALID,
 
 	COMP_COMMAND_MAX = 0X7FFFFFFF
 } comp_command_type;
 
-#define WAIT_REPLY_NUM (COMP_COMMAND_STOP + 1)
+#define WAIT_REPLY_NUM (COMP_COMMAND_EXIT + 1)
 
 typedef enum comp_state_type {
 	// Error state.
@@ -157,6 +161,7 @@ typedef enum comp_state_type {
 
 	// rt_media is in pause.
 	COMP_STATE_PAUSE = 5,
+	COMP_STATE_EXIT = 6,
 } comp_state_type;
 
 typedef enum comp_index_type {
@@ -180,11 +185,32 @@ typedef enum comp_index_type {
 	COMP_INDEX_VENC_CONFIG_Dynamic_SET_SUPER_FRAME_PARAM,
 	COMP_INDEX_VENC_CONFIG_Dynamic_GET_SUM_MB_INFO,
 	COMP_INDEX_VENC_CONFIG_Dynamic_GET_MOTION_SEARCH_RESULT,
+	COMP_INDEX_VENC_CONFIG_Dynamic_GET_REGION_D3D_RESULT,
 
-	COMP_INDEX_VENC_CONFIG_ENABLE_BIN_IMAGE,
-	COMP_INDEX_VENC_CONFIG_ENABLE_MV_INFO,
-	COMP_INDEX_VENC_CONFIG_GET_BIN_IMAGE_DATA,
-	COMP_INDEX_VENC_CONFIG_GET_MV_INFO_DATA,
+	//COMP_INDEX_VENC_CONFIG_ENABLE_BIN_IMAGE,
+	//COMP_INDEX_VENC_CONFIG_ENABLE_MV_INFO,
+	//COMP_INDEX_VENC_CONFIG_GET_BIN_IMAGE_DATA,
+	//COMP_INDEX_VENC_CONFIG_GET_MV_INFO_DATA,
+	COMP_INDEX_VENC_CONFIG_SET_SHARP,
+	COMP_INDEX_VENC_CONFIG_SET_MOTION_SEARCH_PARAM,
+	COMP_INDEX_VENC_CONFIG_SET_IPC_CASE,
+	COMP_INDEX_VENC_CONFIG_SET_ROI,
+	COMP_INDEX_VENC_CONFIG_SET_GDC,
+	COMP_INDEX_VENC_CONFIG_SET_ROTATE,
+	COMP_INDEX_VENC_CONFIG_SET_REC_REF_LBC_MODE,
+	COMP_INDEX_VENC_CONFIG_SET_WEAK_TEXT_TH,
+	COMP_INDEX_VENC_CONFIG_SET_REGION_D3D_PARAM,
+	COMP_INDEX_VENC_CONFIG_SET_CHROMA_QP_OFFSET,
+	COMP_INDEX_VENC_CONFIG_SET_H264_CONSTRAINT_FLAG,
+	COMP_INDEX_VENC_CONFIG_SET_VE2ISP_D2D_LIMIT,
+	COMP_INDEX_VENC_CONFIG_SET_GRAY,
+	COMP_INDEX_VENC_CONFIG_SET_WBYUV,
+	COMP_INDEX_VENC_CONFIG_GET_WBYUV,
+	COMP_INDEX_VENC_CONFIG_SET_2DNR,
+	COMP_INDEX_VENC_CONFIG_SET_3DNR,
+	COMP_INDEX_VENC_CONFIG_SET_CYCLE_INTRA_REFRESH,
+	COMP_INDEX_VENC_CONFIG_SET_P_FRAME_INTRA,
+
 	COMP_INDEX_VI_CONFIG_Base = 0x01000000,
 	COMP_INDEX_VI_CONFIG_Normal,
 	COMP_INDEX_VI_CONFIG_SET_YUV_BUF_INFO,
@@ -205,7 +231,11 @@ typedef enum comp_index_type {
 	COMP_INDEX_VI_CONFIG_Dynamic_GET_HIST,
 	COMP_INDEX_VI_CONFIG_Dynamic_SET_AE_METERING_MODE,
 	COMP_INDEX_VI_CONFIG_Dynamic_SET_ISP_ARRT_CFG,
+	COMP_INDEX_VI_CONFIG_Dynamic_GET_ISP_ARRT_CFG,
 	COMP_INDEX_VI_CONFIG_Dynamic_SET_FPS,
+	COMP_INDEX_VI_CONFIG_Dynamic_SET_ORL,
+
+	COMP_INDEX_VI_CONFIG_GET_BASE_CONFIG,
 } comp_index_type;
 
 typedef enum comp_event_type {
@@ -332,7 +362,7 @@ typedef struct rt_component_type {
 #define comp_setup_tunnel(component, port_type, tunnel_comp, connect_flag) \
 	component->setup_tunnel(component, port_type, tunnel_comp, connect_flag)
 
-typedef error_type (*component_init)(PARAM_IN comp_handle component);
+typedef error_type (*component_init)(PARAM_IN comp_handle component, const rt_media_config_s *pmedia_config);
 
 static inline int64_t get_cur_time(void)
 {

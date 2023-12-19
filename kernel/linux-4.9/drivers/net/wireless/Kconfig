@@ -37,6 +37,8 @@ source "drivers/net/wireless/xr819s/Kconfig"
 source "drivers/net/wireless/xr829/Kconfig"
 source "drivers/net/wireless/xr806/Kconfig"
 source "drivers/net/wireless/esp32/Kconfig"
+source "drivers/net/wireless/ssv6155_jixian/Kconfig"
+source "drivers/net/wireless/ssv6158/Kconfig"
 
 config PCMCIA_RAYCS
 	tristate "Aviator/Raytheon 2.4GHz wireless support"
@@ -113,5 +115,13 @@ config VIRT_WIFI
 	  are wifi connections through a special rtnetlink device.
 
 source "drivers/net/wireless/bcmdhd/Kconfig"
+source "drivers/net/wireless/rtl8189es/Kconfig"
+source "drivers/net/wireless/rtl8189fs/Kconfig"
+source "drivers/net/wireless/rtl8723cs/Kconfig"
+source "drivers/net/wireless/rtl8723ds/Kconfig"
+source "drivers/net/wireless/rtl8733bs/Kconfig"
+source "drivers/net/wireless/rtl8723bs_vq0/Kconfig"
+source "drivers/net/wireless/rtl8821cs/Kconfig"
+source "drivers/net/wireless/rtl8822cs/Kconfig"
 
 endif # WLAN

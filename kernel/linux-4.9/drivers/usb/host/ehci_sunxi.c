@@ -345,20 +345,9 @@ static ssize_t show_phy_range(struct device *dev,
 
 	sunxi_ehci = dev->platform_data;
 #if defined(CONFIG_ARCH_SUN8IW21)
-	printk("addr:0x%x, len:0x%x, value:0x%x\n", 0x60, 0x1,
-			usb_new_phyx_tp_read(sunxi_ehci, 0x60, 0x1));
-	printk("addr:0x%x, len:0x%x, value:0x%x\n", 0x30, 0x3,
-			usb_new_phyx_tp_read(sunxi_ehci, 0x30, 0x3));
-	printk("addr:0x%x, len:0x%x, value:0x%x\n", 0x36, 0x3,
-			usb_new_phyx_tp_read(sunxi_ehci, 0x36, 0x3));
-	printk("addr:0x%x, len:0x%x, value:0x%x\n", 0x61, 0x3,
-			usb_new_phyx_tp_read(sunxi_ehci, 0x61, 0x3));
-	printk("addr:0x%x, len:0x%x, value:0x%x\n", 0x64, 0x2,
-			usb_new_phyx_tp_read(sunxi_ehci, 0x64, 0x2));
-	printk("addr:0x%x, len:0x%x, value:0x%x\n", 0x44, 0x4,
-			usb_new_phyx_tp_read(sunxi_ehci, 0x44, 0x4));
-
-	return 0;
+	DMSG_INFO("PHY's rate and range:0x0~0x3ff\n");
+	return sprintf(buf, "rate:0x%x\n",
+			usb_new_phyx_read(sunxi_ehci));
 #elif defined(CONFIG_ARCH_SUN8IW17) | defined(CONFIG_ARCH_SUN8IW11)
 	DMSG_INFO("PHY's rate and range:0x0~0x1f\n");
 	return sprintf(buf, "rate:0x%x\n",
@@ -377,63 +366,24 @@ static ssize_t ehci_phy_range(struct device *dev, struct device_attribute *attr,
 	int err;
 
 #if defined(CONFIG_ARCH_SUN8IW21)
-	char data[20];
-	char *str = NULL;
-	char *token = NULL;
-	int mod_type, common_data, trancevie_data, preemphasis_data, resistance_data;
+	int val = 0;
 
 	sunxi_ehci = dev->platform_data;
 
-	snprintf(data, sizeof(data), "%s", buf);
-	printk("data = %s\n", data);
-
-	str = data;
-	token = strsep(&str, " ");
-
-	err = kstrtoint(token, 10, &mod_type);
+	err = kstrtoint(buf, 16, &val);
 	if (err != 0)
 		return -EINVAL;
 
-	err = kstrtoint(strsep(&str, " "), 16, &common_data);
-	if (err != 0)
-		return -EINVAL;
+	DMSG_INFO("adjust PHY's rate and range:0x0~0x3ff\n");
+	if ((val >= 0x0) && (val <= 0x3ff)) {
+		usb_new_phyx_write(sunxi_ehci, val);
+	} else {
+		DMSG_PANIC("adjust PHY's paraments 0x%x is fail! value:0x0~0x3ff\n", val);
+		return count;
+	}
 
-	err = kstrtoint(strsep(&str, " "), 16, &trancevie_data);
-	if (err != 0)
-		return -EINVAL;
-
-	err = kstrtoint(strsep(&str, " "), 16, &preemphasis_data);
-	if (err != 0)
-		return -EINVAL;
-
-	err = kstrtoint(strsep(&str, " "), 16, &resistance_data);
-	if (err != 0)
-		return -EINVAL;
-
-	/* Already calibrate completely, don't have to distinguish iref mode and vref mode */
-	printk("already calibrate completely, don't have to distinguish iref mode and vref mode!\n");
-
-	/* common data */
-	printk("don't support adjust common region range!\n");
-
-	/* tranceive data */
-	usb_new_phyx_tp_write(sunxi_ehci, 0x60, trancevie_data, 0x4);
-	printk("write to trancevie data: 0x%x\n", trancevie_data);
-
-	usb_new_phyx_tp_write(sunxi_ehci, 0x64, preemphasis_data, 0x2);
-	printk("write to preemphasis data: 0x%x", preemphasis_data);
-
-	usb_new_phyx_tp_write(sunxi_ehci, 0x43, 0x0, 0x1);
-
-	usb_new_phyx_tp_write(sunxi_ehci, 0x41, 0x0, 0x1);
-
-	usb_new_phyx_tp_write(sunxi_ehci, 0x40, 0x0, 0x1);
-
-	usb_new_phyx_tp_write(sunxi_ehci, 0x44, resistance_data, 0x4);
-	printk("write to resistance data: 0x%x\n", resistance_data);
-
-	usb_new_phyx_tp_write(sunxi_ehci, 0x43, 0x1, 0x1);
-
+	DMSG_INFO("adjust succeed:,PHY's paraments :0x%x, no:%d\n",
+		usb_new_phyx_read(sunxi_ehci), sunxi_ehci->usbc_no);
 #elif defined(CONFIG_ARCH_SUN8IW17) || defined(CONFIG_ARCH_SUN8IW11)
 	int val = 0;
 
@@ -928,6 +878,9 @@ static int sunxi_ehci_hcd_remove(struct platform_device *pdev)
 		ehci_enable[sunxi_ehci->usbc_no] = 1;
 	}
 
+	if (sunxi_ehci->wakeup_source_flag && sunxi_ehci->wakeup_suspend) {
+		dev_pm_clear_wake_irq(&pdev->dev);
+	}
 	if (sunxi_ehci->probe == 1) {
 		ret = sunxi_rmmod_ehci(pdev);
 		if (ret == 0)

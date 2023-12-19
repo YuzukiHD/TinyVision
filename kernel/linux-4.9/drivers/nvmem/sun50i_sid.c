@@ -128,7 +128,7 @@ static struct platform_driver sunxi_sid_driver = {
 		.of_match_table = sunxi_sid_of_match,
 	},
 };
-module_platform_driver(sunxi_sid_driver);
+module_platform_driver_paralell(sunxi_sid_driver);
 
 MODULE_AUTHOR("Oliver Schinagl <oliver@schinagl.nl>");
 MODULE_DESCRIPTION("Allwinner sunxi security id driver");

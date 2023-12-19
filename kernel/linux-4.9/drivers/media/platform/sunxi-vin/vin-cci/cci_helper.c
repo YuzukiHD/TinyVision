@@ -922,7 +922,7 @@ int sensor_read(struct v4l2_subdev *sd, addr_type reg, data_type *value)
 		cnt++;
 	}
 	if (cnt > 0)
-		cci_print("%s sensor read retry = %d\n", sd->name, cnt);
+		cci_print("%s read retry %d, read addr is 0x%x\n", sd->name, cnt + 1, reg);
 
 	return ret;
 }
@@ -943,7 +943,7 @@ int sensor_write(struct v4l2_subdev *sd, addr_type reg, data_type value)
 		cnt++;
 	}
 	if (cnt > 0)
-		cci_print("%s sensor write retry = %d\n", sd->name, cnt);
+		cci_print("%s write retry %d, write addr/data is 0x%x/0x%x\n", sd->name, cnt + 1, reg, value);
 
 	return ret;
 }

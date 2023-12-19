@@ -420,6 +420,7 @@ static int ieee80211_open(struct net_device *dev)
 {
 	struct ieee80211_sub_if_data *sdata = IEEE80211_DEV_TO_SUB_IF(dev);
 	int err;
+	int retry = 0;
 
 	/* fail early if user set an invalid address */
 	if (!is_valid_ether_addr(dev->dev_addr))
@@ -429,7 +430,19 @@ static int ieee80211_open(struct net_device *dev)
 	if (err)
 		return err;
 
-	return ieee80211_do_open(&sdata->wdev, true);
+	do {
+		err = ieee80211_do_open(&sdata->wdev, true);
+		if (err) {
+			printk(KERN_DEBUG "%s: do open retry %d", __func__, retry);
+			++retry;
+			msleep(2000 + retry * 1000);
+		} else {
+			retry = 0;
+		}
+
+	} while (retry && retry < 3);
+
+	return err;
 }
 
 static void ieee80211_do_stop(struct ieee80211_sub_if_data *sdata,
@@ -997,7 +1010,9 @@ static void ieee80211_setup_sdata(struct ieee80211_sub_if_data *sdata,
 	case NL80211_IFTYPE_AP:
 		skb_queue_head_init(&sdata->u.ap.ps_bc_buf);
 		INIT_LIST_HEAD(&sdata->u.ap.vlans);
+#ifndef SUPPORT_STA_AP_COEX
 		sdata->local->uapsd_queues = IEEE80211_DEFAULT_UAPSD_QUEUES;
+#endif
 		break;
 	case NL80211_IFTYPE_P2P_CLIENT:
 		type = NL80211_IFTYPE_STATION;
@@ -1184,6 +1199,11 @@ static void ieee80211_assign_perm_addr(struct ieee80211_local *local,
 			break;
 		}
 		/* keep default if no AP interface present */
+#ifdef SUPPORT_STA_AP_COEX
+	case NL80211_IFTYPE_AP:
+		memcpy(perm_addr,
+			local->hw.wiphy->addresses[2].addr, ETH_ALEN);
+#endif
 		break;
 	default:
 		/* assign a new address if possible -- try n_addresses first */
@@ -1602,8 +1622,8 @@ u32 __mac80211_recalc_idle(struct ieee80211_local *local)
 
 	list_for_each_entry(sdata, &local->interfaces, list) {
 		if (sdata->vif.type == NL80211_IFTYPE_MONITOR ||
-			sdata->vif.type == NL80211_IFTYPE_AP_VLAN ||
-			sdata->vif.type == NL80211_IFTYPE_P2P_DEVICE)
+		    sdata->vif.type == NL80211_IFTYPE_AP_VLAN ||
+		    sdata->vif.type == NL80211_IFTYPE_P2P_DEVICE)
 			continue;
 		if (sdata->old_idle == sdata->vif.bss_conf.idle)
 			continue;

@@ -1026,6 +1026,15 @@ static int geth_phy_init(struct net_device *ndev)
 	phydev->supported &= PHY_GBIT_FEATURES;
 	phydev->advertising = phydev->supported;
 
+	/* Fix PHY eye diagram */
+#define PHY_EXT_READ		0x1e
+#define PHY_EXT_WRITE		0x1f
+#define PHY_ADDR		0x00
+#define PHY_EYE_DIAGRAM_REG	0x2057
+#define PHY_EYE_DIAGRAM_VALUE	0x2b4f
+	sunxi_mdio_write(priv->base, PHY_ADDR, PHY_EXT_READ, PHY_EYE_DIAGRAM_REG);
+	sunxi_mdio_write(priv->base, PHY_ADDR, PHY_EXT_WRITE, PHY_EYE_DIAGRAM_VALUE);
+
 resume:
 	if (priv->phy_ext == INT_PHY) {
 		/* EPHY Initial */

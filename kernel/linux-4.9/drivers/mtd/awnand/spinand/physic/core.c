@@ -25,9 +25,18 @@ int aw_spinand_chip_update_cfg(struct aw_spinand_chip *chip)
 	u8 reg;
 
 	reg = 0;
-	ret = ops->set_block_lock(chip, reg);
-	if (ret)
-		goto err;
+	if (!strcmp(info->manufacture(chip), "SkyHigh")) {
+		ret = ops->set_block_lock(chip, 0x7e);
+		if (ret)
+			goto err;
+		ret = ops->set_block_lock(chip, 0x02);
+		if (ret)
+			goto err;
+	} else {
+		ret = ops->set_block_lock(chip, reg);
+		if (ret)
+			goto err;
+	}
 	ret = ops->get_block_lock(chip, &reg);
 	if (ret)
 		goto err;

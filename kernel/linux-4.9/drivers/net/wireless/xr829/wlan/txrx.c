@@ -1194,11 +1194,17 @@ xradio_tx_h_crypt(struct xradio_vif *priv,
 	size_t icv_len;
 	u8 *icv;
 	u8 *newhdr;
+	int is_multi_mfp = 0;
 	txrx_printk(XRADIO_DBG_TRC, "%s\n", __func__);
 
+	if (ieee80211_is_mgmt(t->hdr->frame_control) &&
+		 is_multicast_ether_addr(t->hdr->addr1) &&
+		 ieee80211_is_robust_mgmt_frame(t->skb))
+		 is_multi_mfp = 1;
+
 	if (!t->tx_info->control.hw_key ||
-	    !(t->hdr->frame_control &
-	     __cpu_to_le32(IEEE80211_FCTL_PROTECTED)))
+	    (!(t->hdr->frame_control &
+	     __cpu_to_le32(IEEE80211_FCTL_PROTECTED)) && (!is_multi_mfp)))
 		return 0;
 
 	iv_len = t->tx_info->control.hw_key->iv_len;
@@ -1240,6 +1246,12 @@ xradio_tx_h_crypt(struct xradio_vif *priv,
 	t->hdrlen += iv_len;
 	icv = skb_put(t->skb, icv_len);
 
+	if (t->tx_info->control.hw_key->cipher == WLAN_CIPHER_SUITE_AES_CMAC) {
+		struct ieee80211_mmie * mmie = (struct ieee80211_mmie *) icv;
+		memset(mmie, 0, sizeof(struct ieee80211_mmie));
+		mmie->element_id = WLAN_EID_MMIE;
+		mmie->length = sizeof(*mmie) - 2;
+	}
 	return 0;
 }
 #ifdef SUPPORT_HT40
@@ -1933,6 +1945,7 @@ void xradio_get_ieee80211_tx_rate(struct xradio_common *hw_priv,
 
 #endif
 
+extern unsigned int arp_max_cnt;
 void xradio_tx_confirm_cb(struct xradio_common *hw_priv,
 			  struct wsm_tx_confirm *arg)
 {
@@ -2104,7 +2117,7 @@ void xradio_tx_confirm_cb(struct xradio_common *hw_priv,
 				/* Shedule unjoin work */
 				txrx_printk(XRADIO_DBG_WARN,
 					    "Issue unjoin command(TX) by self.\n");
-				if (cancel_delayed_work_sync(&priv->unjoin_delayed_work)) {
+				if (cancel_delayed_work(&priv->unjoin_delayed_work)) {
 					wsm_lock_tx_async(hw_priv);
 					if (queue_work(hw_priv->workqueue, &priv->unjoin_work) <= 0)
 						wsm_unlock_tx(hw_priv);
@@ -2157,15 +2170,32 @@ void xradio_tx_confirm_cb(struct xradio_common *hw_priv,
 			(ieee80211_is_data(frame->frame_control))) {
 				u8 machdrlen = ieee80211_hdrlen(frame->frame_control);
 				u8 *llc_data = (u8 *)frame + machdrlen + txpriv->iv_len;
+
 				if (is_SNAP(llc_data) && is_arp(llc_data)) {
 					u8 *arp_hdr = llc_data + LLC_LEN;
 					u16 *arp_type = (u16 *)(arp_hdr + ARP_TYPE_OFFSET);
-					if (*arp_type == cpu_to_be16(ARP_REQUEST))
-						priv->arp_compat_cnt++;
-					if (priv->arp_compat_cnt > 10) {
+					u8 *arp_sha = (u8 *)(arp_hdr + ARP_TYPE_OFFSET + 2);
+					u8 *arp_spa = (u8 *)(arp_hdr + ARP_TYPE_OFFSET + 2 + 6);
+					u8 *arp_tha = (u8 *)(arp_hdr + ARP_TYPE_OFFSET + 2 + 6 + 4);
+					u8 *arp_tpa = (u8 *)(arp_hdr + ARP_TYPE_OFFSET + 2 + 6 + 4 + 6);
+					txrx_printk(XRADIO_DBG_MSG, "tx:%pM %pI4 %pM %pI4\n",
+						    arp_sha, arp_spa, arp_tha, arp_tpa);
+
+					if (*arp_type == cpu_to_be16(ARP_REQUEST)) {
+						if (memcmp(&priv->ap_ip_addr, arp_tpa, 4) == 0) {
+							if (!priv->arp_compat_cnt)
+								priv->arp_compat_time = jiffies;
+							priv->arp_compat_cnt++;
+							txrx_printk(XRADIO_DBG_MSG, "[arp]arp_compat_cnt=%d\n",
+								    priv->arp_compat_cnt);
+						}
+					}
+
+					if (priv->arp_compat_cnt > 60 &&
+					    time_after(jiffies, priv->arp_compat_time + 120*HZ)) {
 						txrx_printk(XRADIO_DBG_ERROR,
-							"ap don't reply arp resp count=%d\n",
-							priv->arp_compat_cnt);
+							"[arp]ap don't reply arp resp count=%u, time=%lus\n",
+							priv->arp_compat_cnt, (jiffies - priv->arp_compat_time)/HZ);
 						priv->arp_compat_cnt = 0;
 						wsm_send_disassoc_to_self(hw_priv, priv);
 					}
@@ -2658,6 +2688,8 @@ struct timeval upper_rx_time;
 size_t upper_rx_size;
 #endif
 
+u8 arp_resp_drop;
+
 void xradio_rx_cb(struct xradio_vif *priv,
 		  struct wsm_rx *arg,
 		  struct sk_buff **skb_p)
@@ -2670,7 +2702,7 @@ void xradio_rx_cb(struct xradio_vif *priv,
 	struct ieee80211_mgmt *mgmt = (struct ieee80211_mgmt *)skb->data;
 #endif
 	struct xradio_link_entry *entry = NULL;
-	unsigned long grace_period;
+	unsigned long grace_period = 0;
 	bool early_data = false;
 	size_t hdrlen = 0;
 	u8   parse_iv_len = 0;
@@ -3098,11 +3130,13 @@ void xradio_rx_cb(struct xradio_vif *priv,
 	 * userspace chance to react and acquire appropriate
 	 * wakelock. */
 	if (ieee80211_is_auth(frame->frame_control))
-		grace_period = 5 * HZ;
+		grace_period = 10 * HZ;
 	else if (ieee80211_is_deauth(frame->frame_control))
 		grace_period = 5 * HZ;
+#ifndef CONFIG_XRADIO_SUSPEND_POWER_OFF
 	else
-		grace_period = HZ;
+		grace_period = 0.2 * HZ;
+#endif
 
 	if (ieee80211_is_data(frame->frame_control))
 		xradio_rx_h_ba_stat(priv, hdrlen, skb->len);
@@ -3129,13 +3163,43 @@ void xradio_rx_cb(struct xradio_vif *priv,
 			if (is_SNAP(llc_data) && is_arp(llc_data)) {
 				u8 *arp_hdr = llc_data + LLC_LEN;
 				u16 *arp_type = (u16 *)(arp_hdr + ARP_TYPE_OFFSET);
+				u8 *arp_sha = (u8 *)(arp_hdr + ARP_TYPE_OFFSET + 2);
+				u8 *arp_spa = (u8 *)(arp_hdr + ARP_TYPE_OFFSET + 2 + 6);
+				u8 *arp_tha = (u8 *)(arp_hdr + ARP_TYPE_OFFSET + 2 + 6 + 4);
+				u8 *arp_tpa = (u8 *)(arp_hdr + ARP_TYPE_OFFSET + 2 + 6 + 4 + 6);
+				txrx_printk(XRADIO_DBG_MSG, "rx:%pM %pI4 %pM %pI4\n",
+					    arp_sha, arp_spa, arp_tha, arp_tpa);
 				if (*arp_type == cpu_to_be16(ARP_RESPONSE)) {
+					if (arp_resp_drop)
+						goto drop;
 					priv->arp_compat_cnt = 0;
+					hdr->flag |= RX_FLAG_ARP_RESP;
+				}
+			}
+
+			if (is_dhcp(llc_data)) {
+				u8 *ip_hdr = llc_data + LLC_LEN;
+				u8 *ipaddr_s = ip_hdr + IP_S_ADD_OFF;
+				u8 *proto_hdr = ip_hdr + ((ip_hdr[0] & 0xf) << 2); //*ihl:words*/
+				u8 Options_len = BOOTP_OPS_LEN;
+				u32 dhcp_magic	= cpu_to_be32(DHCP_MAGIC);
+				u8 *dhcphdr = proto_hdr + UDP_LEN + UDP_BOOTP_LEN;
+
+				while (Options_len) {
+					if (*(u32 *)dhcphdr == dhcp_magic)
+						break;
+					dhcphdr++;
+					Options_len--;
+				}
+
+				if ((*(dhcphdr+6) == 2) || (*(dhcphdr+6) == 5)) {
+					memcpy(&priv->ap_ip_addr, ipaddr_s, sizeof(priv->ap_ip_addr));
+					memcpy(&priv->ap_mac_addr, ieee80211_get_SA(frame), ETH_ALEN);
 				}
 			}
 		}
 	}
-#endif
+#endif /* AP_ARP_COMPAT_FIX */
 
 #if (defined(CONFIG_XRADIO_DEBUG))
 	/* parsse frame here for debug. */

@@ -451,7 +451,6 @@ void mac80211_restart_hw(struct ieee80211_hw *hw)
 	barrier();
 
 	queue_work(system_freezable_wq, &local->restart_work);
-
 }
 EXPORT_SYMBOL(mac80211_restart_hw);
 
@@ -465,7 +464,6 @@ int mac80211_ifdev_move(struct ieee80211_hw *hw,
 	list_for_each_entry(sdata, &local->interfaces, list) {
 		if (sdata->vif.type == NL80211_IFTYPE_P2P_DEVICE)
 			continue;
-
 		ret = device_move(&sdata->dev->dev, new_parent, dpm_order);
 		if (ret < 0)
 			return ret;
@@ -763,6 +761,7 @@ struct ieee80211_hw *mac80211_alloc_hw(size_t priv_data_len,
 	wiphy->mgmt_stypes = ieee80211_default_mgmt_stypes;
 
 	wiphy->privid = xrmac_wiphy_privid;
+	wiphy->features |= NL80211_FEATURE_SAE;
 
 	wiphy->flags |= WIPHY_FLAG_NETNS_OK |
 			WIPHY_FLAG_4ADDR_AP |
@@ -799,7 +798,9 @@ struct ieee80211_hw *mac80211_alloc_hw(size_t priv_data_len,
 	local->hw.max_tx_aggregation_subframes = IEEE80211_MAX_AMPDU_BUF;
 	local->hw.offchannel_tx_hw_queue = IEEE80211_INVAL_HW_QUEUE;
 	local->user_power_level = -1;
+#ifndef SUPPORT_STA_AP_COEX
 	local->uapsd_queues = IEEE80211_DEFAULT_UAPSD_QUEUES;
+#endif
 	local->uapsd_max_sp_len = IEEE80211_DEFAULT_MAX_SP_LEN;
 
 	INIT_LIST_HEAD(&local->interfaces);
@@ -1143,6 +1144,16 @@ int mac80211_register_hw(struct ieee80211_hw *hw)
 
 	}
 
+#ifdef SUPPORT_STA_AP_COEX
+	if (local->hw.wiphy->interface_modes & BIT(NL80211_IFTYPE_AP)) {
+		struct vif_params params = {0};
+		result = mac80211_if_add(local, "wlan%d", NET_NAME_ENUM, NULL,
+			NL80211_IFTYPE_AP, &params);
+		if (result)
+			wiphy_warn(local->hw.wiphy,
+				"Failed to add default virtual ap iface\n");
+	}
+#endif
 	rtnl_unlock();
 
 	ieee80211_led_init(local);

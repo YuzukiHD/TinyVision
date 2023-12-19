@@ -18,6 +18,10 @@
 #define RPMSG_CLOSE_CLIENT          0x13141414 /* host release */
 #define RPMSG_RELEASE_CLIENT        0x13141415 /* client release */
 
+/* Destroy all endpoint belonging to info.name */
+#define RPMSG_RESET_GRP_CLIENT      0x12131516
+#define RPMSG_RESET_ALL_CLIENT      0x14151617
+
 #define __pack					__attribute__((__packed__))
 
 struct rpmsg_ctrl_msg {

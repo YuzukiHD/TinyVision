@@ -25,6 +25,7 @@ double floor(double x);
 float floorf(float x);
 
 //FIX ME
+double __kernel_tan(double x, double y, int iy);
 double __kernel_sin(double x, double y, int iy);
 double __kernel_cos(double x, double y);
 float __kernel_cosdf(double x);

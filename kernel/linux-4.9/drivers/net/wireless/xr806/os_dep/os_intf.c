@@ -1,4 +1,12 @@
 #include "os_intf.h"
+
+void xradio_k_usleep(u32 us)
+{
+#if PLATFORM_LINUX
+	usleep_range(us, 10);
+#endif
+}
+
 void xradio_k_msleep(u32 ms)
 {
 #if PLATFORM_LINUX
@@ -168,8 +176,79 @@ void xradio_free_skb(struct sk_buff *skb, const char *func)
 #endif
 }
 
-void xraido_free_skb_any(struct sk_buff *skb)
+void xradio_free_skb_any(struct sk_buff *skb)
 {
 	if (skb)
 		dev_kfree_skb_any(skb);
 }
+
+void xradio_k_mutex_init(xr_mutex_t *l)
+{
+#if PLATFORM_LINUX
+	mutex_init(&l->mutex);
+#endif
+}
+
+void xradio_k_mutex_lock(xr_mutex_t *l)
+{
+#if PLATFORM_LINUX
+	mutex_lock(&l->mutex);
+#endif
+}
+
+void xradio_k_mutex_unlock(xr_mutex_t *l)
+{
+#if PLATFORM_LINUX
+	mutex_unlock(&l->mutex);
+#endif
+}
+
+void xradio_k_mutex_deinit(xr_mutex_t *l)
+{
+#if PLATFORM_LINUX
+	;
+#endif
+}
+int xradio_k_sema_init(xr_sem_t *s, int val)
+{
+#if PLATFORM_LINUX
+	sema_init(&s->sema, val);
+	return 0;
+#endif
+}
+
+int xradio_k_sem_deinit(xr_sem_t *s)
+{
+#if PLATFORM_LINUX
+	return 0;
+#endif
+
+}
+
+int xradio_k_sem_take(xr_sem_t *s)
+{
+#if PLATFORM_LINUX
+	down(&s->sema);
+	return 0;
+#endif
+
+}
+
+int xradio_k_sem_take_timeout(xr_sem_t *s, long timeout)
+{
+#if PLATFORM_LINUX
+	down_timeout(&s->sema, timeout);
+	return 0;
+#endif
+
+}
+
+
+int xradio_k_sem_give(xr_sem_t *s)
+{
+#if PLATFORM_LINUX
+	up(&s->sema);
+	return 0;
+#endif
+}
+

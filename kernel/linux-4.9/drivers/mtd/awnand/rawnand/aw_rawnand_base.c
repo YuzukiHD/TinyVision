@@ -2386,6 +2386,9 @@ static struct mtd_partition aw_rawnand_parts[] = {
 #if IS_ENABLED(CONFIG_AW_RAWNAND_PSTORE_MTD_PART)
 	{ .name = "pstore", .offset = MTDPART_OFS_APPEND },
 #endif
+#if IS_ENABLED(CONFIG_RAW_KERNEL)
+	{ .name = "kernel", .offset = MTDPART_OFS_APPEND },
+#endif
 	{ .name = "sys", .offset = MTDPART_OFS_APPEND},
 };
 
@@ -2408,6 +2411,15 @@ static void aw_rawnand_mtd_update_mtd_parts(struct aw_nand_chip *chip,
 #if IS_ENABLED(CONFIG_AW_RAWNAND_PSTORE_MTD_PART)
 	/* pstore */
 	mtdparts[index++].size = PSTORE_SIZE_KB * SZ_1K;
+#endif
+
+#if IS_ENABLED(CONFIG_RAW_KERNEL)
+	/* kernel */
+	if (CONFIG_KERNEL_SIZE_BYTE)
+		mtdparts[index++].size =
+			ALIGN(CONFIG_KERNEL_SIZE_BYTE, phy_blk_bytes * 2);
+	else
+		mtdparts[index++].size = phy_blk_bytes * 2;
 #endif
 	/* user data */
 	mtdparts[index++].size = MTDPART_SIZ_FULL;

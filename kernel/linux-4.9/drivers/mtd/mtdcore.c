@@ -972,6 +972,31 @@ int mtd_erase(struct mtd_info *mtd, struct erase_info *instr)
 EXPORT_SYMBOL_GPL(mtd_erase);
 
 /*
+ * Erase is an asynchronous operation.  Device drivers are supposed
+ * to call instr->callback() whenever the operation completes, even
+ * if it completes with a failure.
+ * Callers are supposed to pass a callback function and wait for it
+ * to be called before writing to the block.
+ * erase_size keep 4KB.
+ */
+int mtd_erase_4k(struct mtd_info *mtd, struct erase_info *instr)
+{
+	if (instr->addr >= mtd->size || instr->len > mtd->size - instr->addr)
+		return -EINVAL;
+	if (!(mtd->flags & MTD_WRITEABLE))
+		return -EROFS;
+	instr->fail_addr = MTD_FAIL_ADDR_UNKNOWN;
+	if (!instr->len) {
+		instr->state = MTD_ERASE_DONE;
+		mtd_erase_callback(instr);
+		return 0;
+	}
+	ledtrig_mtd_activity();
+	return mtd->_erase_4k(mtd, instr);
+}
+EXPORT_SYMBOL_GPL(mtd_erase_4k);
+
+/*
  * This stuff for eXecute-In-Place. phys is optional and may be set to NULL.
  */
 int mtd_point(struct mtd_info *mtd, loff_t from, size_t len, size_t *retlen,

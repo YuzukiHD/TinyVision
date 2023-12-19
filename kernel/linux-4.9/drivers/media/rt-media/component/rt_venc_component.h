@@ -1,23 +1,22 @@
-
+#ifndef _RT_VENC_COMPONENT_H_
+#define _RT_VENC_COMPONENT_H_
 
 #include <linux/module.h>
 #include <linux/types.h>
 #include <linux/mutex.h>
 
 #include "rt_common.h"
-#include "../_uapi_rt_media.h"
-
-#ifndef _RT_VENC_COMPONENT_H_
-#define _RT_VENC_COMPONENT_H_
+#include <uapi_rt_media.h>
+#include "vencoder.h"
 
 #define VENC_IN_BUFFER_LIST_NODE_NUM (3)
 #define VENC_OUT_BUFFER_LIST_NODE_NUM (32)
 
-typedef struct rt_venc_bin_image_param {
-	unsigned int enable;
-	unsigned int moving_th; //range[1,31], 1:all frames are moving,
-	//			31:have no moving frame, default: 20
-} rt_venc_bin_image_param;
+//typedef struct rt_venc_bin_image_param {
+//	unsigned int enable;
+//	unsigned int moving_th; //range[1,31], 1:all frames are moving,
+//	//			31:have no moving frame, default: 20
+//} rt_venc_bin_image_param;
 
 typedef struct venc_comp_header_data {
 	unsigned char *pBuffer;
@@ -37,12 +36,6 @@ typedef enum VENC_COMP_RC_MODE {
 
 } VENC_COMP_RC_MODE;
 
-typedef enum {
-	VENC_COMP_CODEC_H264 = 0,
-	VENC_COMP_CODEC_H265 = 1,
-	VENC_COMP_CODEC_JPEG = 2,
-} VENC_COMP_CODEC_TYPE;
-
 typedef enum VENC_COMP_LBC_SUBFMT {
 	VENC_COMP_LBC_LOSSLESS   = 0,
 	VENC_COMP_LBC_LOSSY_2X   = 1,
@@ -57,7 +50,7 @@ typedef struct venc_comp_vbr_param {
 } venc_comp_vbr_param;
 
 typedef struct venc_comp_base_config {
-	VENC_COMP_CODEC_TYPE codec_type;
+	RT_VENC_CODEC_TYPE codec_type;
 	unsigned int src_width;
 	unsigned int src_height;
 	unsigned int dst_width;
@@ -78,11 +71,25 @@ typedef struct venc_comp_base_config {
 	VENC_COMP_LBC_SUBFMT lbc_sub_format;
 
 	int quality; // for jpeg
-	RTVencMotionSearchParam motion_search_param;
+	int jpg_mode;//0: jpg 1: mjpg
+	VencBitRateRange bit_rate_range;
+	VencMotionSearchParam motion_search_param;
 	int enable_overlay;
 
 	int bOnlineMode;
 	int bOnlineChannel;
+	int channel_id; ///< vipp number.
+	int share_buf_num;
+	VencH264VideoSignal venc_video_signal;
+	int is_ipc_case;
+	int en_encpp_sharp;
+	int breduce_refrecmem;
+    int            enable_crop;
+    VencRect       s_crop_rect;
+	RTsWbYuvParam  s_wbyuv_param;
+	int vbv_buf_size;
+	int vbv_thresh_size;
+	int rotate_angle;
 } venc_comp_base_config;
 
 typedef struct venc_comp_normal_config {
@@ -110,6 +117,6 @@ typedef struct venc_inbuf_manager {
 	int no_frame_flag;
 } venc_inbuf_manager;
 
-error_type venc_comp_component_init(PARAM_IN comp_handle component);
+error_type venc_comp_component_init(PARAM_IN comp_handle component, const rt_media_config_s *pmedia_config);
 
 #endif

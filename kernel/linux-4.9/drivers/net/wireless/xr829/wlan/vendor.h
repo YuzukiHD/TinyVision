@@ -79,7 +79,8 @@ enum nl80211_vendor_subcmds_index {
 	NL80211_WIFI_OFFLOAD_SUBCMD_STOP_MKEEP_ALIVE_INDEX,
 };
 
+void xradio_vendor_close_mkeep_alive(void);
+
 void xradio_vendor_init(struct wiphy *wiphy);
-void xradio_vendor_deinit(void);
 
 #endif

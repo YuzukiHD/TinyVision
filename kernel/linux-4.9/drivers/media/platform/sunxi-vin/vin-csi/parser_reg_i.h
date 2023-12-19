@@ -63,6 +63,17 @@
 #define PRS_NCSIC_IF_RES0              20
 #define PRS_NCSIC_IF_SRC_TYPE          21
 #define PRS_NCSIC_IF_SRC_TYPE_MASK    (0X1 << PRS_NCSIC_IF_SRC_TYPE)
+
+/* After CSI_VER 230_200, parser support config multi channel's src_type separately */
+#define PRS_NCSIC_IF_CH0_SRC_TYPE          20
+#define PRS_NCSIC_IF_CH0_SRC_TYPE_MASK    (0X1 << PRS_NCSIC_IF_CH0_SRC_TYPE)
+#define PRS_NCSIC_IF_CH1_SRC_TYPE          21
+#define PRS_NCSIC_IF_CH1_SRC_TYPE_MASK    (0X1 << PRS_NCSIC_IF_CH1_SRC_TYPE)
+#define PRS_NCSIC_IF_CH2_SRC_TYPE          22
+#define PRS_NCSIC_IF_CH2_SRC_TYPE_MASK    (0X1 << PRS_NCSIC_IF_CH2_SRC_TYPE)
+#define PRS_NCSIC_IF_CH3_SRC_TYPE          23
+#define PRS_NCSIC_IF_CH3_SRC_TYPE_MASK    (0X1 << PRS_NCSIC_IF_CH3_SRC_TYPE)
+
 #define PRS_NCSIC_IF_PCLK_SHIFT        24
 #define PRS_NCSIC_IF_PCLK_SHIFT_MASK  (0XF << PRS_NCSIC_IF_PCLK_SHIFT)
 

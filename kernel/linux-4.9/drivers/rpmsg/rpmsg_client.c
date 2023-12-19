@@ -29,6 +29,8 @@
 #include "rpmsg_internal.h"
 #include "rpmsg_master.h"
 
+#define RPMSG_EPT_RX_QUEUE_MAX_LEN			(32)
+
 #define dev_to_eptdev(dev) container_of(dev, struct rpmsg_eptdev, dev)
 #define cdev_to_eptdev(i_cdev) container_of(i_cdev, struct rpmsg_eptdev, cdev)
 
@@ -66,7 +68,12 @@ static int rpmsg_ept_cb(struct rpmsg_device *rpdev, void *buf, int len,
 	struct rpmsg_eptdev *eptdev = priv;
 	struct sk_buff *skb;
 
-	skb = alloc_skb(len, GFP_ATOMIC);
+	if (skb_queue_len(&eptdev->queue) > RPMSG_EPT_RX_QUEUE_MAX_LEN) {
+		dev_info_ratelimited(&eptdev->dev, "rx queue is full.\r\n");
+		goto out;
+	}
+
+	skb = alloc_skb(len, GFP_KERNEL);
 	if (!skb)
 		return -ENOMEM;
 
@@ -76,6 +83,7 @@ static int rpmsg_ept_cb(struct rpmsg_device *rpdev, void *buf, int len,
 	skb_queue_tail(&eptdev->queue, skb);
 	spin_unlock(&eptdev->queue_lock);
 
+out:
 	/* wake up any blocking processes, waiting for new data */
 	wake_up_interruptible(&eptdev->readq);
 
@@ -395,8 +403,8 @@ static void rpmsg_trans_remove(struct rpmsg_device *rpdev)
 		kfree(eptdev);
 	} else {
 		device_del(dev);
-		put_device(dev);
 		cdev_del(&eptdev->cdev);
+		put_device(dev);
 	}
 }
 

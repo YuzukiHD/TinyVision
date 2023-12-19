@@ -36,11 +36,27 @@ static struct device *g2d_dev;
 static struct device *dmabuf_dev;
 u32 g_time_info;
 u32 g_func_runtime;
+u32 g2d_timeout_flag;
+unsigned int __iomem *ccmu;
+uint32_t data_ccmu;
 
 __g2d_drv_t g2d_ext_hd;
 __g2d_info_t para;
 
 __u32 dbg_info;
+
+#if ((defined CONFIG_ARCH_SUN8IW21P1) || (defined CONFIG_ARCH_SUN20IW2P1) \
+		|| (defined CONFIG_ARCH_SUN20IW3P1))
+void g2d_reset(void)
+{
+	data_ccmu = readl(ccmu);
+	writel(data_ccmu & (~(1 << 16)), ccmu);
+	udelay(1);
+	writel(data_ccmu, ccmu);
+	g2d_bsp_open();
+
+}
+#endif
 
 static struct g2d_format_attr fmt_attr_tbl[] = {
 /*
@@ -467,8 +483,11 @@ int g2d_open(struct inode *inode, struct file *file)
 		}
 		para.opened = true;
 		g2d_bsp_open();
+#if ((defined CONFIG_ARCH_SUN8IW21P1) || (defined CONFIG_ARCH_SUN20IW2P1) \
+		|| (defined CONFIG_ARCH_SUN20IW3P1))
+		ccmu = ioremap(0x0200163C, 4);
+#endif
 	}
-
 	mutex_unlock(&para.mutex);
 	return 0;
 }
@@ -483,6 +502,10 @@ int g2d_release(struct inode *inode, struct file *file)
 			clk_disable(para.clk);
 		para.opened = false;
 		g2d_bsp_close();
+#if ((defined CONFIG_ARCH_SUN8IW21P1) || (defined CONFIG_ARCH_SUN20IW2P1) \
+		|| (defined CONFIG_ARCH_SUN20IW3P1))
+		iounmap(ccmu);
+#endif
 	}
 
 	mutex_unlock(&para.mutex);
@@ -530,11 +553,24 @@ int g2d_wait_cmd_finish(unsigned int timeout)
 				     g2d_ext_hd.finish_flag == 1,
 				     msecs_to_jiffies(timeout));
 	if (timeout == 0) {
+#if ((defined CONFIG_ARCH_SUN8IW21P1) || (defined CONFIG_ARCH_SUN20IW2P1) \
+		|| (defined CONFIG_ARCH_SUN20IW3P1))
+		g2d_reset();
+		g2d_ext_hd.finish_flag = 1;
+		wake_up(&g2d_ext_hd.queue);
+		g2d_timeout_flag++;
+		G2D_ERR_MSG("G2D irq pending flag timeout\n");
+		if (g2d_timeout_flag >= 3) {
+		G2D_ERR_MSG("G2D irq pending flag timeout over 3 times!\n");
+		}
+		return -1;
+#else
 		g2d_bsp_reset();
 		G2D_ERR_MSG("G2D irq pending flag timeout\n");
 		g2d_ext_hd.finish_flag = 1;
 		wake_up(&g2d_ext_hd.queue);
 		return -1;
+#endif
 	}
 	g2d_ext_hd.finish_flag = 0;
 
@@ -544,6 +580,10 @@ int g2d_wait_cmd_finish(unsigned int timeout)
 irqreturn_t g2d_handle_irq(int irq, void *dev_id)
 {
 
+#if ((defined CONFIG_ARCH_SUN8IW21P1) || (defined CONFIG_ARCH_SUN20IW2P1) \
+		|| (defined CONFIG_ARCH_SUN20IW3P1))
+	g2d_timeout_flag = 0;
+#endif
 #if defined(CONFIG_SUNXI_G2D_MIXER)
 #if G2D_MIXER_RCQ_USED == 1
 	if (g2d_top_rcq_task_irq_query()) {
@@ -960,6 +1000,7 @@ static int g2d_probe(struct platform_device *pdev)
 	dmabuf_dev = &pdev->dev;
 	dmabuf_dev->dma_mask = &sunxi_g2d_dma_mask;
 	dmabuf_dev->coherent_dma_mask = DMA_BIT_MASK(32);
+
 	platform_set_drvdata(pdev, info);
 
 	info->io = of_iomap(pdev->dev.of_node, 0);
@@ -989,11 +1030,9 @@ static int g2d_probe(struct platform_device *pdev)
 		G2D_ERR_MSG("fail to get clk\n");
 	else
 		info->clk_parent = clk_get_parent(info->clk);
-
 	drv_g2d_init();
 	mutex_init(&info->mutex);
 	mutex_init(&global_lock);
-
 	ret = sysfs_create_group(&g2d_dev->kobj, &g2d_attribute_group);
 	if (ret < 0)
 		G2D_ERR_MSG("sysfs_create_file fail!\n");

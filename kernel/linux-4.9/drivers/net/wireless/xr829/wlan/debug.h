@@ -196,32 +196,21 @@ extern u32 epta_stat_dbg_ctrl;
 #define DGB_XRADIO_QC   1  /*Enable this only in QC test.*/
 #define DGB_XRADIO_HWT  0  /*Only in hardware test with special fw.*/
 #define DBG_XRADIO_HIF  1
-#define DBG_PAS_RAM     1  /*Enabel this only when PAS RAM CHECK is needed.*/
-#define DBG_AHB_RAM		1  /*Enabel this only when AHB RAM CHECK is needed.*/
 #define DBG_READ_HWINFO	0
 #else
 #define DGB_LOG_FILE    0  /*Don't log more than 500byte once.*/
 #define DGB_XRADIO_QC   0  /*Enable this only in QC test.*/
 #define DGB_XRADIO_HWT  0  /*Only in hardware test with special fw.*/
 #define DBG_XRADIO_HIF  0
-#define DBG_PAS_RAM     0
-#define DBG_AHB_RAM		0
 #define DBG_READ_HWINFO	0
 #endif
 
-#if (DBG_XRADIO_HIF) | (DBG_PAS_RAM)
+#if (DBG_XRADIO_HIF)
 
-#define WRITE_READ_MAX_LEN		0x1000
-#define PAS_RAM_START_ADDR		0x09000000
-#define PAS_RAM_END_ADDR		0X0901ffff
+#define WRITE_READ_MAX_LEN 0x1000
+#define PAS_RAM_START_ADDR 0x09010000
+#define PAS_RAM_END_ADDR 0X09017fff
 
-#endif
-
-#if (DBG_AHB_RAM)
-#define AHB_WRITE_MAX_LEN		0x1000
-#define AHB_READ_MAX_LEN		0x0004
-#define AHB_RAM_START_ADDR		0x08000000
-#define AHB_RAM_END_ADDR		0X08007fff
 #endif
 
 #if DGB_LOG_FILE
@@ -402,7 +391,7 @@ int xradio_logfile(char *buffer, int buf_len, u8 b_time);
 	} while (0)
 
 
-#define DBG_FUN_LINE   printk(KERN_ERR "%s,line=%d", __func__, __LINE__)
+#define DBG_FUN_LINE   printk(KERN_ERR "%s, line=%d", __func__, __LINE__)
 #define PARAM_CHECK_FALSE(p) \
 	do {                      \
 		if (!p) \

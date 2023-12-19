@@ -188,7 +188,7 @@ int putMessageWithData(message_queue_t *msg_queue, message_t *msg_in)
 	if (0 == TMessageDeepCopyMessage(pMessageEntry, msg_in)) {
 		list_move_tail(&pMessageEntry->mList, &msg_queue->mReadyMessageList);
 		msg_queue->message_count++;
-		RT_LOGD(" new msg command[%d], para[%d][%d]",
+		RT_LOGI(" new msg command[%d], para[%d][%d]",
 		pMessageEntry->command, pMessageEntry->para0, pMessageEntry->para1);
 		if (msg_queue->mWaitMessageFlag) {
 			msg_queue->wait_condition = 1;

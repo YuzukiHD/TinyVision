@@ -48,6 +48,9 @@ static long soc_info_ioctl(struct file *file, unsigned int ioctl_num,
 {
 	int ret = 0;
 	char id[17] = "";
+	int databuf[4] = {0};
+	int i = 0;
+	char tmpbuf[33] = {0};
 
 	memset(id, 0, sizeof(id));
 
@@ -73,6 +76,13 @@ static long soc_info_ioctl(struct file *file, unsigned int ioctl_num,
 		sunxi_get_soc_chipid_str(id);
 		ret = copy_to_user((void __user *)ioctl_param, id, 16);
 		pr_debug("soc chipid:%s\n", id);
+		break;
+	case CHECK_SOC_CHIPID_FULL:
+		sunxi_get_soc_chipid((u8 *)databuf);
+		for (i = 0; i < 4; i++)
+			sprintf(tmpbuf + i*8, "%08x", databuf[i]);
+		ret = copy_to_user((void __user *)ioctl_param, tmpbuf, 32);
+		pr_debug("soc chipid:%s\n", tmpbuf);
 		break;
 	case CHECK_SOC_FT_ZONE:
 		sunxi_get_soc_ft_zone_str(id);

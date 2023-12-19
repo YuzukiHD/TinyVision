@@ -173,7 +173,8 @@ static void sunxi_timerout_handle(struct work_struct *work)
 						sunxi_dump_reg(host->mmc);
 						msleep(1000);
 						spin_lock_irqsave(&host->lock, flags);
-					}
+					} else
+						goto timeout_out;
 				} while (wait_time--);
 				if (wait_time < 0) {
 					sunxi_mmc_regs_save(host);
@@ -191,6 +192,8 @@ static void sunxi_timerout_handle(struct work_struct *work)
 					}
 					dev_err(mmc_dev(host->mmc), "too busy:host reset and reg recover ok\n");
 					spin_lock_irqsave(&host->lock, flags);
+					if (!host->mrq)
+						goto timeout_out;
 					host->mrq->cmd->error = -ETIMEDOUT;
 					if (host->mrq->data) {
 						host->mrq->data->error = -ETIMEDOUT;

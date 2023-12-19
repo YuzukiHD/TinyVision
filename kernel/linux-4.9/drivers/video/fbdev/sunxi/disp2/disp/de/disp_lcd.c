@@ -63,6 +63,8 @@ static spinlock_t lcd_data_lock;
 
 static struct disp_device *lcds;
 static struct disp_lcd_private_data *lcd_private;
+static int panel_timing_init(int disp, int lcd_index,
+	struct disp_panel_para *panel_info, struct disp_video_timings *timmings);
 
 static int disp_check_timing_param(struct disp_panel_para *panel)
 {
@@ -131,13 +133,16 @@ static s32 disp_lcd_is_used(struct disp_device *lcd)
 	return ret;
 }
 
-static s32 lcd_parse_panel_para(u32 disp, struct disp_panel_para *info)
+static s32 lcd_parse_panel_para(u32 disp, u32 sub_serial_number, struct disp_panel_para *info)
 {
 	s32 ret = 0;
 	char primary_key[25];
 	s32 value = 0;
 
-	sprintf(primary_key, "lcd%d", disp);
+	if (sub_serial_number == 0)
+		sprintf(primary_key, "lcd%d", disp);
+	else
+		sprintf(primary_key, "lcd%d_%d", disp, sub_serial_number);
 	memset(info, 0, sizeof(struct disp_panel_para));
 
 	ret = disp_sys_script_get_item(primary_key, "lcd_x", &value, 1);
@@ -2444,6 +2449,7 @@ static s32 disp_lcd_set_panel_funs(struct disp_device *lcd, char *name,
 		lcdp->lcd_panel_fun.lcd_user_defined_func =
 		    lcd_cfg->lcd_user_defined_func;
 		lcdp->lcd_panel_fun.set_bright = lcd_cfg->set_bright;
+		lcdp->lcd_panel_fun.panel_id_check = lcd_cfg->panel_id_check;
 		if (lcdp->lcd_panel_fun.cfg_panel_info) {
 			lcdp->lcd_panel_fun.cfg_panel_info(&lcdp->panel_extend_info);
 			memcpy(&lcdp->panel_extend_info_set,
@@ -2824,10 +2830,46 @@ static s32 disp_lcd_get_color_temperature(struct disp_device *lcd)
 	return color_temperature;
 }
 
+static int panel_timing_init(int disp, int lcd_index,
+	struct disp_panel_para *panel_info, struct disp_video_timings *timmings)
+{
+	lcd_parse_panel_para(disp, lcd_index, panel_info);
+	if (panel_info->lcd_if == LCD_IF_DSI &&
+	    panel_info->lcd_tcon_mode == DISP_TCON_DUAL_DSI &&
+	    panel_info->lcd_dsi_port_num ==
+		DISP_LCD_DSI_SINGLE_PORT) {
+		panel_info->lcd_ht *= 2;
+		panel_info->lcd_hspw *= 2;
+		panel_info->lcd_x *= 2;
+		panel_info->lcd_hbp *= 2;
+		panel_info->lcd_dclk_freq *= 2;
+	}
+	timmings->pixel_clk = panel_info->lcd_dclk_freq * 1000;
+	timmings->x_res = panel_info->lcd_x;
+	timmings->y_res = panel_info->lcd_y;
+	timmings->hor_total_time = panel_info->lcd_ht;
+	timmings->hor_sync_time = panel_info->lcd_hspw;
+	timmings->hor_back_porch =
+	    panel_info->lcd_hbp - panel_info->lcd_hspw;
+	timmings->hor_front_porch =
+	    panel_info->lcd_ht - panel_info->lcd_hbp -
+	    panel_info->lcd_x;
+	timmings->ver_total_time = panel_info->lcd_vt;
+	timmings->ver_sync_time = panel_info->lcd_vspw;
+	timmings->ver_back_porch =
+	    panel_info->lcd_vbp - panel_info->lcd_vspw;
+	timmings->ver_front_porch =
+	    panel_info->lcd_vt - panel_info->lcd_vbp -
+	    panel_info->lcd_y;
+
+	return 0;
+}
+
 static s32 disp_lcd_init(struct disp_device *lcd, int lcd_index)
 {
 	struct disp_lcd_private_data *lcdp = disp_lcd_get_priv(lcd);
 	int i;
+	int sub_serial_number = 0;
 
 	if ((lcd == NULL) || (lcdp == NULL)) {
 		DE_WRN("NULL hdl!\n");
@@ -2836,41 +2878,61 @@ static s32 disp_lcd_init(struct disp_device *lcd, int lcd_index)
 
 	lcd_get_sys_config(lcd_index, &lcdp->lcd_cfg);
 	if (disp_lcd_is_used(lcd)) {
-		struct disp_video_timings *timmings;
-		struct disp_panel_para *panel_info;
-
-		lcd_parse_panel_para(lcd_index, &lcdp->panel_info);
-		if (lcdp->panel_info.lcd_if == LCD_IF_DSI &&
-		    lcdp->panel_info.lcd_tcon_mode == DISP_TCON_DUAL_DSI &&
-		    lcdp->panel_info.lcd_dsi_port_num ==
-			DISP_LCD_DSI_SINGLE_PORT) {
-			lcdp->panel_info.lcd_ht *= 2;
-			lcdp->panel_info.lcd_hspw *= 2;
-			lcdp->panel_info.lcd_x *= 2;
-			lcdp->panel_info.lcd_hbp *= 2;
-			lcdp->panel_info.lcd_dclk_freq *= 2;
-		}
-		timmings = &lcd->timings;
-		panel_info = &lcdp->panel_info;
-		timmings->pixel_clk = panel_info->lcd_dclk_freq * 1000;
-		timmings->x_res = panel_info->lcd_x;
-		timmings->y_res = panel_info->lcd_y;
-		timmings->hor_total_time = panel_info->lcd_ht;
-		timmings->hor_sync_time = panel_info->lcd_hspw;
-		timmings->hor_back_porch =
-		    panel_info->lcd_hbp - panel_info->lcd_hspw;
-		timmings->hor_front_porch =
-		    panel_info->lcd_ht - panel_info->lcd_hbp -
-		    panel_info->lcd_x;
-		timmings->ver_total_time = panel_info->lcd_vt;
-		timmings->ver_sync_time = panel_info->lcd_vspw;
-		timmings->ver_back_porch =
-		    panel_info->lcd_vbp - panel_info->lcd_vspw;
-		timmings->ver_front_porch =
-		    panel_info->lcd_vt - panel_info->lcd_vbp -
-		    panel_info->lcd_y;
+		panel_timing_init(lcd_index, sub_serial_number, &lcdp->panel_info, &lcd->timings);
+		lcd_set_panel_funs();  // reflash driver funs
 	}
 	disp_lcd_bright_curve_init(lcd);
+
+#if defined(CONFIG_DISP2_LCD_MULTI_COMPATIBLE)
+	/* only lcd0 support. */
+	if (lcd_index == 0) {
+		lcd_clk_init(lcd);
+		lcd_clk_enable(lcd);
+		disp_lcd_gpio_init(lcd);
+
+		disp_al_lcd_cfg(lcd->hwdev_index, &lcdp->panel_info,
+			&lcdp->panel_extend_info_set);
+
+		/* init lcd power */
+		for (i = 0; i < LCD_POWER_NUM; i++) {
+			if (lcdp->lcd_cfg.lcd_power_used[i] == 1)
+				disp_sys_power_enable(lcdp->lcd_cfg.lcd_power[i]);
+				disp_delay_ms(10);
+		}
+
+		disp_lcd_pin_cfg(lcd, 1);
+		disp_delay_ms(10);
+		{
+			char lcd_node[10] = {0};
+
+			while (lcdp->lcd_panel_fun.panel_id_check) {
+				if (lcdp->lcd_panel_fun.panel_id_check(lcd_index)) {
+					// try to get other lcd node in device tree.
+					sub_serial_number++;
+					sprintf(lcd_node, "lcd%d_%d", lcd_index, sub_serial_number);
+					if (get_node_by_name(lcd_node) == NULL)
+						break;
+
+					panel_timing_init(lcd_index, sub_serial_number,
+						&lcdp->panel_info, &lcd->timings);
+					lcd_set_panel_funs();  // reflash driver funs
+				} else
+					break;
+			}
+		}
+
+		disp_lcd_pin_cfg(lcd, 0);
+		disp_delay_ms(20);
+		disp_lcd_gpio_exit(lcd);
+		/* init lcd power */
+		for (i = 0; i < LCD_POWER_NUM; i++) {
+			if (lcdp->lcd_cfg.lcd_power_used[i] == 1)
+				disp_sys_power_enable(lcdp->lcd_cfg.lcd_power[i]);
+		}
+
+		lcd_clk_disable(lcd);
+	}
+#endif
 
 	if (disp_lcd_is_used(lcd)) {
 		__u64 backlight_bright;

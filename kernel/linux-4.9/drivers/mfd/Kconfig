@@ -180,6 +180,21 @@ config MFD_AXP2101_I2C
 	  components like regulators or the PEK (Power Enable Key) under the
 	  corresponding menus.
 
+config MFD_PMU_EXT
+	tristate
+	select MFD_CORE
+	select REGMAP
+	select REGMAP_IRQ
+
+config MFD_PMU_EXT_I2C
+	tristate "PMU_EXT Power Management chip with I2C"
+	select MFD_PMU_EXT
+	select REGMAP_I2C
+	depends on I2C
+	help
+	  If you say yes here you get support for the PMU_EXT series of
+	  PM chips with I2C interface.
+
 config MFD_AXP20X
 	tristate
 	select MFD_CORE

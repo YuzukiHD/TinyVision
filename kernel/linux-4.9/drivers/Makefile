@@ -151,7 +151,7 @@ obj-y				+= platform/
 
 obj-$(CONFIG_MAILBOX)		+= mailbox/
 obj-$(CONFIG_HWSPINLOCK)	+= hwspinlock/
-obj-$(CONFIG_REMOTEPROC)	+= remoteproc/
+obj-y						+= remoteproc/
 obj-$(CONFIG_RPMSG)		+= rpmsg/
 obj-$(CONFIG_RPBUF)		+= rpbuf/
 

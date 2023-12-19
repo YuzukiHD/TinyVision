@@ -34,6 +34,8 @@
 		factor_pll##name##_tbl, index, \
 		FACTOR_SIZEOF(name)))
 
+#define	MAGIC_KEY	0x16aa0000
+
 #ifndef CONFIG_EVB_PLATFORM
 	#define LOCKBIT(x) 31
 #else
@@ -47,17 +49,18 @@ void __iomem *sunxi_clk_rtc_base;
 int sunxi_clk_maxreg = SUNXI_CLK_MAX_REG;
 int cpus_clk_maxreg = CPUS_CLK_MAX_REG;
 
+/* NOTICE: config in code will be overwrite by dts */
 /*					ns  nw  ks  kw  ms  mw  ps  pw  d1s d1w d2s d2w {frac   out mode}   en-s    sdmss   sdmsw   sdmpat          sdmval	cpu_p_reg*/
 SUNXI_CLK_FACTOR_CPU(pll_cpu,		8,  8,  0,  0,  0,  0,  16, 2,  0,  0,  0,  0,    0,    0,  0,      31,     0,      0,      0,              0,		CPU_CFG);
-SUNXI_CLK_FACTORS(pll_ddr0,		8,  8,  0,  0,  0,  0,  0,  0,  1,  1,  0,  1,    0,    0,  0,      31,     24,     1,      PLL_DDR0PAT,    0xd1303333);
+SUNXI_CLK_FACTORS(pll_ddr0,		8,  8,  0,  0,  0,  0,  0,  0,  1,  1,  0,  1,    0,    0,  0,      31,     24,     0,      PLL_DDR0PAT,    0xd1303333);
 SUNXI_CLK_FACTORS(pll_periph0x2,	8,  8,  0,  0,  1,  1,  0,  0,  16, 3,  0,  0,    0,    0,  0,      31,     24,     0,      PLL_PERI0PAT0,  0xd1303333);
-SUNXI_CLK_FACTORS(pll_periph0800m,	8,  8,  0,  0,  1,  1,  0,  0,  20, 3,  0,  0,    0,    0,  0,      31,     24,     1,      PLL_PERI0PAT0,  0xd1303333);
-SUNXI_CLK_FACTORS(pll_periph0480m,	8,  8,  0,  0,  1,  1,  0,  0,  2,  3,  0,  0,    0,    0,  0,      31,     24,     1,      PLL_PERI0PAT0,  0xd1303333);
-SUNXI_CLK_FACTORS(pll_video0x4,		8,  8,  0,  0,  0,  0,  0,  0,  1,  1,  0,  0,    0,    0,  0,      31,     24,     1,      PLL_VIDEO0PAT0, 0xd1303333);
-SUNXI_CLK_FACTORS(pll_csix4,		8,  8,  0,  0,  0,  0,  0,  0,  1,  1,  0,  0,    0,    0,  0,      31,     24,     1,      PLL_CSIPAT0,    0xd1303333);
+SUNXI_CLK_FACTORS(pll_periph0800m,	8,  8,  0,  0,  1,  1,  0,  0,  20, 3,  0,  0,    0,    0,  0,      31,     24,     0,      PLL_PERI0PAT0,  0xd1303333);
+SUNXI_CLK_FACTORS(pll_periph0480m,	8,  8,  0,  0,  1,  1,  0,  0,  2,  3,  0,  0,    0,    0,  0,      31,     24,     0,      PLL_PERI0PAT0,  0xd1303333);
+SUNXI_CLK_FACTORS(pll_video0x4,		8,  8,  0,  0,  0,  0,  0,  0,  1,  1,  0,  0,    0,    0,  0,      31,     24,     0,      PLL_VIDEO0PAT0, 0xd1303333);
+SUNXI_CLK_FACTORS(pll_csix4,		8,  8,  0,  0,  0,  0,  0,  0,  1,  1,  0,  0,    0,    0,  0,      31,     24,     0,      PLL_CSIPAT0,    0xd1303333);
 SUNXI_CLK_FACTORS(pll_audio_div2,	8,  8,  0,  0,  0,  0,  0,  0,  1,  1,  16, 3,    0,    0,  0,      31,     24,     1,      PLL_AUDIOPAT0,  0xd1303333);
 SUNXI_CLK_FACTORS(pll_audio_div5,	8,  8,  0,  0,  0,  0,  0,  0,  1,  1,  20, 3,    0,    0,  0,      31,     24,     1,      PLL_AUDIOPAT0,  0xd1303333);
-SUNXI_CLK_FACTORS(pll_npux4,		8,  8,  0,  0,  1,  1,  0,  0,  0,  0,  0,  0,    0,    0,  0,      31,     24,     1,      PLL_NPUPAT0,    0xd1303333);
+SUNXI_CLK_FACTORS(pll_npux4,		8,  8,  0,  0,  1,  1,  0,  0,  0,  0,  0,  0,    0,    0,  0,      31,     24,     0,      PLL_NPUPAT0,    0xd1303333);
 
 static int get_factors_pll_cpu(u32 rate, u32 parent_rate,
 		struct clk_factors_value *factor)
@@ -356,6 +359,7 @@ static const char *tcon_lcd_parents[] = {"pll_video0x4", "pll_periph0x2", "pll_c
 static const char *csi_top_parents[] = {"pll_periph0300m", "pll_periph0400m", "pll_video0x4", "pll_csix4"};
 static const char *csi_master_parents[] = {"hosc", "pll_csix4", "pll_video0x4", "pll_periph0x2"};
 static const char *isp_parents[] = {"hosc" };
+static const char *e907_gate_parents[] = {"hosc" };
 static const char *e907_parents[] = {"hosc", "losc", "iosc", "pll_periph0600m", "pll_periph0480m", "pll_cpu"};
 static const char *e907_axi_parents[] = {"e907"};
 static const char *fanout25m_parents[] = {"pll_periph0150m_div6"};
@@ -459,7 +463,7 @@ SUNXI_CLK_PERIPH(csi_master1,    CSI_MASTER1_CFG, 24,      3,            CSI_MAS
 SUNXI_CLK_PERIPH(csi_master2,    CSI_MASTER2_CFG, 24,      3,            CSI_MASTER2_CFG,    0,         5,          8,          2,          0,          CSI_MASTER2_CFG,	0,		0,		0,      31,          0,         0,              0,             &clk_lock,  NULL,             0);
 SUNXI_CLK_PERIPH(isp,            0,               0,       0,            0,                  0,         0,          0,          0,          0,          MBUS_GATE,       CSI_GATE,        CSI_GATE,      MBUS_GATE,     9,          16,         0,              8,             &clk_lock, &com_gates[0],    0);
 SUNXI_CLK_PERIPH(wiegand,        0,               0,       0,            0,                  0,         0,          0,          0,          0,          0,               WIEGAND_GATE,    WIEGAND_GATE,  0,             0,          16,         0,              0,             &clk_lock, NULL,             0);
-/* TODO the E907 modele reset and gate were not config */
+SUNXI_CLK_PERIPH(e907_gate,    0,               0,       0,            0,                  0,         0,          0,          0,          0,          E907_GATE,	 E907_GATE,       E907_GATE,     0,             0,          1,          2,              0,             &clk_lock, NULL,             0);
 SUNXI_CLK_PERIPH(e907,           E907_CFG,        24,      3,            E907_CFG,           0,         5,          0,          0,          0,          0,               RISCV_GATE,      RISCV_GATE,    0,             0,          16,         0,              0,             &clk_lock, &com_gates[2],    0);
 SUNXI_CLK_PERIPH(e907_axi,       E907_CFG,        0,       0,            E907_CFG,           8,         2,          0,          0,          0,          0,               RISCV_GATE,     RISCV_GATE,     0,             0,          16,         0,              0,             &clk_lock, &com_gates[2],    1);
 SUNXI_CLK_PERIPH(fanout_25m,     0,               0,       0,            0,                  0,         0,          0,          0,          0,          0,               0,               FANOUT_GATE,   0,             0,          0,          3,              0,             &clk_lock, NULL,             0);
@@ -557,6 +561,7 @@ struct periph_init_data sunxi_periphs_init[] = {
 	{"csi_master2",    0,                    csi_master_parents,     ARRAY_SIZE(csi_master_parents),     &sunxi_clk_periph_csi_master2      },
 	{"isp",            0,                    isp_parents,            ARRAY_SIZE(isp_parents),            &sunxi_clk_periph_isp              },
 	{"wiegand",        0,                    apb0mod_parents,        ARRAY_SIZE(apb0mod_parents),        &sunxi_clk_periph_wiegand          },
+	{"e907_gate",      0,                    e907_gate_parents,      ARRAY_SIZE(e907_gate_parents),      &sunxi_clk_periph_e907_gate        },
 	{"e907",           0,                    e907_parents,           ARRAY_SIZE(e907_parents),           &sunxi_clk_periph_e907             },
 	{"e907_axi",       0,                    e907_axi_parents,       ARRAY_SIZE(e907_axi_parents),       &sunxi_clk_periph_e907_axi         },
 	{"fanout_25m",     0,                    fanout25m_parents,      ARRAY_SIZE(fanout25m_parents),      &sunxi_clk_periph_fanout_25m       },
@@ -810,6 +815,39 @@ void set_gpadc_priv_ops(struct clk_ops *priv_ops)
 	priv_ops->set_rate = gpadc_set_rate;
 }
 
+struct clk_ops e907_gate_priv_ops;
+static int e907_gate_set_enable(struct clk_hw *hw)
+{
+	unsigned long reg;
+	struct sunxi_clk_periph *periph = to_clk_periph(hw);
+	struct sunxi_clk_periph_gate *gate = &periph->gate;
+
+	reg = SET_BITS(gate->rst_shift, 1, MAGIC_KEY, 1);
+	reg = SET_BITS(gate->bus_shift, 1, reg, 1);
+	reg = SET_BITS(gate->enb_shift, 1, reg, 1);
+	periph_writel(periph, reg, gate->enable);
+
+	return 0;
+}
+
+static void e907_gate_set_disable(struct clk_hw *hw)
+{
+	unsigned long reg;
+	struct sunxi_clk_periph *periph = to_clk_periph(hw);
+	struct sunxi_clk_periph_gate *gate = &periph->gate;
+
+	reg = SET_BITS(gate->enb_shift, 1, MAGIC_KEY, 0);
+	reg = SET_BITS(gate->bus_shift, 1, reg, 0);
+	reg = SET_BITS(gate->rst_shift, 1, reg, 0);
+	periph_writel(periph, reg, gate->enable);
+}
+
+void set_e907_gate_priv_ops(struct clk_ops *priv_ops)
+{
+	priv_ops->enable = e907_gate_set_enable;
+	priv_ops->disable = e907_gate_set_disable;
+}
+
 /*
  * sunxi_clk_get_factor_by_name() - Get factor clk init config
  */
@@ -968,6 +1006,8 @@ void __init sunxi_clocks_init(struct device_node *node)
 			set_pll_audio_priv_ops);
 	sunxi_set_periphs_clk_priv_ops("gpadc", &gpadc_priv_ops,
 			set_gpadc_priv_ops);
+	sunxi_set_periphs_clk_priv_ops("e907_gate", &e907_gate_priv_ops,
+			set_e907_gate_priv_ops);
 	sunxi_set_factor_clk_priv_ops("pll_csix4", &pll_csix4_priv_ops,
 			set_pll_csix4_priv_ops);
 
@@ -984,6 +1024,13 @@ void __init sunxi_clocks_init(struct device_node *node)
 		sunxi_set_periphs_clk_priv_ops("npu", &npu_priv_ops,
 				set_npu_priv_ops);
 	}
+	err = sunxi_parse_sdm_info(node);
+	if (err) {
+		pr_err("sunxi_parse_sdm_info failed: %d\n", err);
+		return;
+	}
 }
 
-MODULE_VERSION("1.0.9");
+MODULE_LICENSE("GPL v2");
+MODULE_VERSION("1.1.1");
+MODULE_AUTHOR("rgm<rengaomin@allwinnertech.com>");

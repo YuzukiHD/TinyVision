@@ -63,6 +63,11 @@ void rproc_create_debug_dir(struct rproc *rproc);
 void rproc_init_debugfs(void);
 void rproc_exit_debugfs(void);
 
+/* from remoteproc_sysfs.c */
+extern struct class rproc_class;
+int rproc_init_sysfs(void);
+void rproc_exit_sysfs(void);
+
 void rproc_free_vring(struct rproc_vring *rvring);
 int rproc_alloc_vring(struct rproc_vdev *rvdev, int i);
 
@@ -116,6 +121,12 @@ struct resource_table *rproc_find_loaded_rsc_table(struct rproc *rproc,
 
 	return NULL;
 }
+
+#ifdef CONFIG_SUNXI_RPROC_TRACE_DEV
+ssize_t sunxi_rproc_trace_read_to_user(void *from, int buf_len, char __user *userbuf,
+				size_t count, loff_t *ppos);
+ssize_t sunxi_rproc_trace_read(void *from, int buf_len, char *to, size_t count);
+#endif
 
 extern const struct rproc_fw_ops rproc_elf_fw_ops;
 

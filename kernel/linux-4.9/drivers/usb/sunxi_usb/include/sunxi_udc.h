@@ -86,7 +86,8 @@ struct sw_udc_fifo {
 
 #if defined(CONFIG_ARCH_SUN50IW1) || defined(CONFIG_ARCH_SUN50IW3) \
 	|| defined(CONFIG_ARCH_SUN8IW6) || defined(CONFIG_ARCH_SUN8IW15) \
-	|| defined(CONFIG_ARCH_SUN50IW9) || defined(CONFIG_ARCH_SUN8IW21)
+	|| defined(CONFIG_ARCH_SUN50IW9) || defined(CONFIG_ARCH_SUN8IW21) \
+	|| defined(CONFIG_ARCH_SUN50IW10)
 /**
  * fifo 8k
  *

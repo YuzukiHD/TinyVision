@@ -1223,6 +1223,10 @@ static int axp2101_regulator_probe(struct platform_device *pdev)
 		    (regulators == axp809_regulators && i == AXP809_DC1SW)) {
 			new_desc = devm_kzalloc(&pdev->dev, sizeof(*desc),
 						GFP_KERNEL);
+			if (!new_desc) {
+				dev_err(&pdev->dev, "new_desc kzalloc erroe %s\n", regulators[i].name);
+				return -ENOMEM;
+			}
 			*new_desc = regulators[i];
 			new_desc->supply_name = dcdc1_name;
 			desc = new_desc;
@@ -1232,6 +1236,10 @@ static int axp2101_regulator_probe(struct platform_device *pdev)
 		    (regulators == axp809_regulators && i == AXP809_DC5LDO)) {
 			new_desc = devm_kzalloc(&pdev->dev, sizeof(*desc),
 						GFP_KERNEL);
+			if (!new_desc) {
+				dev_err(&pdev->dev, "new_desc kzalloc erroe %s\n", regulators[i].name);
+				return -ENOMEM;
+			}
 			*new_desc = regulators[i];
 			new_desc->supply_name = dcdc5_name;
 			desc = new_desc;
@@ -1246,6 +1254,10 @@ static int axp2101_regulator_probe(struct platform_device *pdev)
 		}
 
 		rdev_delay = devm_kzalloc(&pdev->dev, sizeof(*rdev_delay), GFP_KERNEL);
+		if (!rdev_delay) {
+			dev_err(&pdev->dev, "rdev_delay kzalloc error %s\n", regulators[i].name);
+			return -ENOMEM;
+		}
 		if (!of_property_read_u32(rdev->dev.of_node,
 				"regulator-step-delay-us", &dval))
 			rdev_delay->step = dval;

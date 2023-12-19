@@ -25,16 +25,46 @@ typedef signed int			s32;
 #define MIN(a, b) (a > b ? b : a)
 #endif
 
-#define AES_MODE_ECB	0 /*ECB模式*/
-#define AES_MODE_CBC	1 /*CBC模式*/
+//bit map
+/*
+0x000000xx:xx is mode
+0x0000xx00:xx is algorithm type
+*/
+
+#define AES_MODE_ECB	(0x00000000) /*aes ECB mode*/
+#define AES_MODE_CBC	(0x00000001) /*aes CBC mode*/
+
+#define DES_MODE_ECB	(0x00000100) /*3des ECB mode*/
+#define DES_MODE_CBC	(0x00000101) /*3des CBC mode*/
+#define DES3_MODE_ECB	(0x00000200) /*3des ECB mode*/
+#define DES3_MODE_CBC	(0x00000201) /*3des CBC mode*/
+
+
+#define APP_AES_METHON_MASK     (0x0000FF00)
+#define APP_AES_MODE_MASK     (0x000000FF)
+
+#define SS_METHOD_AES				0x0
+#define SS_METHOD_DES				0x1
+#define SS_METHOD_3DES			0x2
 
 #define AES_MIN_KEY_SIZE	16
 #define AES_MAX_KEY_SIZE	32
 
-#define AES_DIR_ENCRYPT	0 /*加密*/
-#define AES_DIR_DECRYPT	1 /*解密*/
+#define AES_DIR_ENCRYPT	0 /*encrtypt*/
+#define AES_DIR_DECRYPT	1 /*decrtypt*/
 
 #define AES_IV_LENGTH	16
+
+
+
+enum enum_ase_class {
+	ENUM_AES_MODE_ECB = 0x00000000, /*aes ECB mode*/
+	ENUM_AES_MODE_CBC = 0x00000001, /*aes CBC mode*/
+	ENUM_DES_MODE_ECB = 0x00000100, /*3des ECB mode*/
+	ENUM_DES_MODE_CBC = 0x00000101, /*3des CBC mode*/
+	ENUM_DES3_MODE_ECB = 0x00000200, /*3des ECB mode*/
+	ENUM_DES3_MODE_CBC = 0x00000201, /*3des CBC mode*/
+};
 
 /*define the ctx for aes requtest*/
 typedef struct {
@@ -61,6 +91,7 @@ typedef struct {
 #define CE_IOC_REQUEST			_IOR(CE_IOC_MAGIC, 0, int)
 #define CE_IOC_FREE				_IOW(CE_IOC_MAGIC, 1, int)
 #define CE_IOC_AES_CRYPTO		_IOW(CE_IOC_MAGIC, 2, crypto_aes_req_ctx_t)
+
 
 /*IOMMU mode*/
 #define ION_IOC_SUNXI_FLUSH_RANGE	5

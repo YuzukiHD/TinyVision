@@ -13,6 +13,7 @@
 #define __DISP_LCD_H__
 
 #include "disp_private.h"
+#include "../of_service.h"
 
 #define LCD_GPIO_NUM 8
 #define LCD_POWER_NUM 4

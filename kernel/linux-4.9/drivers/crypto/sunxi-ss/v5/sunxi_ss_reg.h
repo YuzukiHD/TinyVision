@@ -13,6 +13,14 @@
 #ifndef _SUNXI_SECURITY_SYSTEM_REG_H_
 #define _SUNXI_SECURITY_SYSTEM_REG_H_
 
+//bit map Applied to the ioctrl interface
+/*
+0x000000xx:xx is mode
+0x0000xx00:xx is algorithm type
+*/
+#define APP_AES_METHON_MASK     (0x0000FF00)
+#define APP_AES_MODE_MASK     (0x000000FF)
+
 /* CE: Crypto Engine, start using CE from sun8iw7/sun8iw9 */
 #define CE_REG_TSK0			0x00
 #define CE_REG_TSK1			0x04

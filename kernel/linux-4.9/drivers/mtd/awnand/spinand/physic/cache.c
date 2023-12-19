@@ -182,8 +182,8 @@ static int aw_spinand_cahce_write_to_cache_do(struct aw_spinand_chip *chip,
 		void *buf, unsigned int len, unsigned int column,
 		struct aw_spinand_chip_request *req)
 {
-	/*struct aw_spinand_info *info = chip->info;*/
-	/*struct aw_spinand_phy_info *pinfo = info->phy_info;*/
+	struct aw_spinand_info *info = chip->info;
+	struct aw_spinand_phy_info *pinfo = info->phy_info;
 	unsigned char txbuf[3];
 	struct spi_message msg;
 	struct spi_transfer t[2] = {};
@@ -196,6 +196,10 @@ static int aw_spinand_cahce_write_to_cache_do(struct aw_spinand_chip *chip,
 		txbuf[0] = column ? SPI_NAND_RANDOM_PP : SPI_NAND_PP;
 	txbuf[1] = (column >> 8) & 0xFF;
 	txbuf[2] = column & 0xFF;
+	if ((pinfo->OperationOpt & SPINAND_TWO_PLANE_SELECT) &&
+				(req->block % 2 == 1))
+			txbuf[1] |= SPI_SELECT_ODDNUM_BLACK;
+
 	t[0].tx_buf = txbuf;
 	t[0].len = 3;
 	spi_message_add_tail(&t[0], &msg);
@@ -433,6 +437,9 @@ static int aw_spinand_cache_read_from_cache(struct aw_spinand_chip *chip,
 		txbuf[1] = (column >> 8) & 0xFF;
 		txbuf[2] = column & 0xFF;
 		txbuf[3] = 0x00;
+		if ((pinfo->OperationOpt & SPINAND_TWO_PLANE_SELECT) &&
+				(req->block % 2 == 1))
+			txbuf[1] |= SPI_SELECT_ODDNUM_BLACK;
 		t[0].len = 4;
 	}
 

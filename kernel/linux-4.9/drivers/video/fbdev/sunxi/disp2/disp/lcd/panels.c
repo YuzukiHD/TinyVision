@@ -136,6 +136,9 @@ struct __lcd_panel *panel_array[] = {
        &icn6202_panel,
 #endif
 
+#ifdef CONFIG_LCD_SUPPORT_ICN6202_2LANE
+       &icn6202_2lane_panel,
+#endif
 
 #ifdef CONFIG_LCD_SUPPORT_NT35510_MIPI
 	&nt35510_panel,
@@ -158,7 +161,6 @@ void lcd_set_panel_funs(void)
 int lcd_init(void)
 {
 	sunxi_disp_get_source_ops(&g_lcd_drv.src_ops);
-	lcd_set_panel_funs();
 
 	return 0;
 }

@@ -111,6 +111,7 @@ obj-$(CONFIG_I2C_TINY_USB)	+= i2c-tiny-usb.o
 obj-$(CONFIG_I2C_VIPERBOARD)	+= i2c-viperboard.o
 
 obj-$(CONFIG_I2C_SUNXI)		+= i2c-sunxi.o
+obj-$(CONFIG_I2C_SUNXI_NG)	+= i2c-sunxi-ng.o
 obj-$(CONFIG_I2C_SLAVE_SUNXI)	+= i2c-slave-sunxi.o
 # Other I2C/SMBus bus drivers
 obj-$(CONFIG_I2C_ACORN)		+= i2c-acorn.o

@@ -33,7 +33,13 @@ typedef enum {
 
 struct xradio_priv {
 	struct xradio_queue tx_queue[XR_MAX];
+
 	xr_thread_handle_t txrx_thread;
+
+	xr_mutex_t tx_mutex;
+
+	xr_sem_t tx_cmd_sem;
+	u8 txrx_enable;
 
 	wait_queue_head_t txrx_wq;
 
@@ -42,12 +48,19 @@ struct xradio_priv {
 
 	xr_atomic_t tranc_ready;
 
-	xr_atomic_t tx_pause;
+	xr_atomic_t tx_data_pause;
+
+	xr_atomic_t tx_cmd_pause;
+
+	xr_spinlock_t tx_pause_lock;
+
+	u8 rx_pause_state;
 
 	u8 link_state;
 
 	void *net_dev_priv;
+
+	struct xradio_debug_common  *debug;
 };
 
-#define XRWL_MAX_QUEUE_SZ (128)
 #endif

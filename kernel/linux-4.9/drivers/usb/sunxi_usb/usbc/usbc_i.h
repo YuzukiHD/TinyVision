@@ -46,12 +46,17 @@ typedef struct __usbc_otg {
 
 /* PHYS EFUSE offest */
 #define EFUSE_OFFSET					0x28		//esuse offset
-#define SUNXI_HCI_PHY_EFUSE_ADJUST		0x10		//bit4
-#define SUNXI_HCI_PHY_EFUSE_MODE		0x20000		//bit17 unvalid, don't distinguish
-#define SUNXI_HCI_PHY_EFUSE_RES			0x1E0		//bit8-5
-#define SUNXI_HCI_PHY_EFUSE_COM			0x1E00		//bit12-9
-#define SUNXI_HCI_PHY_EFUSE_USB0TX		0x1E0		//bit8-5
-#define SUNXI_HCI_PHY_EFUSE_USB1TX		0xE000000	//bit25-27 unvalid, don't have USB1
+#define SUNXI_USB_PHY_EFUSE_ADJUST		0x10		//bit4
+#define SUNXI_USB_PHY_EFUSE_MODE		0x20000		//bit17 unvalid, don't distinguish
+#define SUNXI_USB_PHY_EFUSE_RES			0x1E0		//bit8-5
+#define SUNXI_USB_PHY_EFUSE_COM			0x1E00		//bit12-9
+#define SUNXI_USB_PHY_EFUSE_USB0TX		0x1E00		//bit12-9
+#define SUNXI_USB_PHY_EFUSE_USB1TX		0xE000000	//bit25-27 unvalid, don't have USB1
+
+/* PHY RANGE: bit field */
+#define PHY_RANGE_TRAN_MASK			0x3C0		//bit9:6, trancevie_data
+#define PHY_RANGE_PREE_MASK			0x30		//bit5:4, preemphasis_data
+#define PHY_RANGE_RESI_MASK			0xF		//bit3:0, resistance_data
 
 #endif /* __USBC_I_H__ */
 

@@ -237,18 +237,20 @@ void cmb_phy_set_deskew_laned0(unsigned int sel, unsigned int delay)
 void cmb_phy_set_deskew_laneck0(unsigned int sel, unsigned int delay)
 {
 	vin_reg_clr_set(cmb_csi_phy_base_addr[sel] + CMB_PHY_DESKEW1_OFF,
-		CMB_PHY_DESKEW_LANECK1_SET_MASK, delay << CMB_PHY_DESKEW_LANECK1_SET);
+		CMB_PHY_DESKEW_LANECK1_SET_MASK, delay << CMB_PHY_DESKEW_LANECK0_SET);
 }
 
-void cmb_phy_deskew1_cfg(unsigned int sel)
+void cmb_phy_deskew1_cfg(unsigned int sel, unsigned int deskew, bool deskew_lane_cfg)
 {
 #if defined CONFIG_ARCH_SUN8IW21P1
 	if (sel) {
-		cmb_phy_set_deskew_laneck0(sel, 0x7);
-		//cmb_phy_set_deskew_laned0(sel, 0x5);
-		//cmb_phy_set_deskew_laned1(sel, 0x5);
+		cmb_phy_set_deskew_laneck0(sel, deskew ? deskew : 0x7);
+		if (deskew_lane_cfg) {
+			cmb_phy_set_deskew_laned0(sel, 0x5);
+			cmb_phy_set_deskew_laned1(sel, 0x5);
+		}
 	} else {
-		cmb_phy_set_deskew_laneck0(sel, 0x2);
+		cmb_phy_set_deskew_laneck0(sel, deskew ? deskew : 0x2);
 		//cmb_phy_set_deskew_laned0(sel, 0x0);
 		//cmb_phy_set_deskew_laned1(sel, 0x0);
 	}
@@ -525,21 +527,42 @@ void cmb_port_set_mipi_datatype(unsigned int sel, struct combo_csi_cfg *combo_cs
 		CMB_MIPI_CH3_VC_MASK, combo_csi_cfg->vc[3] << CMB_MIPI_CH3_VC);
 }
 
-void cmb_port_mipi_ch_trigger_en(unsigned int sel, unsigned int en)
+void cmb_port_mipi_set_ch_field(unsigned int sel, unsigned int ch,
+		       enum source_type src_type)
 {
-	vin_reg_clr_set(cmb_csi_port_base_addr[sel] + CMB_PORT_MIPI_DI_TRIG_REG_OFF,
+	vin_reg_clr_set(cmb_csi_port_base_addr[sel] + CMB_PORT_MIPI_DI_TRIG_REG_OFF + ch * 0x20,
+			CMB_MIPI_SRC_IS_FIELD_MASK, src_type << CMB_MIPI_SRC_IS_FIELD);
+}
+
+void cmb_port_mipi_set_field(unsigned int sel, unsigned int total_rx_ch,
+			  struct combo_csi_cfg *fmt)
+{
+	unsigned int i;
+
+	for (i = 0; i < total_rx_ch; i++) {
+		if (fmt->field[i] == V4L2_FIELD_NONE ||
+		    fmt->field[i] == V4L2_FIELD_ANY)
+			cmb_port_mipi_set_ch_field(sel, i, PROGRESSIVE);
+		else
+			cmb_port_mipi_set_ch_field(sel, i, INTERLACED);
+	}
+}
+
+void cmb_port_mipi_ch_trigger_en(unsigned int sel, unsigned int ch, unsigned int en)
+{
+	vin_reg_clr_set(cmb_csi_port_base_addr[sel] + CMB_PORT_MIPI_DI_TRIG_REG_OFF + ch * 0x20,
 		CMB_MIPI_FS_MASK, en << CMB_MIPI_FS);
-	vin_reg_clr_set(cmb_csi_port_base_addr[sel] + CMB_PORT_MIPI_DI_TRIG_REG_OFF,
+	vin_reg_clr_set(cmb_csi_port_base_addr[sel] + CMB_PORT_MIPI_DI_TRIG_REG_OFF + ch * 0x20,
 		CMB_MIPI_FE_MASK, en << CMB_MIPI_FE);
-	vin_reg_clr_set(cmb_csi_port_base_addr[sel] + CMB_PORT_MIPI_DI_TRIG_REG_OFF,
+	vin_reg_clr_set(cmb_csi_port_base_addr[sel] + CMB_PORT_MIPI_DI_TRIG_REG_OFF + ch * 0x20,
 		CMB_MIPI_LS_MASK, en << CMB_MIPI_LS);
-	vin_reg_clr_set(cmb_csi_port_base_addr[sel] + CMB_PORT_MIPI_DI_TRIG_REG_OFF,
+	vin_reg_clr_set(cmb_csi_port_base_addr[sel] + CMB_PORT_MIPI_DI_TRIG_REG_OFF + ch * 0x20,
 		CMB_MIPI_LE_MASK, en << CMB_MIPI_LE);
-	vin_reg_clr_set(cmb_csi_port_base_addr[sel] + CMB_PORT_MIPI_DI_TRIG_REG_OFF,
+	vin_reg_clr_set(cmb_csi_port_base_addr[sel] + CMB_PORT_MIPI_DI_TRIG_REG_OFF + ch * 0x20,
 		CMB_MIPI_YUV_MASK, en << CMB_MIPI_YUV);
-	vin_reg_clr_set(cmb_csi_port_base_addr[sel] + CMB_PORT_MIPI_DI_TRIG_REG_OFF,
+	vin_reg_clr_set(cmb_csi_port_base_addr[sel] + CMB_PORT_MIPI_DI_TRIG_REG_OFF + ch * 0x20,
 		CMB_MIPI_RGB_MASK, en << CMB_MIPI_RGB);
-	vin_reg_clr_set(cmb_csi_port_base_addr[sel] + CMB_PORT_MIPI_DI_TRIG_REG_OFF,
+	vin_reg_clr_set(cmb_csi_port_base_addr[sel] + CMB_PORT_MIPI_DI_TRIG_REG_OFF + ch * 0x20,
 		CMB_MIPI_RAW_MASK, en << CMB_MIPI_RAW);
 }
 

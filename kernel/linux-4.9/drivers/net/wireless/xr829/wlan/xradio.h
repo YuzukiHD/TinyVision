@@ -18,6 +18,7 @@
 #include <linux/sched.h>
 #include <linux/atomic.h>
 #include <net/mac80211.h>
+#include <asm/bitops.h>
 
 /*Macroses for Driver parameters.*/
 #define XRWL_MAX_QUEUE_SZ    (128)
@@ -361,6 +362,7 @@ struct xradio_common {
 	 * FW issue with sleeping/waking up. */
 	atomic_t            recent_scan;
 	atomic_t            suspend_state;
+	atomic_t            suspend_lock_state;
 	wait_queue_head_t		wsm_wakeup_done;
 #ifdef HW_RESTART
 	bool                exit_sync;
@@ -552,7 +554,7 @@ struct xradio_vif {
 	s8			wep_default_key_id;
 	struct work_struct	wep_key_work;
 	unsigned long           rx_timestamp;
-	u32                     cipherType;
+	u32                     unicast_cipher_type;
 
 
 	/* AP powersave */
@@ -615,8 +617,12 @@ struct xradio_vif {
 #endif
 
 #ifdef AP_ARP_COMPAT_FIX
+	unsigned long arp_compat_time;
 	u16    arp_compat_cnt;
+	u8  ap_mac_addr[ETH_ALEN];
+	u8  ap_ip_addr[4];
 #endif
+	bool	is_mfp_connect;
 };
 struct xradio_sta_priv {
 	int link_id;

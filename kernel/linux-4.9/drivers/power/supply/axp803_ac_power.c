@@ -293,10 +293,18 @@ static void axp803_ac_virq_dts_set(struct axp803_ac_power *ac_power, bool enable
 				enable);
 }
 
+static void axp803_ac_power_shutdown(struct platform_device *pdev)
+{
+	struct axp803_ac_power *ac_power = platform_get_drvdata(pdev);
+
+	cancel_delayed_work_sync(&ac_power->ac_supply_mon);
+}
+
 static int axp803_ac_power_suspend(struct platform_device *pdev, pm_message_t state)
 {
 	struct axp803_ac_power *ac_power = platform_get_drvdata(pdev);
 
+	cancel_delayed_work_sync(&ac_power->ac_supply_mon);
 	axp803_ac_virq_dts_set(ac_power, false);
 
 	return 0;
@@ -306,6 +314,7 @@ static int axp803_ac_power_resume(struct platform_device *pdev)
 {
 	struct axp803_ac_power *ac_power = platform_get_drvdata(pdev);
 
+	schedule_delayed_work(&ac_power->ac_supply_mon, 0);
 	axp803_ac_virq_dts_set(ac_power, true);
 
 	return 0;
@@ -326,6 +335,7 @@ static struct platform_driver axp803_ac_power_driver = {
 	},
 	.probe = axp803_ac_power_probe,
 	.remove = axp803_ac_power_remove,
+	.shutdown = axp803_ac_power_shutdown,
 	.suspend = axp803_ac_power_suspend,
 	.resume = axp803_ac_power_resume,
 };

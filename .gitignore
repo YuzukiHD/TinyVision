@@ -1,0 +1,3 @@
+kernel/rtos/rtos/tools/xcompiler/on_linux/compiler/riscv64-elf-x86_64-20201104.tar.gz
+kernel/rtos/rtos/toolchain/riscv64-elf-x86_64-20201104/
+kernel/rtos/rtos/source/scripts/markelf

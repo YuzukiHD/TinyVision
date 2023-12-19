@@ -1,10 +1,4 @@
 
-menu "sunxi-nand"
-choice
-	prompt "AWNAND CHOICE"
-	default AW_MTD_SPINAND
-	optional
-
 config AW_MTD_SPINAND
 	tristate "Allwinner MTD SPINAND Device Support"
 	depends on MTD
@@ -28,7 +22,19 @@ config AW_MTD_RAWNAND
 	  Enables support for RAWNAND Flash chips on Allwinner SoCs.
 	  It's different with Allwinner's privately nand driver that it use
 	  ubi system rather than Allwinner's NFTL.
-endchoice
+
+config RAW_KERNEL
+	bool "Kernel images are stored on physical partitions"
+	help
+	  Enables support kernel images are stored on physical partitions.
+
+config KERNEL_SIZE_BYTE
+	int "Kernel image size(Byte)"
+	depends on RAW_KERNEL
+	default 0
+	help
+	  To accurately read the complete kernel image, you need to set
+	  the kernel image size (in bytes) when using the RAW-boot function.
 
 if AW_MTD_SPINAND
 source "drivers/mtd/awnand/spinand/Kconfig"
@@ -37,4 +43,3 @@ endif
 if AW_MTD_RAWNAND
 source "drivers/mtd/awnand/rawnand/Kconfig"
 endif
-endmenu

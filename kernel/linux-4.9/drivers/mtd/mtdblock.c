@@ -216,12 +216,33 @@ static int do_cached_read (struct mtdblk_dev *mtdblk, unsigned long pos,
 	unsigned int sect_size = mtdblk->cache_size;
 	size_t retlen;
 	int ret;
+	static unsigned long last_pos;
+	static int last_len;
+	static unsigned int continuous_num, read_ahead;
 
 	pr_debug("mtdblock: read on \"%s\" at 0x%lx, size 0x%x\n",
 			mtd->name, pos, len);
 
 	if (!sect_size)
 		return mtd_read(mtd, pos, len, &retlen, buf);
+
+
+	/*
+	 * Increase the Read Ahead judgment to ensure random read performance
+	 * When you read 2k data in a row, Enable the read ahead function
+	 */
+	if (last_pos + last_len == pos) {
+		if (!read_ahead) {
+			continuous_num += 1;
+			if (continuous_num == 4)
+				read_ahead = 1;
+		}
+	} else {
+		continuous_num = 0;
+		read_ahead = 0;
+	}
+	last_pos = pos;
+	last_len = len;
 
 	while (len > 0) {
 		unsigned long sect_start = (pos/sect_size)*sect_size;
@@ -240,11 +261,29 @@ static int do_cached_read (struct mtdblk_dev *mtdblk, unsigned long pos,
 		    mtdblk->cache_offset == sect_start) {
 			memcpy (buf, mtdblk->cache_data + offset, size);
 		} else {
-			ret = mtd_read(mtd, pos, size, &retlen, buf);
-			if (ret)
-				return ret;
-			if (retlen != size)
-				return -EIO;
+			if (read_ahead) {
+				if (mtdblk->cache_state == STATE_DIRTY)
+					write_cached_data(mtdblk);
+
+				ret = mtd_read(mtd, sect_start, sect_size,
+						&retlen, mtdblk->cache_data);
+				if (ret)
+					return ret;
+				if (retlen != sect_size)
+					return -EIO;
+
+				mtdblk->cache_offset = sect_start;
+				mtdblk->cache_size = sect_size;
+				mtdblk->cache_state = STATE_CLEAN;
+
+				memcpy (buf, mtdblk->cache_data + offset, size);
+			} else {
+				ret = mtd_read(mtd, pos, size, &retlen, buf);
+				if (ret)
+					return ret;
+				if (retlen != size)
+					return -EIO;
+			}
 		}
 
 		buf += size;
@@ -266,15 +305,6 @@ static int mtdblock_writesect(struct mtd_blktrans_dev *dev,
 			      unsigned long block, char *buf)
 {
 	struct mtdblk_dev *mtdblk = container_of(dev, struct mtdblk_dev, mbd);
-	if (unlikely(!mtdblk->cache_data && mtdblk->cache_size)) {
-		mtdblk->cache_data = vmalloc(mtdblk->mbd.mtd->erasesize);
-		if (!mtdblk->cache_data)
-			return -EINTR;
-		/* -EINTR is not really correct, but it is the best match
-		 * documented in man 2 write for all cases.  We could also
-		 * return -EAGAIN sometimes, but why bother?
-		 */
-	}
 	return do_cached_write(mtdblk, block * CONFIG_SUNXI_MTD_BLK_SIZE, CONFIG_SUNXI_MTD_BLK_SIZE, buf);
 }
 
@@ -295,6 +325,15 @@ static int mtdblock_open(struct mtd_blktrans_dev *mbd)
 	mtdblk->cache_state = STATE_EMPTY;
 	if (!(mbd->mtd->flags & MTD_NO_ERASE) && mbd->mtd->erasesize) {
 		mtdblk->cache_size = mbd->mtd->erasesize;
+		mtdblk->cache_data = vmalloc(mtdblk->mbd.mtd->erasesize);
+		if (!mtdblk->cache_data)
+			return -EINTR;
+		/* -EINTR is not really correct, but it is the best match
+		 * documented in man 2 write for all cases.  We could also
+		 * return -EAGAIN sometimes, but why bother?
+		 */
+	} else {
+		mtdblk->cache_size = 0;
 		mtdblk->cache_data = NULL;
 	}
 

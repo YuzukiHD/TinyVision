@@ -72,7 +72,10 @@ vin_v4l2-y					+= vin-video/vin_core.o
 vin_v4l2-y					+= top_reg.o
 vin_v4l2-y					+= vin.o
 
+ifneq ($(strip $(CONFIG_ARCH_SUN8IW21P1)),)
 vin_v4l2-$(CONFIG_ISP_SERVER_MELIS)			+= vin-rp/vin_rp.o
+vin_v4l2-$(CONFIG_ISP_SERVER_MELIS)			+= vin-isp/isp_special_video/isp_ldci_video.o
+endif
 
 
 

@@ -68,6 +68,10 @@ struct sensor_win_size {
 	unsigned int bin_factor;/*binning factor */
 	unsigned int intg_min;	/*integration min, unit: line, Q4 */
 	unsigned int intg_max;	/*integration max, unit: line, Q4 */
+	unsigned int intg_mid_min;      /*middle integration min, unit: line, Q4   */
+	unsigned int intg_mid_max;      /*middle integration max, unit: line, Q4   */
+	unsigned int intg_short_min;    /*short integration min, unit: line, Q4   */
+	unsigned int intg_short_max;    /*short integration max, unit: line, Q4   */
 	unsigned int gain_min;	/*sensor gain min, Q4 */
 	unsigned int gain_max;	/*sensor gain max, Q4 */
 	unsigned int width_input; /*isp width input, after isp crop */

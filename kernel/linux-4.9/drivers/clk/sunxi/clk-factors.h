@@ -14,6 +14,7 @@
 #include <linux/clkdev.h>
 #include <linux/io.h>
 #include "clk-sunxi.h"
+#include "clk-sdm.h"
 
 typedef enum pll_lock_mode {
 	PLL_LOCK_NEW_MODE = 0x0,
@@ -156,6 +157,10 @@ struct factor_init_data {
 	unsigned long (*calc_rate)(u32 parent_rate, struct clk_factors_value *factor);
 	struct clk_ops *priv_ops;
 	struct sunxi_reg_ops *priv_regops;
+	u8			sdm_enable;
+	u8			sdm_factor;
+	u8			freq_mode;
+	u8			sdm_freq;
 };
 
 /**
@@ -192,6 +197,10 @@ struct sunxi_clk_factors {
 	unsigned long (*calc_rate)(u32 parent_rate, struct clk_factors_value *factor);
 	spinlock_t *lock;
 	struct sunxi_reg_ops *priv_regops;
+	u8 sdm_enable;
+	u8 sdm_factor;
+	u8 freq_mode;
+	u8 sdm_freq;
 };
 
 struct sunxi_clk_pat_item {
@@ -424,4 +433,6 @@ int sunxi_clk_com_ftr_sr(struct sunxi_clk_factors_config *f_config,
 void sunxi_clk_set_factor_lock_mode(struct factor_init_data *factor,
 			const char *lock_mode);
 
+void sunxi_clk_set_factor_sdm_info(struct factor_init_data *factor,
+			struct clk_sdm_info sdm_info);
 #endif

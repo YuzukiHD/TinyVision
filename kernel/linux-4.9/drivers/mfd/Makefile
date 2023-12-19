@@ -121,6 +121,9 @@ obj-$(CONFIG_MFD_AXP2101_I2C)	+= axp2101-i2c.o
 obj-$(CONFIG_MFD_PMC_MMIO)	+= pmc-mmio.o
 obj-$(CONFIG_MFD_PMC)       	+= sunxi_pmc.o
 
+obj-$(CONFIG_MFD_PMU_EXT)	+= pmu-ext-core.o
+obj-$(CONFIG_MFD_PMU_EXT_I2C)	+= pmu-ext-i2c.o
+
 obj-$(CONFIG_MFD_AC100)		+= ac100.o
 obj-$(CONFIG_MFD_AXP20X)	+= axp20x.o
 obj-$(CONFIG_MFD_AXP20X_I2C)	+= axp20x-i2c.o

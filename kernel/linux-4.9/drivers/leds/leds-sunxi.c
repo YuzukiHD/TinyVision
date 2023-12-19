@@ -1441,14 +1441,16 @@ static int sunxi_register_led_classdev(struct sunxi_led *led)
 		led->led_count = SUNXI_DEFAULT_LED_COUNT;
 
 	size = sizeof(struct sunxi_led_classdev_group) * led->led_count;
-	led->pcdev_group = kzalloc(size, GFP_KERNEL);
+	led->pcdev_group = devm_kzalloc(dev, size, GFP_KERNEL);
 	if (!led->pcdev_group)
 		return -ENOMEM;
 
 	for (i = 0; i < led->led_count; i++) {
 		led->pcdev_group[i].r.type = LED_TYPE_R;
 		pcdev = &led->pcdev_group[i].r.cdev;
-		pcdev->name = kzalloc(16, GFP_KERNEL);
+		pcdev->name = devm_kzalloc(dev, 16, GFP_KERNEL);
+		if (!pcdev->name)
+			return -ENOMEM;
 		sprintf((char *)pcdev->name, "sunxi_led%dr", i);
 		pcdev->brightness = LED_OFF;
 		pcdev->brightness_set_blocking = sunxi_set_led_brightness;
@@ -1462,7 +1464,9 @@ static int sunxi_register_led_classdev(struct sunxi_led *led)
 
 		led->pcdev_group[i].g.type = LED_TYPE_G;
 		pcdev = &led->pcdev_group[i].g.cdev;
-		pcdev->name = kzalloc(16, GFP_KERNEL);
+		pcdev->name = devm_kzalloc(dev, 16, GFP_KERNEL);
+		if (!pcdev->name)
+			return -ENOMEM;
 		sprintf((char *)pcdev->name, "sunxi_led%dg", i);
 		pcdev->brightness = LED_OFF;
 		pcdev->brightness_set_blocking = sunxi_set_led_brightness;
@@ -1476,7 +1480,9 @@ static int sunxi_register_led_classdev(struct sunxi_led *led)
 
 		led->pcdev_group[i].b.type = LED_TYPE_B;
 		pcdev = &led->pcdev_group[i].b.cdev;
-		pcdev->name = kzalloc(16, GFP_KERNEL);
+		pcdev->name = devm_kzalloc(dev, 16, GFP_KERNEL);
+		if (!pcdev->name)
+			return -ENOMEM;
 		sprintf((char *)pcdev->name, "sunxi_led%db", i);
 		pcdev->brightness = LED_OFF;
 		pcdev->brightness_set_blocking = sunxi_set_led_brightness;
@@ -1492,7 +1498,7 @@ static int sunxi_register_led_classdev(struct sunxi_led *led)
 	}
 
 	size = sizeof(u32) * led->led_count;
-	led->data = kzalloc(size, GFP_KERNEL);
+	led->data = devm_kzalloc(dev, size, GFP_KERNEL);
 	if (!led->data)
 		return -ENOMEM;
 
@@ -1689,11 +1695,9 @@ static int sunxi_led_probe(struct platform_device *pdev)
 
 	dprintk(DEBUG_INIT, "start\n");
 
-	led = kzalloc(sizeof(struct sunxi_led), GFP_KERNEL);
-	if (!led) {
-		LED_ERR("kzalloc failed\n");
+	led = devm_kzalloc(dev, sizeof(struct sunxi_led), GFP_KERNEL);
+	if (!led)
 		ret = -ENOMEM;
-	}
 
 	sunxi_led = led;
 
@@ -1721,9 +1725,8 @@ static int sunxi_led_probe(struct platform_device *pdev)
 	}
 	led->res = mem_res;
 
-	led->output_mode.str = kzalloc(3, GFP_KERNEL);
+	led->output_mode.str = devm_kzalloc(dev, 3, GFP_KERNEL);
 	if (!led->output_mode.str) {
-		LED_ERR("kzalloc failed\n");
 		ret = -ENOMEM;
 		goto ezalloc_str;
 	}

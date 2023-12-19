@@ -58,7 +58,6 @@
 
 /* reg AXP2202_TS_CFG  */
 #define AXP2202_TS_ENABLE_MARK     BIT(4)
-#define AXP2202_TS_ENABLE_BIT      BIT(4)
 #define AXP2202_TS_CURR_MARK       BIT(0)
 
 /* reg AXP2202_JEITA_CFG  */
@@ -99,7 +98,7 @@ struct axp_config_info {
 	u32 pmu_chg_end_on_en;
 	u32 ocv_coulumb_100;
 
-	u32 pmu_ts_curr;
+	u32 pmu_bat_ts_current;
 
 	u32 pmu_jetia_en;
 	u32 pmu_jetia_cool;
@@ -216,6 +215,7 @@ struct axp_config_info {
 	u32 wakeup_ovtemp_chg;
 	u32 wakeup_bat_ov;
 	u32 wakeup_gpio;
+	u32 wakeup_new_soc;
 
 	u32 pmu_bc12_en;
 	u32 pmu_cc_logic_en;
@@ -251,6 +251,19 @@ struct axp_interrupts {
 	char *name;
 	irq_handler_t isr;
 	int irq;
+};
+
+enum power_supply_usb_type {
+	POWER_SUPPLY_USB_TYPE_UNKNOWN = 0,
+	POWER_SUPPLY_USB_TYPE_SDP,		/* Standard Downstream Port */
+	POWER_SUPPLY_USB_TYPE_DCP,		/* Dedicated Charging Port */
+	POWER_SUPPLY_USB_TYPE_CDP,		/* Charging Downstream Port */
+	POWER_SUPPLY_USB_TYPE_ACA,		/* Accessory Charger Adapters */
+	POWER_SUPPLY_USB_TYPE_C,		/* Type C Port */
+	POWER_SUPPLY_USB_TYPE_PD,		/* Power Delivery Port */
+	POWER_SUPPLY_USB_TYPE_PD_DRP,		/* PD Dual Role Port */
+	POWER_SUPPLY_USB_TYPE_PD_PPS,		/* PD Programmable Power Supply */
+	POWER_SUPPLY_USB_TYPE_APPLE_BRICK_ID,	/* Apple Charging Method */
 };
 
 #endif

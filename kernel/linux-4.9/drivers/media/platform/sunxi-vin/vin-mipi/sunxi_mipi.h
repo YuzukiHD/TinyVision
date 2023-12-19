@@ -60,6 +60,7 @@ struct mipi_dev {
 	unsigned char cmb_mode;
 	unsigned char pyha_offset;
 	unsigned char time_hs;
+	unsigned char deskew;
 	unsigned char terminal_resistance;
 	unsigned char sensor_flags; /*0 means choose phy0,1 means choose phy1*/
 	unsigned int settle_time;

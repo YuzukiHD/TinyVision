@@ -650,6 +650,7 @@ extern int irq_set_msi_desc(unsigned int irq, struct msi_desc *entry);
 extern int irq_set_msi_desc_off(unsigned int irq_base, unsigned int irq_offset,
 				struct msi_desc *entry);
 extern struct irq_data *irq_get_irq_data(unsigned int irq);
+extern unsigned int irqnum_trans_from_hwirq(unsigned int hwirq);
 
 static inline struct irq_chip *irq_get_chip(unsigned int irq)
 {

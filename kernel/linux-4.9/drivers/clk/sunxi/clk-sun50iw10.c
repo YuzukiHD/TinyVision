@@ -10,6 +10,7 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+
 #include <linux/clk.h>
 #include <linux/clk-provider.h>
 #include <linux/clkdev.h>
@@ -18,6 +19,8 @@
 #include <linux/of.h>
 #include <linux/of_address.h>
 #include <linux/syscore_ops.h>
+#include <linux/module.h>
+
 #include "clk-cpu.h"
 #include "clk-sunxi.h"
 #include "clk-factors.h"
@@ -921,6 +924,7 @@ static struct syscore_ops sunxi_clk_syscore_ops = {
 
 void __init sunxi_clocks_init(struct device_node *node)
 {
+	int err;
 	sunxi_clk_base = of_iomap(node, 0);
 	sunxi_clk_cpus_base = of_iomap(node, 1);
 	sunxi_clk_periph_losc_out.gate.bus = of_iomap(node, 2) + LOSC_OUT_GATE;
@@ -935,6 +939,11 @@ void __init sunxi_clocks_init(struct device_node *node)
 #ifdef CONFIG_PM_SLEEP
 	register_syscore_ops(&sunxi_clk_syscore_ops);
 #endif
+	err = sunxi_parse_sdm_info(node);
+	if (err) {
+		pr_info("sunxi_parse_sdm_info failed: %d\n", err);
+		return;
+	}
 }
 void __init sunxi_cpu_clocks_init(struct device_node *node)
 {
@@ -961,3 +970,7 @@ void __init sunxi_cpu_clocks_init(struct device_node *node)
 		of_clk_add_provider(node, of_clk_src_simple_get, clk);
 	}
 }
+
+MODULE_LICENSE("GPL v2");
+MODULE_VERSION("1.0.1");
+MODULE_AUTHOR("rgm <rengaomin@allwinnertech.com>");

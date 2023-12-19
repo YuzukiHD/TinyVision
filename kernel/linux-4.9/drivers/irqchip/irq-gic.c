@@ -1361,6 +1361,17 @@ static void __init gic_of_setup_kvm_info(struct device_node *node)
 	gic_set_kvm_info(&gic_v2_kvm_info);
 }
 
+unsigned int irqnum_trans_from_hwirq(unsigned int hwirq)
+{
+	unsigned int irq;
+	struct gic_chip_data *gic = &gic_data[0];
+
+	irq = irq_find_mapping(gic->domain, hwirq);
+
+	return irq;
+}
+EXPORT_SYMBOL(irqnum_trans_from_hwirq);
+
 int __init
 gic_of_init(struct device_node *node, struct device_node *parent)
 {

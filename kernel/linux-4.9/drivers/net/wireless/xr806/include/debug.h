@@ -52,6 +52,10 @@ extern u8 dbg_spi;
 extern u8 dbg_txrx;
 extern u8 dbg_cmd;
 
+struct xradio_debug_common {
+	struct dentry *debugfs_phy;
+};
+
 #define xradio_dbg(level, fmt, arg...)                                           \
 	do {                                                                         \
 		if ((level) & dbg_common & XRADIO_DBG_ERROR)                             \
@@ -161,5 +165,7 @@ static inline void data_hex_dump(char *pref, int width, unsigned char *buf, int 
 		printk(KERN_CONT KERN_DEBUG "\n");
 }
 
-void xradio_parse_frame(const char *func, u8 *eth_data, u8 tx, u32 flags);
+void xradio_parse_frame(u8 *eth_data, u8 tx, u32 flags);
+int xradio_debug_init_common(struct xradio_priv *priv);
+void xradio_debug_deinit_common(struct xradio_priv *priv);
 #endif

@@ -159,7 +159,8 @@ static dbus_intf_t	dbus_usb_intf; /** functions called by higher layer DBUS into
  */
 static void *dbus_usb_attach(dbus_pub_t *pub, void *cbarg, dbus_intf_callbacks_t *cbs);
 static void dbus_usb_detach(dbus_pub_t *pub, void *info);
-static void * dbus_usb_probe(void *arg, const char *desc, uint32 bustype, uint32 hdrlen);
+static void * dbus_usb_probe(void *arg, const char *desc, uint32 bustype,
+	uint16 bus_no, uint16 slot, uint32 hdrlen);
 
 /* functions */
 
@@ -168,7 +169,8 @@ static void * dbus_usb_probe(void *arg, const char *desc, uint32 bustype, uint32
  * lower level DBUS functions to call (in both dbus_usb.c and dbus_usb_os.c).
  */
 static void *
-dbus_usb_probe(void *arg, const char *desc, uint32 bustype, uint32 hdrlen)
+dbus_usb_probe(void *arg, const char *desc, uint32 bustype, uint16 bus_no,
+	uint16 slot, uint32 hdrlen)
 {
 	DBUSTRACE(("%s(): \n", __FUNCTION__));
 	if (probe_cb) {
@@ -188,7 +190,7 @@ dbus_usb_probe(void *arg, const char *desc, uint32 bustype, uint32 hdrlen)
 			dbus_usb_intf.dlrun = dbus_usb_dlrun;
 		}
 
-		disc_arg = probe_cb(probe_arg, "DBUS USB", USB_BUS, hdrlen);
+		disc_arg = probe_cb(probe_arg, "DBUS USB", USB_BUS, bus_no, slot, hdrlen);
 		return disc_arg;
 	}
 
@@ -1168,16 +1170,3 @@ dbus_bus_fw_get(void *bus, uint8 **fw, int *fwlen, int *decomp)
 		break;
 	}
 } /* dbus_bus_fw_get */
-
-#ifdef BCM_REQUEST_FW
-/* Register a dummy USB client driver in order to be notified of new USB device */
-int dbus_usb_reg_notify(void* semaphore)
-{
-	return dbus_usbos_reg_notify(semaphore);
-}
-
-void dbus_usb_unreg_notify(void)
-{
-	dbus_usbos_unreg_notify();
-}
-#endif

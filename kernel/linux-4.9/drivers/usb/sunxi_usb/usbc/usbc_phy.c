@@ -238,8 +238,9 @@ void usb_otg_phy_txtune(void __iomem *regs)
 	USBC_Writel(reg_val, (regs + USBC_REG_o_PHYTUNE));
 }
 
+#if defined(CONFIG_ARCH_SUN8IW21)
 /*for new phy*/
-int usbc_new_phyx_tp_write(void __iomem *regs,
+static int usbc_new_phyx_tp_write(void __iomem *regs,
 		int addr, int data, int len)
 {
 	int temp = 0;
@@ -282,7 +283,7 @@ int usbc_new_phyx_tp_write(void __iomem *regs,
 	return 0;
 }
 
-int usbc_new_phyx_tp_read(void __iomem *regs, int addr, int len)
+static int usbc_new_phyx_tp_read(void __iomem *regs, int addr, int len)
 {
 	int temp = 0;
 	int i = 0;
@@ -311,6 +312,54 @@ int usbc_new_phyx_tp_read(void __iomem *regs, int addr, int len)
 	return ret;
 }
 
+void usbc_new_phyx_write(void __iomem *regs, u32 data)
+{
+	u32 temp = 0, ptmp = 0, rtmp = 0;
+
+	temp = data & PHY_RANGE_TRAN_MASK;
+	temp >>= (2 + 4);
+	ptmp = data & PHY_RANGE_PREE_MASK;
+	ptmp >>= 4;
+	rtmp = data & PHY_RANGE_RESI_MASK;
+
+	/* tranceive data */
+	usbc_new_phyx_tp_write(regs, 0x60, temp, 0x4);
+	DMSG_INFO("write to trancevie data: 0x%x\n", temp);
+
+	usbc_new_phyx_tp_write(regs, 0x64, ptmp, 0x2);
+	DMSG_INFO("write to preemphasis data: 0x%x\n", ptmp);
+
+	usbc_new_phyx_tp_write(regs, 0x43, 0x0, 0x1);
+
+	usbc_new_phyx_tp_write(regs, 0x41, 0x0, 0x1);
+
+	usbc_new_phyx_tp_write(regs, 0x40, 0x0, 0x1);
+
+	usbc_new_phyx_tp_write(regs, 0x44, rtmp, 0x4);
+	DMSG_INFO("write to resistance data: 0x%x\n", rtmp);
+
+	usbc_new_phyx_tp_write(regs, 0x43, 0x1, 0x1);
+}
+
+u32 usbc_new_phyx_read(void __iomem *regs)
+{
+	u32 temp = 0, ptmp = 0, rtmp = 0, ret = 0;
+
+	temp = usbc_new_phyx_tp_read(regs, 0x60, 0x4);
+
+	ptmp = usbc_new_phyx_tp_read(regs, 0x64, 0x2);
+
+	rtmp = usbc_new_phyx_tp_read(regs, 0x44, 0x4);
+
+	DMSG_INFO("trancevie[9:6]:0x%x, preemphasis[5:4]:0x%x, resistance[3:0]:0x%x\n",
+			  temp, ptmp, rtmp);
+
+	temp <<= (2 + 4);
+	ptmp <<= 4;
+	ret = temp | ptmp | rtmp;
+
+	return ret;
+}
 
 void usbc_new_phy_init(void __iomem *regs)
 {
@@ -337,15 +386,15 @@ void usbc_new_phy_init(void __iomem *regs)
 	pr_debug("addr:%x,len:%x,value:%x\n", 0x1c, 0x03,
 			usbc_new_phyx_tp_read(regs, 0x1c, 0x03));
 
-	if (efuse_val & SUNXI_HCI_PHY_EFUSE_ADJUST) {
+	if (efuse_val & SUNXI_USB_PHY_EFUSE_ADJUST) {
 		/* Already calibrate completely, don't have to distinguish iref mode and vref mode */
 		pr_debug("USB phy already calibrate completely\n");
 
 		/* usbc-0 */
-		value = (efuse_val & SUNXI_HCI_PHY_EFUSE_USB0TX) >> 5;
+		value = (efuse_val & SUNXI_USB_PHY_EFUSE_USB0TX) >> 9;
 		usbc_new_phyx_tp_write(regs, 0x60, value, 0x04);
 
-		value = (efuse_val & SUNXI_HCI_PHY_EFUSE_RES) >> 5;
+		value = (efuse_val & SUNXI_USB_PHY_EFUSE_RES) >> 5;
 		usbc_new_phyx_tp_write(regs, 0x44, value, 0x04);
 
 		pr_debug("addr:%x,len:%x,value:%x\n", 0x60, 0x04,
@@ -392,3 +441,4 @@ void usbc_new_phy_res_cal(void __iomem *regs)
 	usbc_new_phyx_tp_write(regs, 0x40, 0x0, 0x01);
 	usbc_new_phyx_tp_write(regs, 0x43, 0x01, 0x01);
 }
+#endif

@@ -189,6 +189,20 @@ static inline void sw_uart_disable_ier_thri(struct uart_port *port)
 	}
 }
 
+static inline bool sunxi_uart_pe_occur(unsigned int lsr)
+{
+#ifdef SUNXI_UART_PE_ERRATA
+	if ((lsr & SUNXI_UART_LSR_PE) && (lsr & SUNXI_UART_LSR_RXFIFOE)) {
+		if ((lsr & SUNXI_UART_LSR_BI) || (lsr & SUNXI_UART_LSR_FE))
+			return false;
+		return true;
+	}
+	return false;
+#else
+	return lsr & SUNXI_UART_LSR_PE;
+#endif
+}
+
 static unsigned int sw_uart_handle_rx(struct sw_uart_port *sw_uport, unsigned int lsr)
 {
 	unsigned char ch = 0;
@@ -202,6 +216,7 @@ static unsigned int sw_uart_handle_rx(struct sw_uart_port *sw_uport, unsigned in
 			lsr = serial_in(&sw_uport->port, SUNXI_UART_LSR);
 			return lsr;
 		}
+		return lsr;
 	}
 #endif
 	do {
@@ -232,7 +247,7 @@ static unsigned int sw_uart_handle_rx(struct sw_uart_port *sw_uport, unsigned in
 				 */
 				if (!ch && uart_handle_break(&sw_uport->port))
 					goto ignore_char;
-			} else if (lsr & SUNXI_UART_LSR_PE)
+			} else if (sunxi_uart_pe_occur(lsr))
 				sw_uport->port.icount.parity++;
 			else if (lsr & SUNXI_UART_LSR_FE)
 				sw_uport->port.icount.frame++;
@@ -251,7 +266,7 @@ static unsigned int sw_uart_handle_rx(struct sw_uart_port *sw_uport, unsigned in
 #endif
 			if (lsr & SUNXI_UART_LSR_BI)
 				flag = TTY_BREAK;
-			else if (lsr & SUNXI_UART_LSR_PE)
+			else if (sunxi_uart_pe_occur(lsr))
 				flag = TTY_PARITY;
 			else if (lsr & SUNXI_UART_LSR_FE)
 				flag = TTY_FRAME;
@@ -980,18 +995,18 @@ static irqreturn_t sw_uart_irq(int irq, void *dev_id)
  *
  * the reference table as follows:
  * pll6 600M
- * apb2div      0        20       19       18       17       16       15       14       13       12       11       10       9        8        7        6         5
- * apbclk       24000000 30000000 31578947 33333333 35294117 37500000 40000000 42857142 46153846 50000000 54545454 60000000 66666666 75000000 85714285 100000000 120000000
- * 115200            *      *         *        *        *        *        *        *        *        *        *        *        *        *       *         *         *
- * 230400                   *         *        *        *        *        *        *        *        *        *        *        *        *       *         *         *
- * 380400            *      *         *                 *        *                 *        *        *        *        *        *        *       *         *         *
- * 460800                   *                                    *                 *        *        *        *        *        *        *       *         *         *
- * 921600                   *                                                      *        *                          *                 *       *         *         *
+ * apb2div      0        20       19       18       17       16       15       14       13       12       11       10       9        8        7        6
+ * apbclk       24000000 30000000 31578947 33333333 35294117 37500000 40000000 42857142 46153846 50000000 54545454 60000000 66666666 75000000 85714285 100000000
+ * 115200            *      *         *        *        *        *        *        *        *        *        *        *        *        *       *         *
+ * 230400                   *         *        *        *        *        *        *        *        *        *        *        *        *       *         *
+ * 380400            *      *         *                 *        *                 *        *        *        *        *        *        *       *         *
+ * 460800                   *                                    *                 *        *        *        *        *        *        *       *         *
+ * 921600                   *                                                      *        *                          *                 *       *         *
  * 1000000                            *        *                                            *        *                          *                          *
- * 1500000           *                                                                      *        *                                   *                 *         *
+ * 1500000           *                                                                      *        *                                   *                 *
  * 1750000                                                                                                    *                                  *
  * 2000000                            *        *                                                                                *                          *
- * 2500000                                                                *                                                                                          *
+ * 2500000                                                                *
  * 3000000                                                                                  *        *                                                     *
  * 3250000                                                                                                    *                                            *
  * 3500000                                                                                                    *
@@ -1007,20 +1022,20 @@ static inline int sw_uart_check_baudset(struct uart_port *port, unsigned int bau
 {
 	struct sw_uart_port *sw_uport = UART_TO_SPORT(port);
 	static struct baudset baud_set[] = {
-		{115200, 24000000, 120000000},
-		{230400, 30000000, 120000000},
-		{380400, 24000000, 120000000},
-		{460800, 30000000, 120000000},
-		{921600, 30000000, 120000000},
-		{1000000, 31000000, 120000000}, /* 31578947 */
-		{1500000, 24000000, 120000000},
-		{1750000, 54000000, 120000000}, /* 54545454 */
-		{2000000, 31000000, 120000000}, /* 31578947 */
-		{2500000, 40000000, 120000000}, /* 40000000 */
-		{3000000, 46000000, 120000000}, /* 46153846 */
-		{3250000, 54000000, 120000000}, /* 54545454 */
-		{3500000, 54000000, 120000000}, /* 54545454 */
-		{4000000, 66000000, 120000000}, /* 66666666 */
+		{115200, 24000000, 100000000},
+		{230400, 30000000, 100000000},
+		{380400, 24000000, 100000000},
+		{460800, 30000000, 100000000},
+		{921600, 30000000, 100000000},
+		{1000000, 31000000, 100000000}, /* 31578947 */
+		{1500000, 24000000, 100000000},
+		{1750000, 54000000, 100000000}, /* 54545454 */
+		{2000000, 31000000, 100000000}, /* 31578947 */
+		{2500000, 40000000, 100000000}, /* 40000000 */
+		{3000000, 46000000, 100000000}, /* 46153846 */
+		{3250000, 54000000, 100000000}, /* 54545454 */
+		{3500000, 54000000, 100000000}, /* 54545454 */
+		{4000000, 66000000, 100000000}, /* 66666666 */
 	};
 	struct baudset *setsel;
 	int i;
@@ -1147,6 +1162,10 @@ static void sw_uart_set_mctrl(struct uart_port *port, unsigned int mctrl)
 		mcr |= SUNXI_UART_MCR_LOOP;
 	sw_uport->mcr &= ~(SUNXI_UART_MCR_RTS|SUNXI_UART_MCR_DTR|SUNXI_UART_MCR_LOOP);
 	sw_uport->mcr |= mcr;
+
+	if (sw_uport->loopback)
+		sw_uport->mcr |= SUNXI_UART_MCR_LOOP;
+
 	SERIAL_DBG("set mcr %x\n", mcr);
 	serial_out(port, sw_uport->mcr, SUNXI_UART_MCR);
 }
@@ -1905,6 +1924,7 @@ static ssize_t sunxi_uart_loopback_store(struct device *dev,
 	int mcr = 0;
 	int enable = 0;
 	struct uart_port *port = dev_get_drvdata(dev);
+	struct sw_uart_port *sw_uport = UART_TO_SPORT(port);
 
 	if (!strncmp(buf, "enable", 6))
 		enable = 1;
@@ -1912,10 +1932,13 @@ static ssize_t sunxi_uart_loopback_store(struct device *dev,
 	pr_debug("Set loopback: %d \n", enable);
 
 	mcr = readl(port->membase + SUNXI_UART_MCR);
-	if (enable)
+	if (enable) {
+		sw_uport->loopback = true;
 		writel(mcr|SUNXI_UART_MCR_LOOP, port->membase + SUNXI_UART_MCR);
-	else
+	} else {
+		sw_uport->loopback = false;
 		writel(mcr&(~SUNXI_UART_MCR_LOOP), port->membase + SUNXI_UART_MCR);
+	}
 
 	return count;
 }
@@ -2522,5 +2545,4 @@ module_exit(sunxi_uart_exit);
 MODULE_AUTHOR("Aaron<leafy.myeh@allwinnertech.com>");
 MODULE_DESCRIPTION("Driver for Allwinner UART controller");
 MODULE_LICENSE("GPL");
-
-MODULE_VERSION("1.0.2");
+MODULE_VERSION("1.0.5");

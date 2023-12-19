@@ -21,8 +21,10 @@
 
 #include "../vin-isp/sunxi_isp.h"
 #include "../vin-video/vin_video.h"
+#ifdef	CONFIG_MTD_SPI_NOR
+#include <linux/mtd/mtd.h>
 #include <linux/mtd/spi-nor.h>
-
+#endif
 static struct ispstat_buffer *__isp_stat_buf_find(struct isp_stat *stat, int look_empty)
 {
 	struct ispstat_buffer *found = NULL;
@@ -1001,7 +1003,7 @@ next:
 	spin_unlock_irqrestore(&stat->isp->slock, irqflags);
 }
 
-int isp_reset_config_sensor_info(struct isp_dev *isp)
+int isp_reset_config_sensor_info(struct isp_dev *isp, enum rpmsg_cmd cmd)
 {
 	struct vin_md *vind = dev_get_drvdata(isp->subdev.v4l2_dev->dev);
 	struct vin_core *vinc = NULL;
@@ -1121,8 +1123,8 @@ int isp_reset_config_sensor_info(struct isp_dev *isp)
 	sensor_name = (char *)&data[16];
 	memcpy(sensor_name, vinc->vid_cap.pipe.sd[VIN_IND_SENSOR]->name, 4 * sizeof(unsigned int));
 
-	data[0] = VIN_SET_ISP_RESET;
-	isp_rpmsg_send(isp->rpmsg, data, 20 * sizeof(unsigned int));
+	data[0] = cmd;
+	isp_rpmsg_send(isp, data, 20 * sizeof(unsigned int));
 
 	return 0;
 }
@@ -1248,7 +1250,7 @@ int isp_config_sensor_info(struct isp_dev *isp)
 	memcpy(sensor_name, vinc->vid_cap.pipe.sd[VIN_IND_SENSOR]->name, 4 * sizeof(unsigned int));
 
 	data[0] = VIN_SET_SENSOR_INFO;
-	isp_rpmsg_send(isp->rpmsg, data, 20 * sizeof(unsigned int));
+	isp_rpmsg_send(isp, data, 20 * sizeof(unsigned int));
 
 	return 0;
 }
@@ -1263,9 +1265,11 @@ void isp_sensor_set_exp_gain(struct isp_dev *isp, void *data)
 	int i;
 
 	exp_gain.exp_val = result[1];
-	exp_gain.gain_val = result[2];
-	exp_gain.r_gain = result[3];
-	exp_gain.b_gain = result[4];
+	exp_gain.exp_mid_val = result[2];
+	exp_gain.gain_val = result[3];
+	exp_gain.gain_mid_val = result[4];
+	exp_gain.r_gain = result[5];
+	exp_gain.b_gain = result[6];
 
 #if 0
 	if (memcmp(&exp_gain_save[isp->id], &exp_gain, sizeof(struct sensor_exp_gain))) {
@@ -1274,7 +1278,8 @@ void isp_sensor_set_exp_gain(struct isp_dev *isp, void *data)
 		return;
 	}
 #else
-	if ((exp_gain_save[isp->id].exp_val != exp_gain.exp_val) || (exp_gain_save[isp->id].gain_val != exp_gain.gain_val)) {
+	if ((exp_gain_save[isp->id].exp_val != exp_gain.exp_val) || (exp_gain_save[isp->id].gain_val != exp_gain.gain_val) ||
+		(exp_gain_save[isp->id].exp_mid_val != exp_gain.exp_mid_val) || (exp_gain_save[isp->id].gain_mid_val != exp_gain.gain_mid_val)) {
 		memcpy(&exp_gain_save[isp->id], &exp_gain, sizeof(struct sensor_exp_gain));
 	} else {
 		return;
@@ -1296,88 +1301,278 @@ void isp_sensor_set_exp_gain(struct isp_dev *isp, void *data)
 					VIDIOC_VIN_SENSOR_EXP_GAIN, &exp_gain);
 }
 
-static int write_nor_flash(loff_t to, size_t len, const u_char *buf)
+void isp_set_encpp_cfg(struct isp_dev *isp, void *data)
+{
+	unsigned int i;
+	unsigned short *rpmsg_data = data;
+	unsigned short *ptr = NULL;
+
+	isp->encpp_en = rpmsg_data[2];
+	isp->encpp_static_sharp_cfg.ss_shp_ratio = rpmsg_data[3];
+	isp->encpp_static_sharp_cfg.ls_shp_ratio = rpmsg_data[4];
+	isp->encpp_static_sharp_cfg.ss_dir_ratio = rpmsg_data[5];
+	isp->encpp_static_sharp_cfg.ls_dir_ratio = rpmsg_data[6];
+	isp->encpp_static_sharp_cfg.ss_crc_stren = rpmsg_data[7];
+	isp->encpp_static_sharp_cfg.ss_crc_min = rpmsg_data[8];
+	isp->encpp_static_sharp_cfg.wht_sat_ratio = rpmsg_data[9];
+	isp->encpp_static_sharp_cfg.blk_sat_ratio = rpmsg_data[10];
+	isp->encpp_static_sharp_cfg.wht_slp_bt = rpmsg_data[11];
+	isp->encpp_static_sharp_cfg.blk_slp_bt = rpmsg_data[12];
+	ptr = &rpmsg_data[13];
+	for (i = 0; i < ISP_REG_TBL_LENGTH; i++, ptr++) {
+			isp->encpp_static_sharp_cfg.sharp_ss_value[i] = *ptr;
+	}
+	ptr = &rpmsg_data[46];
+	for (i = 0; i < ISP_REG_TBL_LENGTH; i++, ptr++) {
+		isp->encpp_static_sharp_cfg.sharp_ls_value[i] = *ptr;
+	}
+	ptr = &rpmsg_data[79];
+	for (i = 0; i < 46; i++, ptr++) {
+		isp->encpp_static_sharp_cfg.sharp_hsv[i] = *ptr;
+	}
+	isp->encpp_dynamic_sharp_cfg.ss_ns_lw = rpmsg_data[125];
+	isp->encpp_dynamic_sharp_cfg.ss_ns_hi = rpmsg_data[126];
+	isp->encpp_dynamic_sharp_cfg.ls_ns_lw = rpmsg_data[127];
+	isp->encpp_dynamic_sharp_cfg.ls_ns_hi = rpmsg_data[128];
+	isp->encpp_dynamic_sharp_cfg.ss_lw_cor = rpmsg_data[129];
+	isp->encpp_dynamic_sharp_cfg.ss_hi_cor = rpmsg_data[130];
+	isp->encpp_dynamic_sharp_cfg.ls_lw_cor = rpmsg_data[131];
+	isp->encpp_dynamic_sharp_cfg.ls_hi_cor = rpmsg_data[132];
+	isp->encpp_dynamic_sharp_cfg.ss_blk_stren = rpmsg_data[133];
+	isp->encpp_dynamic_sharp_cfg.ss_wht_stren = rpmsg_data[134];
+	isp->encpp_dynamic_sharp_cfg.ls_blk_stren = rpmsg_data[135];
+	isp->encpp_dynamic_sharp_cfg.ls_wht_stren = rpmsg_data[136];
+	isp->encpp_dynamic_sharp_cfg.ss_avg_smth = rpmsg_data[137];
+	isp->encpp_dynamic_sharp_cfg.ss_dir_smth = rpmsg_data[138];
+	ptr = &rpmsg_data[139];
+	for (i = 0; i < 4; i++, ptr++) {
+		isp->encpp_dynamic_sharp_cfg.dir_smth[i] = *ptr;
+	}
+	isp->encpp_dynamic_sharp_cfg.hfr_smth_ratio = rpmsg_data[143];
+	isp->encpp_dynamic_sharp_cfg.hfr_hf_wht_stren = rpmsg_data[144];
+	isp->encpp_dynamic_sharp_cfg.hfr_hf_blk_stren = rpmsg_data[145];
+	isp->encpp_dynamic_sharp_cfg.hfr_mf_wht_stren = rpmsg_data[146];
+	isp->encpp_dynamic_sharp_cfg.hfr_mf_blk_stren = rpmsg_data[147];
+	isp->encpp_dynamic_sharp_cfg.hfr_hf_cor_ratio = rpmsg_data[148];
+	isp->encpp_dynamic_sharp_cfg.hfr_mf_cor_ratio = rpmsg_data[149];
+	isp->encpp_dynamic_sharp_cfg.hfr_hf_mix_ratio = rpmsg_data[150];
+	isp->encpp_dynamic_sharp_cfg.hfr_mf_mix_ratio = rpmsg_data[151];
+	isp->encpp_dynamic_sharp_cfg.hfr_hf_mix_min_ratio = rpmsg_data[152];
+	isp->encpp_dynamic_sharp_cfg.hfr_mf_mix_min_ratio = rpmsg_data[153];
+	isp->encpp_dynamic_sharp_cfg.hfr_hf_wht_clp = rpmsg_data[154];
+	isp->encpp_dynamic_sharp_cfg.hfr_hf_blk_clp = rpmsg_data[155];
+	isp->encpp_dynamic_sharp_cfg.hfr_mf_wht_clp = rpmsg_data[156];
+	isp->encpp_dynamic_sharp_cfg.hfr_mf_blk_clp = rpmsg_data[157];
+	isp->encpp_dynamic_sharp_cfg.wht_clp_para = rpmsg_data[158];
+	isp->encpp_dynamic_sharp_cfg.blk_clp_para = rpmsg_data[159];
+	isp->encpp_dynamic_sharp_cfg.wht_clp_slp = rpmsg_data[160];
+	isp->encpp_dynamic_sharp_cfg.blk_clp_slp = rpmsg_data[161];
+	isp->encpp_dynamic_sharp_cfg.max_clp_ratio = rpmsg_data[162];
+	ptr = &rpmsg_data[163];
+	for (i = 0; i < ISP_REG_TBL_LENGTH; i++, ptr++) {
+		isp->encpp_dynamic_sharp_cfg.sharp_edge_lum[i] = *ptr;
+	}
+	isp->encoder_3dnr_cfg.enable_3d_fliter = rpmsg_data[196];
+	isp->encoder_3dnr_cfg.adjust_pix_level_enable = rpmsg_data[197];
+	isp->encoder_3dnr_cfg.smooth_filter_enable = rpmsg_data[198];
+	isp->encoder_3dnr_cfg.max_pix_diff_th = rpmsg_data[199];
+	isp->encoder_3dnr_cfg.max_mad_th = rpmsg_data[200];
+	isp->encoder_3dnr_cfg.max_mv_th = rpmsg_data[201];
+	isp->encoder_3dnr_cfg.min_coef = rpmsg_data[202];
+	isp->encoder_3dnr_cfg.max_coef = rpmsg_data[203];
+	isp->encoder_2dnr_cfg.enable_2d_fliter = rpmsg_data[204];
+	isp->encoder_2dnr_cfg.filter_strength_uv = rpmsg_data[205];
+	isp->encoder_2dnr_cfg.filter_strength_y = rpmsg_data[206];
+	isp->encoder_2dnr_cfg.filter_th_uv = rpmsg_data[207];
+	isp->encoder_2dnr_cfg.filter_th_y = rpmsg_data[208];
+}
+
+void isp_set_ir_cfg(struct isp_dev *isp, void *data)
+{
+	unsigned int *rpmsg_data = data;
+
+	isp->isp_cfg_attr.ir_status = rpmsg_data[1];
+}
+
+void isp_update_isp_attr_cfg(struct isp_dev *isp, void *data)
+{
+	int *rpmsg_data = data;
+	unsigned char *u8_rp_data = NULL;
+
+	isp->isp_cfg_attr.cfg_id = rpmsg_data[1];
+	switch (isp->isp_cfg_attr.cfg_id) {
+	case ISP_CTRL_DN_STR:
+		isp->isp_cfg_attr.denoise_level = rpmsg_data[2];
+		break;
+	case ISP_CTRL_3DN_STR:
+		isp->isp_cfg_attr.tdf_level = rpmsg_data[2];
+		break;
+	case ISP_CTRL_PLTMWDR_STR:
+		isp->isp_cfg_attr.pltmwdr_level = rpmsg_data[2];
+		break;
+	case ISP_CTRL_EV_IDX:
+		isp->isp_cfg_attr.ae_ev_idx = rpmsg_data[2];
+		break;
+	case ISP_CTRL_MAX_EV_IDX:
+		isp->isp_cfg_attr.ae_max_ev_idx = rpmsg_data[2];
+		break;
+	case ISP_CTRL_AE_LOCK:
+		isp->isp_cfg_attr.ae_lock = rpmsg_data[2];
+		break;
+	case ISP_CTRL_AE_STATS:
+		u8_rp_data = (unsigned char *)&rpmsg_data[2];
+		memcpy(&isp->isp_cfg_attr.ae_stat_avg[0], &u8_rp_data[0], ISP_AE_ROW*ISP_AE_COL * sizeof(unsigned char));
+		break;
+	case ISP_CTRL_ISO_LUM_IDX:
+		isp->isp_cfg_attr.ae_lum_idx = rpmsg_data[2];
+		break;
+	case ISP_CTRL_COLOR_TEMP:
+		isp->isp_cfg_attr.awb_color_temp = rpmsg_data[2];
+		break;
+	case ISP_CTRL_AE_EV_LV:
+		isp->isp_cfg_attr.ae_ev_lv = rpmsg_data[2];
+		break;
+	case ISP_CTRL_AE_EV_LV_ADJ:
+		isp->isp_cfg_attr.ae_ev_lv_adj = rpmsg_data[2];
+		break;
+	case ISP_CTRL_IR_STATUS:
+		isp->isp_cfg_attr.ir_status = rpmsg_data[2];
+		break;
+	case ISP_CTRL_IR_AWB_GAIN:
+		isp->isp_cfg_attr.awb_ir_gain.awb_rgain_ir = rpmsg_data[2];
+		isp->isp_cfg_attr.awb_ir_gain.awb_bgain_ir = rpmsg_data[3];
+		break;
+	}
+	isp->isp_cfg_attr.update_flag = 1;
+}
+
+void vin_sync_isp_info_node(struct isp_dev *isp, void *data)
+{
+	int *rpmsg_data = data;
+	unsigned char *copy_ver_str;
+
+	isp->isp_info_node.exp_val = rpmsg_data[EXP_VAL];
+	isp->isp_info_node.exp_time = rpmsg_data[EXP_TIME];
+	isp->isp_info_node.gain_val = rpmsg_data[GAIN_VAL];
+	isp->isp_info_node.total_gain_val = rpmsg_data[TOTAL_GAIN_VAL];
+	isp->isp_info_node.lum_idx = rpmsg_data[LUM_IDX];
+	isp->isp_info_node.awb_color_temp = rpmsg_data[COLOR_TEMP];
+	isp->isp_info_node.awb_rgain = rpmsg_data[AWB_RGAIN];
+	isp->isp_info_node.awb_bgain = rpmsg_data[AWB_BGAIN];
+	isp->isp_info_node.contrast_level = rpmsg_data[CONTRAST_LEVEL];
+	isp->isp_info_node.brightness_level = rpmsg_data[BRIGHTNESS_LEVEL];
+	isp->isp_info_node.sharpness_level = rpmsg_data[SHARPNESS_LEVEL];
+	isp->isp_info_node.saturation_level = rpmsg_data[SATURATION_LEVEL];
+	isp->isp_info_node.tdf_level = rpmsg_data[TDNF_LEVEL];
+	isp->isp_info_node.denoise_level = rpmsg_data[DENOISE_LEVEL];
+	isp->isp_info_node.pltmwdr_level = rpmsg_data[PLTM_LEVEL];
+	isp->isp_info_node.pltmwdr_next_stren = rpmsg_data[PLTM_NEXT_STREN];
+	copy_ver_str = (unsigned char *)(&rpmsg_data[LIBS_VER_STR]);
+	strcpy(isp->isp_info_node.libs_version, copy_ver_str);
+	copy_ver_str = (unsigned char *)(&rpmsg_data[ISP_CFG_VER_STR]);
+	strcpy(isp->isp_info_node.isp_cfg_version, copy_ver_str);
+	isp->isp_info_node.update_flag = 1;
+}
+
+void isp_get_sensor_state(struct isp_dev *isp)
+{
+	struct vin_md *vind = dev_get_drvdata(isp->subdev.v4l2_dev->dev);
+	struct vin_core *vinc = NULL;
+	struct sensor_temp temp;
+	struct sensor_flip flip;
+	unsigned int rpmsg_data[6];
+	int i, ret = 0;
+	memset(rpmsg_data, 0, sizeof(rpmsg_data));
+
+	rpmsg_data[0] = VIN_SET_SENSOR_STATE;
+	for (i = 0; i < VIN_MAX_DEV; i++) {
+		if (vind->vinc[i] == NULL)
+			continue;
+		if (!vin_streaming(&vind->vinc[i]->vid_cap))
+			continue;
+
+		vinc = vind->vinc[i];
+		if (vinc->isp_sel == isp->id)
+			break;
+	}
+	if (vinc != NULL) {
+		ret = v4l2_subdev_call(vinc->vid_cap.pipe.sd[VIN_IND_SENSOR], core, ioctl,
+					VIDIOC_VIN_SENSOR_GET_TEMP, &temp);
+		if (ret < 0) {
+			rpmsg_data[1] = 0;
+			rpmsg_data[2] = 0;
+		} else {
+			rpmsg_data[1] = 1;
+			rpmsg_data[2] = temp.temp;
+		}
+
+		ret = v4l2_subdev_call(vinc->vid_cap.pipe.sd[VIN_IND_SENSOR], core, ioctl,
+					VIDIOC_VIN_SENSOR_GET_FLIP, &flip);
+		if (ret < 0) {
+			rpmsg_data[3] = 0;
+			rpmsg_data[4] = 0;
+			rpmsg_data[5] = 0;
+		} else {
+			rpmsg_data[3] = 1;
+			rpmsg_data[4] = flip.hflip;
+			rpmsg_data[5] = flip.vflip;
+		}
+	}
+	isp_rpmsg_send(isp, rpmsg_data, 6 * sizeof(unsigned int));
+}
+
+int isp_write_nor_flash(loff_t to, loff_t to_offset, size_t len, const u_char *buf)
 {
 #ifdef	CONFIG_MTD_SPI_NOR
 	struct spi_nor *nor = get_spinor();
-	uint32_t block_size = 4 * 1024;
-	u8 val = 0;
+	struct mtd_info *mtd = &nor->mtd;
+	struct erase_info instr;
+	uint32_t block_size = 4096;
 	int ret;
 	size_t block_remain;
-	ssize_t written;
-	int time_out = 0xffff;
-	u8 addr_buf[4];
-	int i;
-	u8 erase_op;
+	ssize_t written = 0;
+	loff_t to_base;
+	int offset;
+	char *cache = kmalloc(block_size, GFP_KERNEL);
 
 	/* Operable range limits */
-	if (to != 112 * 512) {
-		vin_err("must write 0x%x, not to 0x%x\n", 112 * 512, (u32)to);
+	if ((to != ISP0_THRESHOLD_PARAM_OFFSET * 512) && (to != ISP1_THRESHOLD_PARAM_OFFSET * 512)) {
+		vin_err("must write 0x%x/0x%x, not to 0x%x\n", ISP0_THRESHOLD_PARAM_OFFSET * 512, ISP1_THRESHOLD_PARAM_OFFSET * 512, (u32)to);
 		return 0;
 	}
 
-	if (nor->addr_width == 4)
-		erase_op = SPINOR_OP_BE_4K_4B;
-	else
-		erase_op = SPINOR_OP_BE_4K;
-
-	mutex_lock(&nor->lock);
-
 	/* Maximum size of each write is 4K */
 	block_remain = min_t(size_t, block_size, len);
-	/* write enable */
-	nor->write_reg(nor, SPINOR_OP_WREN, NULL, 0);
-	/* erasr 4k block */
-	for (i = nor->addr_width - 1; i >= 0; i--)
-		addr_buf[i] = (to >> (8 * (nor->addr_width - i - 1))) & 0xff;
-	nor->write_reg(nor, erase_op, addr_buf, nor->addr_width);
-	/* wait erasr/write progress complete */
-	do {
-		ret = nor->read_reg(nor, SPINOR_OP_RDSR, &val, 1);
-		if (ret < 0) {
-			vin_err("error %d reading SR\n", (int) ret);
-			mutex_unlock(&nor->lock);
-			return ret;
-		}
-		if (time_out <= 0) {
-			vin_err("write flash time out\n");
-			mutex_unlock(&nor->lock);
-			return -1;
-		}
-		time_out--;
-	} while (val & 0x1);
 
-	/* write enable */
-	nor->write_reg(nor, SPINOR_OP_WREN, NULL, 0);
-	written = nor->write(nor, to, block_remain, buf);
-	if (written < 0)
+	/* read 4k data otherwise being erase*/
+	to_base = round_down(to / 512, 8) * 512; /* to_base is the begin of 4k */
+	ret = mtd->_read(mtd, to_base, block_size, &written, cache);
+
+	instr.mtd = mtd;
+	instr.addr = to;
+	instr.len = block_size;
+	instr.callback = NULL;
+	ret = mtd->_erase_4k(mtd, &instr);
+	if (ret)
 		goto write_err;
-	/* wait erasr/write progress complete */
-	do {
-		ret = nor->read_reg(nor, SPINOR_OP_RDSR, &val, 1);
-		if (ret < 0) {
-			vin_err("error %d reading SR\n", (int) ret);
-			mutex_unlock(&nor->lock);
-			return ret;
-		}
-		if (time_out <= 0) {
-			vin_err("write flash time out\n");
-			mutex_unlock(&nor->lock);
-			return -1;
-		}
-		time_out--;
-	} while (val & 0x1);
+
+	/* write data by offset from 4k data*/
+	offset = to - to_base;
+	memcpy(cache + offset + to_offset, buf, block_remain); /* to_offset is offset from the writing sector of 'to' */
+	ret = mtd->_write(mtd, to_base, block_size, &written, cache);
+	if (ret < 0)
+		goto write_err;
+
 	ret = written;
 
 #if 0
-	char info[64];
-	nor->read(nor, to, block_remain, info);
-	vin_print("read form nor:idx = %d, again = %d, exp = %d\n", *((unsigned int *)info) >> 16, *((unsigned int *)info) & 0xffff, *((unsigned int *)info + 1));
+	ret = mtd->_read(mtd, to_base, block_size, &written, cache);
+	vin_print("read form nor:idx = %d, again = %d, exp = %d\n", *((unsigned int *)(cache + offset)), *((unsigned int *)(cache + offset) + 1), *((unsigned int *)(cache + offset) + 2));
 #endif
-	mutex_unlock(&nor->lock);
+	kfree(cache);
 	return ret;
 write_err:
-	mutex_unlock(&nor->lock);
+	kfree(cache);
 	vin_err("%s err!!!\n", __func__);
 	return ret;
 #else
@@ -1385,13 +1580,18 @@ write_err:
 #endif
 }
 
-void isp_save_ae(void *data)
+void isp_save_ae(struct isp_dev *isp, void *data)
 {
-	loff_t to = 112 * 512;
+	loff_t to;
 
-	//vin_print("idx = %d, again = %d, exp = %d\n", *((unsigned int *)data) >> 16, *((unsigned int *)data) & 0xffff, *((unsigned int *)data + 1));
+	if (isp->id == 0)
+		to = ISP0_THRESHOLD_PARAM_OFFSET * 512;
+	else
+		to = ISP1_THRESHOLD_PARAM_OFFSET * 512;
 
-	write_nor_flash(to, 2*4, data);
+	//vin_print("isp%d:idx = %d, again = %d, exp = %d\n", isp->id, *((unsigned int *)data), *((unsigned int *)data + 1), *((unsigned int *)data + 2));
+
+	isp_write_nor_flash(to, 0, 5*4, data);
 }
 
 int vin_isp_h3a_init(struct isp_dev *isp)
@@ -1409,6 +1609,7 @@ int vin_isp_h3a_init(struct isp_dev *isp)
 	isp_stat_bufs_alloc(stat, ISP_STAT_TOTAL_SIZE, STAT_MAX_BUFS);
 	return 0;
 }
+
 void vin_isp_h3a_cleanup(struct isp_dev *isp)
 {
 	struct isp_stat *stat = &isp->h3a_stat;

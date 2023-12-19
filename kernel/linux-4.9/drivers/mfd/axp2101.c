@@ -180,11 +180,11 @@ static const struct regmap_access_table axp15_volatile_table = {
 };
 /***********************/
 static const struct regmap_range axp1530_writeable_ranges[] = {
-	regmap_reg_range(AXP1530_ON_INDICATE, AXP1530_FREQUENCY),
+	regmap_reg_range(AXP1530_ON_INDICATE, AXP1530_END),
 };
 
 static const struct regmap_range axp1530_volatile_ranges[] = {
-	regmap_reg_range(AXP1530_ON_INDICATE, AXP1530_FREQUENCY),
+	regmap_reg_range(AXP1530_ON_INDICATE, AXP1530_END),
 };
 
 static const struct regmap_access_table axp1530_writeable_table = {
@@ -3282,6 +3282,15 @@ int axp20x_device_remove(struct axp20x_dev *axp20x)
 	return 0;
 }
 EXPORT_SYMBOL(axp20x_device_remove);
+
+int axp20x_device_shutdown(struct axp20x_dev *axp20x)
+{
+	if (axp20x->irq)
+		disable_irq(axp20x->irq);
+
+	return 0;
+}
+EXPORT_SYMBOL(axp20x_device_shutdown);
 
 MODULE_DESCRIPTION("PMIC MFD core driver for AXP20X");
 MODULE_AUTHOR("Carlo Caione <carlo@caione.org>");

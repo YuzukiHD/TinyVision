@@ -28,6 +28,7 @@
 #include <linux/miscdevice.h>
 #include <linux/kthread.h>
 #include <linux/workqueue.h>
+#include <linux/mm.h>
 
 #include <linux/io.h>
 #include <linux/of.h>
@@ -776,7 +777,7 @@ int sunxi_get_module_param_from_sid(u32 *dst, u32 offset, u32 len)
 
 	SID_DBG("baseaddr: 0x%p offset:0x%x len(word):0x%x\n", baseaddr, offset, len);
 
-	for (i = 0; i < len; i += 4) {
+	for (i = 0; i < (len >> 2); i++) {
 		dst[i] = sid_readl(baseaddr + 0x200 + offset + i, 0);
 	}
 
@@ -972,6 +973,28 @@ static int sunxi_efuse_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
+static int sunxi_efuse_mmap(struct file *file, struct vm_area_struct *vma)
+{
+	unsigned long temp_pfn;
+	pr_debug("vma->vm_end %lx, vma->vm_start %lx, vma->vm_end - vma->vm_start %lx\n",
+	       vma->vm_end, vma->vm_start, vma->vm_end - vma->vm_start);
+
+	vma->vm_flags |= VM_IO;
+	vma->vm_flags |= (VM_DONTEXPAND | VM_DONTDUMP);
+
+	temp_pfn = vma->vm_pgoff;
+	if (remap_pfn_range(
+		    vma,
+		    vma->vm_start,
+		    temp_pfn,
+				PAGE_SIZE,
+		     pgprot_noncached(vma->vm_page_prot))) {
+		printk("sharespace mmap fail\n");
+		return -EAGAIN;
+	}
+	return 0;
+}
+
 
 static long sunxi_efuse_ioctl(struct file *file, unsigned int ioctl_num,
 		unsigned long ioctl_param)
@@ -1049,6 +1072,7 @@ static const struct file_operations sunxi_efuse_ops = {
 	.owner 		= THIS_MODULE,
 	.open 		= sunxi_efuse_open,
 	.release 	= sunxi_efuse_release,
+	.mmap = sunxi_efuse_mmap,
 	.unlocked_ioctl = sunxi_efuse_ioctl,
 	.compat_ioctl   = sunxi_efuse_ioctl,
 };
@@ -1064,16 +1088,45 @@ static void sunxi_efuse_work(struct work_struct *data)
 {
 	efuse_cry_pt fcpt  = container_of(data, struct efuse_crypt, work);
 	switch (fcpt->cmd) {
-#ifdef CONFIG_SUNXI_SMC
 	case SUNXI_EFUSE_READ:
-		fcpt->ret = (((nfcr->key_store.offset + nfcr->key_store.len) >
-				(arm_svc_efuse_read(virt_to_phys((const volatile void *)fcpt->key_store.name), virt_to_phys((const volatile void *)fcpt->temp_data))))
-				? -1 : 0);
-	break;
-	case SUNXI_EFUSE_WRITE:
-		fcpt->ret = arm_svc_efuse_write(virt_to_phys((const volatile void *)&temp_key));
-	break;
+		if (sunxi_soc_is_secure()) {
+#ifdef CONFIG_SUNXI_SMC
+			fcpt->ret =
+				(((nfcr->key_store.offset +
+				   nfcr->key_store.len) >
+				  (arm_svc_efuse_read(
+					  virt_to_phys(
+						  (const volatile void *)
+							  fcpt->key_store.name),
+					  virt_to_phys(
+						  (const volatile void *)
+							  fcpt->temp_data)))) ?
+					 -1 :
+					 0);
 #endif
+		} else {
+			nfcr->ret = sunxi_efuse_readn(nfcr->key_store.name,
+						      nfcr->temp_data,
+						      nfcr->key_store.len);
+			if (nfcr->ret < 0) {
+				pr_err("sunxi_efuse_readn failed:%d\n",
+				       nfcr->ret);
+			}
+		}
+		break;
+
+	case SUNXI_EFUSE_WRITE:
+		if (sunxi_soc_is_secure()) {
+#ifdef CONFIG_SUNXI_SMC
+			fcpt->ret = arm_svc_efuse_write(
+				virt_to_phys((const volatile void *)&temp_key));
+#endif
+		} else {
+			fcpt->ret = -1;
+			pr_err("un supported write\n");
+		}
+		break;
+
 	default:
 		fcpt->ret = -1;
 		pr_err("sunxi_efuse_work: un supported cmd:%d\n", fcpt->cmd);

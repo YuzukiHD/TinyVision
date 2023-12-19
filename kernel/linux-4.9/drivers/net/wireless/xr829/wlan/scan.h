@@ -29,7 +29,14 @@
 
 struct xradio_scan {
 	struct semaphore lock;
+
+#ifdef SCAN_SUBDIVIDE
+	struct delayed_work work;
+	u8 scan_type;
+#else
 	struct work_struct work;
+#endif
+
 #ifdef ROAM_OFFLOAD
 	struct work_struct swork; /* scheduled scan work */
 	struct cfg80211_sched_scan_request *sched_req;

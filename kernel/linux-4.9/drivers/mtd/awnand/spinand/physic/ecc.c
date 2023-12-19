@@ -8,6 +8,7 @@
 
 #include "physic.h"
 
+
 static int __copy_to_oob(unsigned char *to, unsigned char *from,
 		unsigned int cnt, unsigned int spare_size,
 		unsigned int offset, unsigned int datalen)
@@ -148,6 +149,19 @@ static int check_ecc_bit4_limit5_7_err8_limit12(unsigned char ecc)
 	return ECC_ERR;
 }
 
+static int check_ecc_bit2_err2_limit3(unsigned char ecc)
+{
+	if (ecc == 0 || ecc == 1) {
+		return ECC_GOOD;
+	} else if (ecc == 3) {
+		pr_debug("ecc limit 0x%x\n", ecc);
+		return ECC_LIMIT;
+	}
+
+	pr_err("ecc error 0x%x\n", ecc);
+	return ECC_ERR;
+}
+
 static int aw_spinand_ecc_check_ecc(enum ecc_limit_err type, u8 status)
 {
 	unsigned char ecc;
@@ -159,9 +173,18 @@ static int aw_spinand_ecc_check_ecc(enum ecc_limit_err type, u8 status)
 	case BIT2_LIMIT1_ERR2:
 		ecc = status & 0x03;
 		return general_check_ecc(ecc, 1, 1, 2, 2);
+	case BIT2_LIMIT1_ERR2_TO_ERR3:
+		ecc = status & 0x03;
+		return general_check_ecc(ecc, 1, 1, 2, 3);
+	case BIT2_LIMIT2_ERR3:
+		ecc = status & 0x03;
+		return general_check_ecc(ecc, 2, 2, 3, 3);
 	case BIT2_LIMIT1_ERR2_LIMIT3:
 		ecc = status & 0x03;
 		return check_ecc_bit2_limit1_err2_limit3(ecc);
+	case BIT2_ERR2_LIMIT3:
+		ecc = status & 0x03;
+		return check_ecc_bit2_err2_limit3(ecc);
 	case BIT4_LIMIT3_TO_4_ERR15:
 		ecc = status & 0x0f;
 		return general_check_ecc(ecc, 3, 4, 15, 15);

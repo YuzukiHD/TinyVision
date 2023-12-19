@@ -2,7 +2,7 @@
 # Makefile for sunxi specific clk
 #
 
-obj-y += clk-sunxi.o clk-factors.o clk-periph.o clk-cpu.o
+obj-y += clk-sunxi.o clk-sdm.o clk-factors.o clk-periph.o clk-cpu.o
 obj-${CONFIG_COMMON_CLK_DEBUG} += clk-debugfs.o
 obj-${CONFIG_ARCH_SUN50IW3} += clk-sun50iw3.o
 obj-${CONFIG_ARCH_SUN50IW1} += clk-sun50iw1.o

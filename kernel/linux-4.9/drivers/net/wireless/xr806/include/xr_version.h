@@ -17,7 +17,7 @@
 #ifndef XR_VERSION_H
 #define XR_VERSION_H
 
-#define XRADIO_VERSION "XR_V1.002.2022.04.13"
+#define XRADIO_VERSION "XR_V1.002.2023.04.11"
 #define XRADIO_VERSION_ID (0x1)
 
 #endif

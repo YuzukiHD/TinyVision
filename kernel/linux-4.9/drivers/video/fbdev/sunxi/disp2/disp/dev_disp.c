@@ -2355,6 +2355,8 @@ static s32 disp_init(struct platform_device *pdev)
 
 	para->feat_init.chn_cfg_mode = g_disp_drv.disp_init.chn_cfg_mode;
 
+	// just set g_lcd_ops for lcd_source.
+	lcd_init();
 	bsp_disp_init(para);
 
 #if defined(CONFIG_SUNXI_DISP2_PQ)
@@ -2370,7 +2372,6 @@ static s32 disp_init(struct platform_device *pdev)
 #if defined(SUPPORT_EINK)
 	g_disp_drv.eink_manager[0] = disp_get_eink_manager(0);
 #endif
-	lcd_init();
 	bsp_disp_open();
 
 	fb_init(pdev);
@@ -4389,36 +4390,63 @@ handle_cmd:
 		{
 			int ret;
 			struct para lcd_debug_para;
-			struct dt_property *prop_arg;
+			struct para lcd_debug_para_tmp;
 			struct dt_property *dt_prop;
 			char prop_name[32] = {0};
 			struct dt_property *dt_prop_dts;
 			char prop_dts_name[32] = {0};
 			unsigned char value[100] = {0};
 			unsigned char dts_value[100] = {0};
-			memcpy(&lcd_debug_para, (void *) arg, sizeof(struct para));
 
+			if  (copy_from_user(&lcd_debug_para, (void *) arg, sizeof(struct para))) {
+				return -2;
+			}
+			if (copy_from_user(&lcd_debug_para_tmp, (void *) arg, sizeof(struct para))) {
+				return -2;
+			}
 			dt_prop = &lcd_debug_para.prop_src;
 
 			ret = copy_from_user(prop_name, dt_prop->name, 32);
+
+			if (ret)
+				return -2;
+
 			ret = copy_from_user(value, dt_prop->value, dt_prop->length);
+
+			if (ret)
+				return -2;
+
 			dt_prop->name = prop_name;
 			dt_prop->value = (void *)value;
 
 			dt_prop_dts = &lcd_debug_para.prop_dts;
 
 			ret = copy_from_user(prop_dts_name, dt_prop_dts->name, 32);
+
+			if (ret)
+				return -2;
+
 			ret = copy_from_user(dts_value, dt_prop_dts->value, dt_prop_dts->length);
+
+			if (ret)
+				return -2;
 
 			dt_prop_dts->name = prop_dts_name;
 			dt_prop_dts->value = (void *)dts_value;
 
 			ret = handle_request(&lcd_debug_para);
 
-			prop_arg = &(((struct para *)arg)->prop_dts);
-			ret = copy_to_user(prop_arg->name, lcd_debug_para.prop_dts.name, 32);
-			ret = copy_to_user(prop_arg->value, lcd_debug_para.prop_dts.value, lcd_debug_para.prop_dts.length);
-			prop_arg->length = lcd_debug_para.prop_dts.length;
+			if (ret)
+				return -1;
+
+			if (copy_to_user((void __user *)lcd_debug_para_tmp.prop_dts.name, lcd_debug_para.prop_dts.name, 32))
+				return -3;
+
+			if (copy_to_user((void __user *)lcd_debug_para_tmp.prop_dts.value, lcd_debug_para.prop_dts.value, lcd_debug_para.prop_dts.length))
+				return -3;
+
+			if (copy_to_user(&((struct para *)arg)->prop_dts.length, &lcd_debug_para.prop_dts.length, sizeof(lcd_debug_para.prop_dts.length)))
+				return -3;
 
 			return ret;
 		}
@@ -4542,6 +4570,10 @@ static int __init disp_module_init(void)
 
 	alloc_chrdev_region(&devid, 0, 1, "disp");
 	my_cdev = cdev_alloc();
+	if (!my_cdev) {
+		__wrn("cdev_alloc err\n");
+		return -1;
+	}
 	cdev_init(my_cdev, &disp_fops);
 	my_cdev->owner = THIS_MODULE;
 	err = cdev_add(my_cdev, devid, 1);
