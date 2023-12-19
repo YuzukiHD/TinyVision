@@ -10,14 +10,14 @@ on:
     paths:
       - 'kernel/linux-6.1/**'
       - 'kernel/config/linux-6.1/**'
-      - 'kernel/config/dts/linux-6.11/**'
+      - 'kernel/config/dts/linux-6.1/**'
       - 'kernel/bsp/**'
   pull_request:
     branches: [ "main" ]
     paths:
       - 'kernel/linux-6.1/**'
       - 'kernel/config/linux-6.1/**'
-      - 'kernel/config/dts/linux-6.11/**'
+      - 'kernel/config/dts/linux-6.1/**'
       - 'kernel/bsp/**'
 
   # Allows you to run this workflow manually from the Actions tab
