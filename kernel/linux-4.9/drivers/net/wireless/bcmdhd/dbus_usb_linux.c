@@ -123,7 +123,8 @@
  * been eliminated.
  */
 #if ((LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 21)) && defined(CONFIG_USB_SUSPEND)) \
-	|| ((LINUX_VERSION_CODE >= KERNEL_VERSION(3, 10, 0)) && defined(CONFIG_PM_RUNTIME))
+	|| ((LINUX_VERSION_CODE >= KERNEL_VERSION(3, 10, 0)) && defined(CONFIG_PM_RUNTIME)) \
+	|| (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 19, 0))
 /* For USB power management support, see Linux kernel: Documentation/usb/power-management.txt */
 #define USB_SUSPEND_AVAILABLE
 #endif
@@ -1297,8 +1298,18 @@ DBUS_USBOS_PROBE()
 	int wlan_if = -1;
 	bool intr_ep = FALSE;
 #endif /* BCMUSBDEV_COMPOSITE */
+	wifi_adapter_info_t *adapter;
 
 	DHD_MUTEX_LOCK();
+
+	DBUSERR(("%s: bus num(busnum)=%d, slot num (portnum)=%d\n", __FUNCTION__,
+		usb->bus->busnum, usb->portnum));
+	adapter = dhd_wifi_platform_attach_adapter(USB_BUS, usb->bus->busnum,
+		usb->portnum, WIFI_STATUS_POWER_ON);
+	if (adapter == NULL) {
+		DBUSERR(("%s: can't find adapter info for this chip\n", __FUNCTION__));
+		goto fail;
+	}
 
 #ifdef BCMUSBDEV_COMPOSITE
 	wlan_if = dbus_usbos_intf_wlan(usb);
@@ -1543,7 +1554,7 @@ DBUS_USBOS_PROBE()
 		DBUSERR(("full speed device detected\n"));
 	}
 	if (g_probe_info.dereged == FALSE && probe_cb) {
-		disc_arg = probe_cb(probe_arg, "", USB_BUS, 0);
+		disc_arg = probe_cb(probe_arg, "", USB_BUS, usb->bus->busnum, usb->portnum, 0);
 	}
 
 	g_probe_info.disc_cb_done = FALSE;
@@ -1597,6 +1608,9 @@ DBUS_USBOS_DISCONNECT()
 	usbos_info_t *usbos_info;
 
 	DHD_MUTEX_LOCK();
+
+	DBUSERR(("%s: bus num(busnum)=%d, slot num (portnum)=%d\n", __FUNCTION__,
+		usb->bus->busnum, usb->portnum));
 
 	if (probe_usb_init_data) {
 		usbos_info = (usbos_info_t *) probe_usb_init_data->usbos_info;
@@ -3388,373 +3402,3 @@ dbus_usbos_intf_wlan(struct usb_device *usb)
 	return intf_wlan;
 }
 #endif /* BCMUSBDEV_COMPOSITE */
-
-#ifdef BCM_REQUEST_FW
-#ifdef KERNEL26
-static int dummy_usbos_probe(struct usb_interface *intf, const struct usb_device_id *id);
-static void dummy_usbos_disconnect(struct usb_interface *intf);
-#else /* KERNEL26 */
-static void *dummy_usbos_probe(struct usb_device *usb, unsigned int ifnum,
-	const struct usb_device_id *id);
-static void dummy_usbos_disconnect(struct usb_device *usb, void *ptr);
-#endif /* KERNEL26 */
-
-#ifdef KERNEL26
-#define DUMMY_DBUS_USBOS_PROBE() static int dummy_usbos_probe(struct usb_interface *intf, const struct usb_device_id *id)
-#define DUMMY_DBUS_USBOS_DISCONNECT() static void dummy_usbos_disconnect(struct usb_interface *intf)
-#else
-#define DUMMY_DBUS_USBOS_PROBE() static void * dummy_usbos_probe(struct usb_device *usb, unsigned int ifnum, const struct usb_device_id *id)
-#define DUMMY_DBUS_USBOS_DISCONNECT() static void dummy_usbos_disconnect(struct usb_device *usb, void *ptr)
-#endif /* KERNEL26 */
-
-static struct semaphore *notify_semaphore = NULL;
-
-DUMMY_DBUS_USBOS_PROBE()
-{
-	int ep;
-	struct usb_endpoint_descriptor *endpoint;
-	int ret = 0;
-#ifdef KERNEL26
-	struct usb_device *usb = interface_to_usbdev(intf);
-#else
-	int claimed = 0;
-#endif
-	int num_of_eps;
-#ifdef BCMUSBDEV_COMPOSITE
-	int wlan_if = -1;
-	bool intr_ep = FALSE;
-#endif /* BCMUSBDEV_COMPOSITE */
-
-	DHD_MUTEX_LOCK();
-
-#ifdef BCMUSBDEV_COMPOSITE
-	wlan_if = dbus_usbos_intf_wlan(usb);
-#ifdef KERNEL26
-	if ((wlan_if >= 0) && (IFPTR(usb, wlan_if) == intf))
-#else
-	if (wlan_if == ifnum)
-#endif /* KERNEL26 */
-	{
-#endif /* BCMUSBDEV_COMPOSITE */
-		g_probe_info.usb = usb;
-		g_probe_info.dldone = TRUE;
-#ifdef BCMUSBDEV_COMPOSITE
-	} else {
-		DBUSTRACE(("dbus_usbos_probe: skip probe for non WLAN interface\n"));
-		ret = BCME_UNSUPPORTED;
-		goto fail;
-	}
-#endif /* BCMUSBDEV_COMPOSITE */
-
-#ifdef KERNEL26
-	g_probe_info.intf = intf;
-#endif /* KERNEL26 */
-
-#ifdef BCMUSBDEV_COMPOSITE
-	if (IFDESC(usb, wlan_if).bInterfaceNumber > USB_COMPIF_MAX)
-#else
-	if (IFDESC(usb, CONTROL_IF).bInterfaceNumber)
-#endif /* BCMUSBDEV_COMPOSITE */
-	{
-		ret = -1;
-		goto fail;
-	}
-	if (id != NULL) {
-		g_probe_info.vid = id->idVendor;
-		g_probe_info.pid = id->idProduct;
-	}
-
-#ifdef KERNEL26
-	usb_set_intfdata(intf, &g_probe_info);
-#endif
-
-	/* Check that the device supports only one configuration */
-	if (usb->descriptor.bNumConfigurations != 1) {
-		ret = -1;
-		goto fail;
-	}
-
-	if (usb->descriptor.bDeviceClass != USB_CLASS_VENDOR_SPEC) {
-#ifdef BCMUSBDEV_COMPOSITE
-		if ((usb->descriptor.bDeviceClass != USB_CLASS_MISC) &&
-			(usb->descriptor.bDeviceClass != USB_CLASS_WIRELESS)) {
-#endif /* BCMUSBDEV_COMPOSITE */
-			ret = -1;
-			goto fail;
-#ifdef BCMUSBDEV_COMPOSITE
-		}
-#endif /* BCMUSBDEV_COMPOSITE */
-	}
-
-	/*
-	 * Only the BDC interface configuration is supported:
-	 *	Device class: USB_CLASS_VENDOR_SPEC
-	 *	if0 class: USB_CLASS_VENDOR_SPEC
-	 *	if0/ep0: control
-	 *	if0/ep1: bulk in
-	 *	if0/ep2: bulk out (ok if swapped with bulk in)
-	 */
-	if (CONFIGDESC(usb)->bNumInterfaces != 1) {
-#ifdef BCMUSBDEV_COMPOSITE
-		if (CONFIGDESC(usb)->bNumInterfaces > USB_COMPIF_MAX) {
-#endif /* BCMUSBDEV_COMPOSITE */
-			ret = -1;
-			goto fail;
-#ifdef BCMUSBDEV_COMPOSITE
-		}
-#endif /* BCMUSBDEV_COMPOSITE */
-	}
-
-	/* Check interface */
-#ifndef KERNEL26
-#ifdef BCMUSBDEV_COMPOSITE
-	if (usb_interface_claimed(IFPTR(usb, wlan_if)))
-#else
-	if (usb_interface_claimed(IFPTR(usb, CONTROL_IF)))
-#endif /* BCMUSBDEV_COMPOSITE */
-	{
-		ret = -1;
-		goto fail;
-	}
-#endif /* !KERNEL26 */
-
-#ifdef BCMUSBDEV_COMPOSITE
-	if ((IFDESC(usb, wlan_if).bInterfaceClass != USB_CLASS_VENDOR_SPEC ||
-		IFDESC(usb, wlan_if).bInterfaceSubClass != 2 ||
-		IFDESC(usb, wlan_if).bInterfaceProtocol != 0xff) &&
-		(IFDESC(usb, wlan_if).bInterfaceClass != USB_CLASS_MISC ||
-		IFDESC(usb, wlan_if).bInterfaceSubClass != USB_SUBCLASS_COMMON ||
-		IFDESC(usb, wlan_if).bInterfaceProtocol != USB_PROTO_IAD))
-#else
-	if (IFDESC(usb, CONTROL_IF).bInterfaceClass != USB_CLASS_VENDOR_SPEC ||
-		IFDESC(usb, CONTROL_IF).bInterfaceSubClass != 2 ||
-		IFDESC(usb, CONTROL_IF).bInterfaceProtocol != 0xff)
-#endif /* BCMUSBDEV_COMPOSITE */
-	{
-#ifdef BCMUSBDEV_COMPOSITE
-		DBUSERR(("%s: invalid control interface: class %d, subclass %d, proto %d\n",
-			__FUNCTION__,
-			IFDESC(usb, wlan_if).bInterfaceClass,
-			IFDESC(usb, wlan_if).bInterfaceSubClass,
-			IFDESC(usb, wlan_if).bInterfaceProtocol));
-#else
-		DBUSERR(("%s: invalid control interface: class %d, subclass %d, proto %d\n",
-			__FUNCTION__,
-			IFDESC(usb, CONTROL_IF).bInterfaceClass,
-			IFDESC(usb, CONTROL_IF).bInterfaceSubClass,
-			IFDESC(usb, CONTROL_IF).bInterfaceProtocol));
-#endif /* BCMUSBDEV_COMPOSITE */
-			ret = -1;
-			goto fail;
-	}
-
-	/* Check control endpoint */
-#ifdef BCMUSBDEV_COMPOSITE
-	endpoint = &IFEPDESC(usb, wlan_if, 0);
-#else
-	endpoint = &IFEPDESC(usb, CONTROL_IF, 0);
-#endif /* BCMUSBDEV_COMPOSITE */
-	if ((endpoint->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK) != USB_ENDPOINT_XFER_INT) {
-#ifdef BCMUSBDEV_COMPOSITE
-		if ((endpoint->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK) !=
-			USB_ENDPOINT_XFER_BULK) {
-#endif /* BCMUSBDEV_COMPOSITE */
-			DBUSERR(("%s: invalid control endpoint %d\n",
-				__FUNCTION__, endpoint->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK));
-			ret = -1;
-			goto fail;
-#ifdef BCMUSBDEV_COMPOSITE
-		}
-#endif /* BCMUSBDEV_COMPOSITE */
-	}
-
-#ifdef BCMUSBDEV_COMPOSITE
-	if ((endpoint->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK) == USB_ENDPOINT_XFER_INT) {
-#endif /* BCMUSBDEV_COMPOSITE */
-		g_probe_info.intr_pipe =
-			usb_rcvintpipe(usb, endpoint->bEndpointAddress & USB_ENDPOINT_NUMBER_MASK);
-#ifdef BCMUSBDEV_COMPOSITE
-		intr_ep = TRUE;
-	}
-#endif /* BCMUSBDEV_COMPOSITE */
-
-#ifndef KERNEL26
-	/* Claim interface */
-#ifdef BCMUSBDEV_COMPOSITE
-	usb_driver_claim_interface(&dbus_usbdev, IFPTR(usb, wlan_if), &g_probe_info);
-#else
-	usb_driver_claim_interface(&dbus_usbdev, IFPTR(usb, CONTROL_IF), &g_probe_info);
-#endif /* BCMUSBDEV_COMPOSITE */
-	claimed = 1;
-#endif /* !KERNEL26 */
-	g_probe_info.rx_pipe = 0;
-	g_probe_info.rx_pipe2 = 0;
-	g_probe_info.tx_pipe = 0;
-#ifdef BCMUSBDEV_COMPOSITE
-	if (intr_ep)
-		ep = 1;
-	else
-		ep = 0;
-	num_of_eps = IFDESC(usb, wlan_if).bNumEndpoints - 1;
-#else
-	num_of_eps = IFDESC(usb, BULK_IF).bNumEndpoints - 1;
-#endif /* BCMUSBDEV_COMPOSITE */
-
-	if ((num_of_eps != 2) && (num_of_eps != 3)) {
-#ifdef BCMUSBDEV_COMPOSITE
-		if (num_of_eps > 7)
-#endif /* BCMUSBDEV_COMPOSITE */
-			ASSERT(0);
-	}
-	/* Check data endpoints and get pipes */
-#ifdef BCMUSBDEV_COMPOSITE
-	for (; ep <= num_of_eps; ep++)
-#else
-	for (ep = 1; ep <= num_of_eps; ep++)
-#endif /* BCMUSBDEV_COMPOSITE */
-	{
-#ifdef BCMUSBDEV_COMPOSITE
-		endpoint = &IFEPDESC(usb, wlan_if, ep);
-#else
-		endpoint = &IFEPDESC(usb, BULK_IF, ep);
-#endif /* BCMUSBDEV_COMPOSITE */
-		if ((endpoint->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK) !=
-		    USB_ENDPOINT_XFER_BULK) {
-			DBUSERR(("%s: invalid data endpoint %d\n",
-			           __FUNCTION__, ep));
-			ret = -1;
-			goto fail;
-		}
-
-		if ((endpoint->bEndpointAddress & USB_ENDPOINT_DIR_MASK) == USB_DIR_IN) {
-			/* direction: dongle->host */
-			if (!g_probe_info.rx_pipe) {
-				g_probe_info.rx_pipe = usb_rcvbulkpipe(usb,
-					(endpoint->bEndpointAddress & USB_ENDPOINT_NUMBER_MASK));
-			} else {
-				g_probe_info.rx_pipe2 = usb_rcvbulkpipe(usb,
-					(endpoint->bEndpointAddress & USB_ENDPOINT_NUMBER_MASK));
-			}
-
-		} else
-			g_probe_info.tx_pipe = usb_sndbulkpipe(usb, (endpoint->bEndpointAddress &
-			     USB_ENDPOINT_NUMBER_MASK));
-	}
-
-	/* Allocate interrupt URB and data buffer */
-	/* RNDIS says 8-byte intr, our old drivers used 4-byte */
-#ifdef BCMUSBDEV_COMPOSITE
-	g_probe_info.intr_size = (IFEPDESC(usb, wlan_if, 0).wMaxPacketSize == 16) ? 8 : 4;
-	g_probe_info.interval = IFEPDESC(usb, wlan_if, 0).bInterval;
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 21))
-	usb->quirks |= USB_QUIRK_NO_SET_INTF;
-#endif
-#else
-	g_probe_info.intr_size = (IFEPDESC(usb, CONTROL_IF, 0).wMaxPacketSize == 16) ? 8 : 4;
-	g_probe_info.interval = IFEPDESC(usb, CONTROL_IF, 0).bInterval;
-#endif /* BCMUSBDEV_COMPOSITE */
-
-#ifndef KERNEL26
-	/* usb_fill_int_urb does the interval decoding in 2.6 */
-	if (usb->speed == USB_SPEED_HIGH)
-		g_probe_info.interval = 1 << (g_probe_info.interval - 1);
-#endif
-	if (usb->speed == USB_SPEED_SUPER) {
-		g_probe_info.device_speed = SUPER_SPEED;
-		DBUSERR(("super speed device detected\n"));
-	} else if (usb->speed == USB_SPEED_HIGH) {
-		g_probe_info.device_speed = HIGH_SPEED;
-		DBUSERR(("high speed device detected\n"));
-	} else {
-		g_probe_info.device_speed = FULL_SPEED;
-		DBUSERR(("full speed device detected\n"));
-	}
-	if (g_probe_info.dereged == FALSE && notify_semaphore) {
-		up(notify_semaphore);
-	}
-
-	g_probe_info.disc_cb_done = FALSE;
-
-#ifdef KERNEL26
-	intf->needs_remote_wakeup = 1;
-#endif /* KERNEL26 */
-	DHD_MUTEX_UNLOCK();
-
-	/* Success */
-#ifdef KERNEL26
-	return DBUS_OK;
-#else
-	usb_inc_dev_use(usb);
-	return &g_probe_info;
-#endif
-
-fail:
-	printf("%s: Exit ret=%d\n", __FUNCTION__, ret);
-#ifdef BCMUSBDEV_COMPOSITE
-	if (ret != BCME_UNSUPPORTED)
-#endif /* BCMUSBDEV_COMPOSITE */
-		DBUSERR(("%s: failed with errno %d\n", __FUNCTION__, ret));
-#ifndef KERNEL26
-	if (claimed)
-#ifdef BCMUSBDEV_COMPOSITE
-		usb_driver_release_interface(&dbus_usbdev, IFPTR(usb, wlan_if));
-#else
-		usb_driver_release_interface(&dbus_usbdev, IFPTR(usb, CONTROL_IF));
-#endif /* BCMUSBDEV_COMPOSITE */
-#endif /* !KERNEL26 */
-	DHD_MUTEX_UNLOCK();
-
-#ifdef KERNEL26
-	usb_set_intfdata(intf, NULL);
-	return ret;
-#else
-	return NULL;
-#endif
-
-	return 0;
-}
-
-DUMMY_DBUS_USBOS_DISCONNECT()
-{
-#ifdef KERNEL26
-	struct usb_device *usb = interface_to_usbdev(intf);
-#endif
-
-	DHD_MUTEX_LOCK();
-
-	disc_arg = NULL;
-
-	if (usb) {
-#ifndef KERNEL26
-#ifdef BCMUSBDEV_COMPOSITE
-		usb_driver_release_interface(&dbus_usbdev, IFPTR(usb, wlan_if));
-#else
-		usb_driver_release_interface(&dbus_usbdev, IFPTR(usb, CONTROL_IF));
-#endif /* BCMUSBDEV_COMPOSITE */
-		usb_dec_dev_use(usb);
-#endif /* !KERNEL26 */
-	}
-	DHD_MUTEX_UNLOCK();
-}
-
-/** functions called by the Linux kernel USB subsystem */
-static struct usb_driver dummy_dbus_usbdev = {
-	name:           "dummy_dbus_usbdev",
-	probe:          dummy_usbos_probe,
-	disconnect:     dummy_usbos_disconnect,
-	id_table:       devid_table,
-};
-
-/* Register a dummy USB client driver in order to be notified of new USB device */
-int dbus_usbos_reg_notify(void* semaphore)
-{
-	notify_semaphore = semaphore;
-	usb_register(&dummy_dbus_usbdev);
-	return DBUS_OK;
-}
-
-void dbus_usbos_unreg_notify(void)
-{
-	usb_deregister(&dummy_dbus_usbdev);
-}
-#endif

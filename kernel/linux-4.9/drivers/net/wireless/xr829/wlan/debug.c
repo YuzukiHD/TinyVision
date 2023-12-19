@@ -46,14 +46,6 @@ u8 dbg_logfile = XRADIO_DBG_ERROR;
 u8 error_hang_driver;
 #endif
 
-#if (DBG_PAS_RAM)
-u8 dbg_pas_ram = 0;
-#endif
-
-#if (DBG_AHB_RAM)
-u8 dbg_ahb_ram = 0;
-#endif
-
 #if (DBG_XRADIO_HIF)
 u16 hif_test_rw; /*0: nothing to do; 1: write only; 2: write and read*/
 u16 hif_test_data_mode; /* hif test data mode, such as 0x55, 0xff etc*/
@@ -148,6 +140,8 @@ static void xradio_debug_print_map(struct seq_file *seq,
 		   priv->hw_priv->tx_queue_stats.map_capacity - 1);
 }
 
+extern u8 arp_resp_drop;
+
 static int xradio_version_show(struct seq_file *seq, void *v)
 {
 	struct xradio_common *hw_priv = seq->private;
@@ -173,7 +167,7 @@ static const struct file_operations fops_version = {
 static int xradio_hwinfo_show(struct seq_file *seq, void *v)
 {
 	struct xradio_common *hw_priv = seq->private;
-	u32 hw_arry[64] = { 0 };
+	u32 hw_arry[8] = { 0 };
 
 	wsm_read_mib(hw_priv, WSM_MIB_ID_HW_INFO, (void *)&hw_arry,
 		     sizeof(hw_arry), 4);
@@ -187,38 +181,10 @@ static int xradio_hwinfo_show(struct seq_file *seq, void *v)
 	hw_arry[7] &= ~0xFFFC07C0;
 	*/
 
-	seq_printf(seq, "0x%08x,0x%08x,0x%08x,0x%08x,"
-			"0x%08x,0x%08x,0x%08x,0x%08x,"
-			"0x%08x,0x%08x,0x%08x,0x%08x,"
-			"0x%08x,0x%08x,0x%08x,0x%08x,"
-			"0x%08x,0x%08x,0x%08x,0x%08x,"
-			"0x%08x,0x%08x,0x%08x,0x%08x,"
-			"0x%08x,0x%08x,0x%08x,0x%08x,"
-			"0x%08x,0x%08x,0x%08x,0x%08x,"
-			"0x%08x,0x%08x,0x%08x,0x%08x,"
-			"0x%08x,0x%08x,0x%08x,0x%08x,"
-			"0x%08x,0x%08x,0x%08x,0x%08x,"
-			"0x%08x,0x%08x,0x%08x,0x%08x,"
-			"0x%08x,0x%08x,0x%08x,0x%08x,"
-			"0x%08x,0x%08x,0x%08x,0x%08x,"
-			"0x%08x,0x%08x,0x%08x,0x%08x,"
-			"0x%08x,0x%08x,0x%08x,0x%08x\n",
+	seq_printf(seq, "0x%08x, 0x%08x, 0x%08x, 0x%08x, "
+			"0x%08x, 0x%08x, 0x%08x, 0x%08x\n",
 			hw_arry[0], hw_arry[1], hw_arry[2], hw_arry[3],
-			hw_arry[4], hw_arry[5], hw_arry[6], hw_arry[7],
-			hw_arry[8], hw_arry[9], hw_arry[10], hw_arry[11],
-			hw_arry[12], hw_arry[13], hw_arry[14], hw_arry[15],
-			hw_arry[16], hw_arry[17], hw_arry[18], hw_arry[19],
-			hw_arry[20], hw_arry[21], hw_arry[22], hw_arry[23],
-			hw_arry[24], hw_arry[25], hw_arry[26], hw_arry[27],
-			hw_arry[28], hw_arry[29], hw_arry[30], hw_arry[31],
-			hw_arry[32], hw_arry[33], hw_arry[34], hw_arry[35],
-			hw_arry[36], hw_arry[37], hw_arry[38], hw_arry[39],
-			hw_arry[40], hw_arry[41], hw_arry[42], hw_arry[43],
-			hw_arry[44], hw_arry[45], hw_arry[46], hw_arry[47],
-			hw_arry[48], hw_arry[49], hw_arry[50], hw_arry[51],
-			hw_arry[52], hw_arry[53], hw_arry[54], hw_arry[55],
-			hw_arry[56], hw_arry[57], hw_arry[58], hw_arry[59],
-			hw_arry[60], hw_arry[61], hw_arry[62], hw_arry[63]);
+			hw_arry[4], hw_arry[5], hw_arry[6], hw_arry[7]);
 	return 0;
 }
 
@@ -510,14 +476,14 @@ static int xradio_backoff_show(struct seq_file *seq, void *v)
 		(__le32_to_cpu(counters.CAT_STR(count, name))&0xffff))
 
 	PUT_COUNTER("backoff_max ", 0);
-	PUT_COUNTER("[0,7]       ", 1);
-	PUT_COUNTER("[~,15]      ", 2);
-	PUT_COUNTER("[~,31]      ", 3);
-	PUT_COUNTER("[~,63]      ", 4);
-	PUT_COUNTER("[~,127]     ", 5);
-	PUT_COUNTER("[~,255]     ", 6);
-	PUT_COUNTER("[~,511]     ", 7);
-	PUT_COUNTER("[~,1023]    ", 8);
+	PUT_COUNTER("[0, 7]       ", 1);
+	PUT_COUNTER("[~, 15]      ", 2);
+	PUT_COUNTER("[~, 31]      ", 3);
+	PUT_COUNTER("[~, 63]      ", 4);
+	PUT_COUNTER("[~, 127]     ", 5);
+	PUT_COUNTER("[~, 255]     ", 6);
+	PUT_COUNTER("[~, 511]     ", 7);
+	PUT_COUNTER("[~, 1023]    ", 8);
 
 
 #undef PUT_COUNTER
@@ -783,9 +749,9 @@ char *med_state_str[4] = {
 	"with wlan",
 	"with bt and wlan waiting"
 };
-char *req_type_str[] = {
-	"rx_recovery", "rx_mcast", "rx_bcn", "tx_bcn", "tx_cts",
-		"tx_high", "tx_uapsd", "fastps", "scan", "pspoll", "tx_low", "common"
+char *req_type_str[11] = {
+	"rx_recovery", "rx_mcast", "rx_bcn", "tx_bcn", "tx_cts", "tx_high", "tx_uapsd", "fastps",
+	"scan", "pspoll", "tx_low"
 };
 
 static int xradio_epta_stat_show(struct seq_file *seq, void *v)
@@ -884,7 +850,7 @@ static int xradio_epta_stat_show(struct seq_file *seq, void *v)
 		seq_printf(seq, "%6s: %7u %8s: %7u %8s: %-3u %9s: %-1u\n", "rt_si ", __le32_to_cpu(bt_link_info->rt_si), "rt_sw ", __le32_to_cpu(bt_link_info->rt_sw),
 				"req   ", __le32_to_cpu(bt_link_info->requests), "prio_hw_rt ", ((__le32_to_cpu(bt_link_info->time_diff_req_start)) >> 4) & 0xf);
 		seq_printf(seq, "%6s: %7u %8s: %7u %8s: %-3u %9s: %-1u\n", "msg_si", __le32_to_cpu(bt_link_info->msg_si), "msg_sw", __le32_to_cpu(bt_link_info->msg_sw),
-				"gr_req",__le32_to_cpu(bt_link_info->granted_requests), "prio_hw_nrt",  (__le32_to_cpu(bt_link_info->time_diff_req_start)) & 0xf);
+				"gr_req", __le32_to_cpu(bt_link_info->granted_requests), "prio_hw_nrt",  (__le32_to_cpu(bt_link_info->time_diff_req_start)) & 0xf);
 
 		seq_printf(seq, "%6s: %-3u %14s: %-3u\n", "caton ",  __le32_to_cpu(bt_link_info->bt_caton_num), "tx_retry", __le32_to_cpu(bt_link_info->bt_tx_retry_num));
 
@@ -1493,7 +1459,7 @@ static ssize_t xradio_fwreg_rw_direct(struct file *file,
 					   __func__, ret);
 			} else {
 				xradio_dbg(XRADIO_DBG_ALWY, "%s:test HIF R/W [register]]-- " \
-					   "write  register @0x%x,val is 0x%x\n",
+					   "write  register @0x%x, val is 0x%x\n",
 					   __func__, reg_w.arg[0].reg_addr,
 					   reg_w.arg[0].reg_val);
 			}
@@ -1542,7 +1508,7 @@ static ssize_t xradio_fwreg_rw_direct(struct file *file,
 			reg_r.arg[i] = simple_strtoul(startptr, &endptr, 16);
 			startptr = endptr + 1;
 		}
-		/* if(i) reg_r.data_size = 4+i*4; */
+		/* if (i) reg_r.data_size = 4+i*4; */
 		if (!(reg_r.arg[0] & 0xffff0000)) { /* means read register */
 			ret = xradio_reg_read_32(hw_priv, (u16)reg_r.arg[0], &val32);
 			if (ret < 0) {
@@ -1551,7 +1517,7 @@ static ssize_t xradio_fwreg_rw_direct(struct file *file,
 					   __func__, ret);
 			}
 			xradio_dbg(XRADIO_DBG_ALWY, "%s:test HIF R/W [register]]-- " \
-				   "reading  register @0x%x,val is 0x%x\n",
+				   "reading  register @0x%x, val is 0x%x\n",
 				   __func__, reg_r.arg[0], val32);
 		} else { /* means read memory */
 
@@ -2284,12 +2250,12 @@ static ssize_t xradio_tpa_ctrl_get(struct file *file,
 		u8  *pwr = &tpa_info.u.ctrl.pwr_level[0];
 
 		pos += sprintf(&buf_show[pos],
-			       "en=%d,init=%d,intvl=%d,step=%d\n",
+			       "en=%d, init=%d, intvl=%d, step=%d\n",
 			       tpa_info.u.ctrl.tpa_enable,
 			       tpa_info.u.ctrl.tpa_initialized,
 			       tpa_info.u.ctrl.point_interval,
 			       tpa_info.u.ctrl.point_step);
-		pos += sprintf(&buf_show[pos], "th_q=%d,th_tm=%d,th_updt=%d," \
+		pos += sprintf(&buf_show[pos], "th_q=%d, th_tm=%d, th_updt=%d, " \
 			       "th_def_lstn=%d, th_stbl=%d\n",
 			       tpa_info.u.ctrl.thresh_q,
 			       tpa_info.u.ctrl.thresh_time,
@@ -2508,8 +2474,8 @@ static int xradio_tpa_debug(struct seq_file *seq, void *v)
 			   tpa_info.u.debug.smp_excep_cnt,
 			   tpa_info.u.debug.smp_stable_cnt);
 
-		seq_printf(seq, "lsat Moduln=%d, M=%d,%d; " \
-			   "L=%d,%d; R=%d,%d; D=%d,%d\n",
+		seq_printf(seq, "lsat Moduln=%d, M=%d, %d; " \
+			   "L=%d, %d; R=%d, %d; D=%d, %d\n",
 			   tpa_info.u.debug.smp_last_moduln,
 			   tpa_info.u.debug.point_last_smp[0],
 			   tpa_info.u.debug.point_last_smp[1],
@@ -2753,7 +2719,7 @@ static int xradio_perf_info(struct seq_file *seq, void *v)
 		sdio_reg_cnt1, sdio_reg_cnt2, sdio_reg_cnt3, sdio_reg_cnt4,
 		sdio_reg_cnt5, sdio_reg_cnt6);
 	seq_printf(seq, "limit_cnt1=%d, limit_cnt2=%d, "
-		"limit_cnt3=%d,limit_cnt4=%d, limit_cnt5=%d, limit_cnt6=%d\n",
+		"limit_cnt3=%d, limit_cnt4=%d, limit_cnt5=%d, limit_cnt6=%d\n",
 		tx_limit_cnt1, tx_limit_cnt2, tx_limit_cnt3,
 		tx_limit_cnt4, tx_limit_cnt5, tx_limit_cnt6);
 
@@ -3385,6 +3351,42 @@ static const struct file_operations fops_short_dump = {
 	.llseek = default_llseek,
 };
 
+static ssize_t xradio_ce_test_read(struct file *file,
+	char __user *user_buf, size_t count, loff_t *ppos)
+{
+	return 0;
+}
+
+static ssize_t xradio_ce_test_write(struct file *file,
+	const char __user *user_buf, size_t count, loff_t *ppos)
+{
+	struct xradio_common *hw_priv = file->private_data;
+	u32 ce_test_en = 0;
+	char buf[12] = { 0 };
+	char *endptr = NULL;
+
+	count = (count > 11 ? 11 : count);
+	if (!count)
+		return -EINVAL;
+
+	if (copy_from_user(buf, user_buf, count))
+		return -EFAULT;
+
+	ce_test_en = simple_strtoul(buf, &endptr, 10);
+	xradio_dbg(XRADIO_DBG_ALWY, "%s ce_test_en %u\n", __func__, ce_test_en);
+	wsm_write_mib(hw_priv, WSM_MIB_ID_CE_TEST_CONFIG, &ce_test_en,
+				sizeof(ce_test_en), 0);
+
+	return count;
+}
+
+static const struct file_operations fops_ce_test = {
+	.open = xradio_generic_open,
+	.write = xradio_ce_test_write,
+	.read = xradio_ce_test_read,
+	.llseek = default_llseek,
+};
+
 #ifdef SUPPORT_HT40
 
 static int xradio_status_show_priv(struct seq_file *seq, void *v)
@@ -3714,89 +3716,6 @@ static const struct file_operations fops_ht_compat_dis = {
 };
 #endif
 
-
-#if (DBG_PAS_RAM)
-static ssize_t pas_ram_test_result(struct file *file,
-	char __user *user_buf, size_t count, loff_t *ppos)
-{
-	int result = -1;
-	int ret;
-	char val[20];
-
-	while (dbg_pas_ram == 1) {
-		printk(KERN_ERR "ETF is cating, wifi is not running\n");
-		msleep(10);
-	}
-
-	if (dbg_pas_ram == 2) {
-		/* right */
-		result = 0;
-		printk(KERN_ERR "[PAS_RAM_TEST] the chip is ok,result is %d\n", result);
-	} else if (dbg_pas_ram == 3) {
-		/* wrong */
-		result = 1;
-		printk(KERN_ERR "[PAS_RAM_TEST] the chip is not ok,result is %d\n", result);
-	} else if (dbg_pas_ram == 4 || dbg_pas_ram == 0) {
-		/* failed to test */
-		result = 2;
-		printk(KERN_ERR "[PAS_RAM_TEST] unable to test the chip,result is %d\n", result);
-	} else {
-		return 0;
-	}
-
-	sprintf(val, "%d\n", result);
-	ret = simple_read_from_buffer(user_buf, count, ppos, val, strlen(val));
-	return ret;
-}
-
-static const struct file_operations fops_pas_ram = {
-	.open = xradio_generic_open,
-	.read  = pas_ram_test_result,
-	.owner = THIS_MODULE,
-};
-#endif
-
-#if (DBG_AHB_RAM)
-static ssize_t ahb_ram_test_result(struct file *file,
-	char __user *user_buf, size_t count, loff_t *ppos)
-{
-	int result = -1;
-	int ret;
-	char val[20];
-
-	while (dbg_ahb_ram == 1) {
-		printk(KERN_ERR "ETF is cating, wifi is not running\n");
-		msleep(10);
-	}
-
-	if (dbg_ahb_ram == 2) {
-		/* right */
-		result = 0;
-		printk(KERN_ERR "[AHB_RAM_TEST] the chip is ok,result is %d\n", result);
-	} else if (dbg_ahb_ram == 3) {
-		/* wrong */
-		result = 1;
-		printk(KERN_ERR "[AHB_RAM_TEST] the chip is not ok,result is %d\n", result);
-	} else if (dbg_ahb_ram == 4 || dbg_ahb_ram == 0) {
-		/* failed to test */
-		result = 2;
-		printk(KERN_ERR "[AHB_RAM_TEST] unable to test the chip,result is %d\n", result);
-	} else {
-		return 0;
-	}
-
-	sprintf(val, "%d\n", result);
-	ret = simple_read_from_buffer(user_buf, count, ppos, val, strlen(val));
-	return ret;
-}
-
-static const struct file_operations fops_ahb_ram = {
-	.open = xradio_generic_open,
-	.read  = ahb_ram_test_result,
-	.owner = THIS_MODULE,
-};
-#endif
-
 #define VIF_DEBUGFS_NAME_S 10
 int xradio_debug_init_priv(struct xradio_common *hw_priv,
 			   struct xradio_vif *priv)
@@ -3950,13 +3869,10 @@ static const struct file_operations fops_hif_test = {
 void xradio_hang_driver_for_debug(struct xradio_common *hw_priv, int error)
 {
 	int cnt = 0;
-	int create_debugfs = false;
-
 	if (!error_hang_driver || !error)
 		return ; /*do nothing.*/
 
 	if (!hw_priv->debug) { /*have not setup debugfs yet, just do it.*/
-		create_debugfs = true;
 		xradio_debug_init_common(hw_priv);
 	}
 	while (error_hang_driver) {
@@ -3965,61 +3881,21 @@ void xradio_hang_driver_for_debug(struct xradio_common *hw_priv, int error)
 		xradio_dbg(XRADIO_DBG_ALWY, "err=%d, hang driver for %ds.\n",
 			error, cnt*5);
 	}
-	if (create_debugfs)
-		xradio_debug_release_common(hw_priv);
+	xradio_debug_release_common(hw_priv);
 	xradio_dbg(XRADIO_DBG_ALWY, "%s exit.\n", __func__);
 }
 #endif
-
-static bool ce_test_enable;
-static ssize_t xradio_ce_test_config_write(struct file *file,
-	const char __user *user_buf, size_t count, loff_t *ppos)
-{
-	struct xradio_common *hw_priv = file->private_data;
-	char buf[12] = {0};
-	char *endptr = NULL;
-
-	count = (count > 11 ? 11 : count);
-
-	if (!count)
-		return -EINVAL;
-	if (copy_from_user(buf, user_buf, count))
-		return -EFAULT;
-	ce_test_enable = !!(simple_strtoul(buf, &endptr, 10));
-
-	xradio_dbg(XRADIO_DBG_ALWY, "ce_test_enable = %d\n", ce_test_enable);
-	wsm_write_mib(hw_priv, WSM_MIB_ID_CE_TEST_CONFIG, &ce_test_enable,
-		sizeof(ce_test_enable), 0);
-
-	return count;
-}
-
-static ssize_t xradio_ce_test_config_read(struct file *file,
-	char __user *user_buf, size_t count, loff_t *ppos)
-{
-	/* struct xradio_common *hw_priv = file->private_data; */
-	char buf[50];
-	size_t size = 0;
-
-	sprintf(buf, "ce_test_enable = %d\n", ce_test_enable);
-	size = strlen(buf);
-
-	return simple_read_from_buffer(user_buf, count, ppos, buf, size);
-}
-
-
-static const struct file_operations fops_ce_test = {
-	.open = xradio_generic_open,
-	.write = xradio_ce_test_config_write,
-	.read = xradio_ce_test_config_read,
-	.llseek = default_llseek,
-};
 
 /*for host debuglevel*/
 struct dentry *debugfs_host;
 #if (DGB_XRADIO_QC)
 struct dentry *debugfs_hwinfo;
 #endif
+
+#ifdef SCAN_SUBDIVIDE
+extern u32 scan_delay;
+#endif
+
 int xradio_host_dbg_init(void)
 {
 	int line = 0;
@@ -4104,25 +3980,14 @@ int xradio_host_dbg_init(void)
 				   debugfs_host, &error_hang_driver))
 		ERR_LINE;
 #endif
+	if (!debugfs_create_u8("arp_resp_drop", S_IRUSR | S_IWUSR,
+				   debugfs_host, &arp_resp_drop))
+		ERR_LINE;
 
-#if (DBG_PAS_RAM)
-	if (!debugfs_create_u8("dbg_pas_ram", 0666,
-				   debugfs_host, &dbg_pas_ram))
+#ifdef SCAN_SUBDIVIDE
+	if (!debugfs_create_u32("scan_delay", S_IRUSR | S_IWUSR,
+				   debugfs_host, &scan_delay))
 		ERR_LINE;
-	if (!debugfs_create_file("pas_ram_result", 0666, debugfs_host,
-			NULL, &fops_pas_ram)) {
-		ERR_LINE;
-	}
-#endif
-
-#if (DBG_AHB_RAM)
-	if (!debugfs_create_u8("dbg_ahb_ram", 0666,
-				   debugfs_host, &dbg_ahb_ram))
-		ERR_LINE;
-	if (!debugfs_create_file("ahb_ram_result", 0666, debugfs_host,
-			NULL, &fops_ahb_ram)) {
-		ERR_LINE;
-	}
 #endif
 
 	return 0;
@@ -4309,6 +4174,9 @@ int xradio_debug_init_common(struct xradio_common *hw_priv)
 	if (!debugfs_create_file("wsm_dump_size", S_IRUSR | S_IWUSR,
 		d->debugfs_phy, hw_priv, &fops_short_dump))
 		ERR_LINE;
+	if (!debugfs_create_file("ce_test", S_IRUSR | S_IWUSR,
+		d->debugfs_phy, hw_priv, &fops_ce_test))
+		ERR_LINE;
 
 #if (SUPPORT_EPTA)
 	if (!debugfs_create_file("epta_stat", S_IRUSR, d->debugfs_phy,
@@ -4340,13 +4208,14 @@ int xradio_debug_init_common(struct xradio_common *hw_priv)
 
 	if (!debugfs_create_file("hwt_hif_rx_burn", S_IWUSR, d->debugfs_phy,
 		hw_priv, &fops_hwt_hif_rx_burn))
-		ERR_LINE;
+	ERR_LINE;
+
 #endif /*DGB_XRADIO_HWT*/
 
 #if (DGB_XRADIO_QC)
 	/*for QC apk read.*/
 	if (debugfs_host && !debugfs_hwinfo) {
-		debugfs_hwinfo = debugfs_create_file("hwinfo", S_IRUSR, debugfs_host,
+		debugfs_hwinfo = debugfs_create_file("hwinfo", S_IRUSR | S_IWUSR, debugfs_host,
 						     hw_priv, &fops_hwinfo);
 		if (!debugfs_hwinfo)
 			ERR_LINE;
@@ -4354,14 +4223,8 @@ int xradio_debug_init_common(struct xradio_common *hw_priv)
 
 	if (!debugfs_create_file("temperature", S_IRUSR, d->debugfs_phy,
 		hw_priv, &fops_temperature))
-		ERR_LINE;
+	ERR_LINE;
 #endif
-
-	/* For CE test config*/
-	if (!debugfs_create_file("ce_test", S_IRUSR | S_IWUSR,
-		  d->debugfs_phy, hw_priv, &fops_ce_test))
-		ERR_LINE;
-
 	ret = xradio_itp_init(hw_priv);
 	if (ret)
 		ERR_LINE;
@@ -4472,7 +4335,7 @@ void xradio_parse_frame(u8 *mac_data, u8 iv_len, u16 flags, u8 if_id)
 			FT_MSG_PUT(PF_DATA, "NULL(ps=%d)", !!(fctl&IEEE80211_FCTL_PM));
 			goto outprint;
 		}
-		FT_MSG_PUT(PF_DATA, "data(TDFD=%d%d,R=%d,P=%d)",
+		FT_MSG_PUT(PF_DATA, "data(TDFD=%d%d, R=%d, P=%d)",
 			   !!(fctl & IEEE80211_FCTL_TODS),
 			   !!(fctl & IEEE80211_FCTL_FROMDS),
 			   !!(fctl & IEEE80211_FCTL_RETRY),
@@ -4582,7 +4445,7 @@ void xradio_parse_frame(u8 *mac_data, u8 iv_len, u16 flags, u8 if_id)
 			/*spanning tree proto.*/
 			PT_MSG_PUT(PF_UNKNWN, "spanning tree");
 		} else {
-			PT_MSG_PUT(PF_UNKNWN, "unknown LLC type=0x%08x,0x%08x",
+			PT_MSG_PUT(PF_UNKNWN, "unknown LLC type=0x%08x, 0x%08x",
 				   *(u32 *)(llc_data), *((u32 *)(llc_data)+1));
 		}
 
@@ -4592,12 +4455,20 @@ void xradio_parse_frame(u8 *mac_data, u8 iv_len, u16 flags, u8 if_id)
 		FRAME_PARSE(PF_MGMT, deauth);
 		FRAME_PARSE(PF_MGMT, assoc_req);
 		FRAME_PARSE(PF_MGMT, assoc_resp);
+		FRAME_PARSE(PF_MGMT, reassoc_req);
+		FRAME_PARSE(PF_MGMT, reassoc_resp);
 		FRAME_PARSE(PF_MGMT, disassoc);
 		FRAME_PARSE(PF_MGMT, atim);
 
 		/*for more information about action frames.*/
 		if (FRAME_TYPE(action)) {
+			u8* encrypt_frame = NULL;
 			struct ieee80211_mgmt *mgmt = (struct ieee80211_mgmt *)frame;
+			if (frame->frame_control & __cpu_to_le32(IEEE80211_FCTL_PROTECTED) && (flags & PF_RX))
+			{
+				encrypt_frame = (u8*)frame + IEEE80211_CCMP_256_HDR_LEN;
+				mgmt = (struct ieee80211_mgmt *)encrypt_frame;
+			}
 			FT_MSG_PUT(PF_MGMT, "%s", "action");
 
 			if (mgmt->u.action.category == WLAN_CATEGORY_PUBLIC) {
@@ -4616,6 +4487,14 @@ void xradio_parse_frame(u8 *mac_data, u8 iv_len, u16 flags, u8 if_id)
 				WLAN_ACTION_ADDBA_RESP) {
 				FT_MSG_PUT(PF_MGMT, "(ADDBA_RESP-%d)",
 					   mgmt->u.action.u.addba_resp.status);
+			} else if (mgmt->u.action.category == WLAN_CATEGORY_SA_QUERY &&
+				mgmt->u.action.u.sa_query.action ==
+				WLAN_ACTION_SA_QUERY_REQUEST) {
+				FT_MSG_PUT(PF_MGMT, "(SA_Query_Req)");
+			} else if (mgmt->u.action.category == WLAN_CATEGORY_SA_QUERY &&
+				mgmt->u.action.u.sa_query.action ==
+				WLAN_ACTION_SA_QUERY_RESPONSE) {
+				FT_MSG_PUT(PF_MGMT, "(SA_Query_Resp)");
 			} else {
 				FT_MSG_PUT(PF_MGMT, "(%d)", mgmt->u.action.category);
 			}

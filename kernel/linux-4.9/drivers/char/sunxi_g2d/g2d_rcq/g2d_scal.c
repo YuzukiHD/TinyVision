@@ -468,8 +468,15 @@ __s32 g2d_vsu_para_set(struct scaler_submodule *p_scal, __u32 fmt, __u32 in_w,
 		p_reg->c_ver_phase.dwval = 0;
 	}
 
+	/* IP MODULE BUG: In RCQ mode, this register can only be configured to
+	 * 1, and wait for the hardware module to automatically configure it to
+	 * 0. If not, the scaler will be abnormal. */
+#if G2D_MIXER_RCQ_USED == 0
+	p_reg->vs_ctrl.bits.coef_access_sel = 0;
+#endif
 	ret = 0;
 	p_scal->set_block_dirty(p_scal, 0, 1);
+
 OUT:
 	return ret;
 }

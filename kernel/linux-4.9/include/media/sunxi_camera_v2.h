@@ -339,6 +339,69 @@ struct tdm_speeddn_cfg {
 	unsigned char tdm_tx_invalid_num;
 };
 
+struct isp_ir_awb_gain {
+	int awb_rgain_ir;
+	int awb_bgain_ir;
+};
+
+struct isp_h3a_coor_win {
+	int x1;
+	int y1;
+	int x2;
+	int y2;
+};
+
+struct isp_ae_roi_attr {
+	unsigned short enable;
+	unsigned short force_ae_target;
+	struct isp_h3a_coor_win coor;
+};
+
+struct enc_MovingLevelInfo {
+	unsigned char is_overflow;
+	unsigned short moving_level_table[484];
+};
+
+struct enc_VencVe2IspParam {
+	int d2d_level; //[1,1024], 256 means 1X
+	int d3d_level; //[1,1024], 256 means 1X
+	struct enc_MovingLevelInfo mMovingLevelInfo;
+};
+
+struct isp_cfg_attr_data {
+	unsigned short cfg_id;
+	unsigned short update_flag;
+	int ev_digital_gain;
+	int pltmwdr_level;
+	int denoise_level;
+	int tdf_level;
+	int ir_status;
+	int ae_ev_idx;
+	int ae_max_ev_idx;
+	int ae_lum_idx;
+	int ae_ev_lv;
+	int ae_ev_lv_adj;
+	int ae_lock;
+	int awb_color_temp;
+	struct isp_ir_awb_gain awb_ir_gain;
+	struct ae_table_info *ae_table;
+	char path[100];
+	struct isp_ae_roi_attr ae_roi_area;
+	unsigned char ae_stat_avg[432];
+	struct enc_VencVe2IspParam VencVe2IspParam;
+};
+
+struct isp_memremap_cfg {
+	unsigned char en;
+	void *vir_addr;
+	unsigned int size;
+};
+
+struct bk_buffer_align {
+	unsigned char lbc_align_en;
+	unsigned char yuv_align_en;
+};
+
 #define VIDIOC_ISP_AE_STAT_REQ \
 	_IOWR('V', BASE_VIDIOC_PRIVATE + 1, struct isp_stat_buf)
 #define VIDIOC_ISP_HIST_STAT_REQ \
@@ -375,7 +438,22 @@ struct tdm_speeddn_cfg {
 	_IOWR('V', BASE_VIDIOC_PRIVATE + 17, struct vipp_shrink_cfg)
 #define VIDIOC_SET_TDM_SPEEDDN_CFG \
 	_IOWR('V', BASE_VIDIOC_PRIVATE + 18, struct tdm_speeddn_cfg)
-
+#define VIDIOC_SET_ISP_CFG_ATTR \
+	_IOWR('V', BASE_VIDIOC_PRIVATE + 19, struct isp_cfg_attr_data)
+#define VIDIOC_GET_ISP_CFG_ATTR \
+	_IOWR('V', BASE_VIDIOC_PRIVATE + 20, struct isp_cfg_attr_data)
+#define VIDIOC_SET_TDM_DEPTH \
+	_IOWR('V', BASE_VIDIOC_PRIVATE + 21, unsigned int)
+#define VIDIOC_GET_ISP_ENCPP_CFG_ATTR \
+	_IOWR('V', BASE_VIDIOC_PRIVATE + 22, struct isp_encpp_cfg_attr_data)
+#define VIDIOC_SET_PHY2VIR \
+	_IOWR('V', BASE_VIDIOC_PRIVATE + 23, struct isp_memremap_cfg)
+#define VIDIOC_SET_D3DLBCRATIO \
+	_IOWR('V', BASE_VIDIOC_PRIVATE + 24, unsigned int)
+#define VIDIOC_SET_BKBUFFER_ALIGN \
+	_IOWR('V', BASE_VIDIOC_PRIVATE + 25, struct bk_buffer_align)
+#define VIDIOC_SET_BK_SET_WSTRIDE \
+	_IOWR('V', BASE_VIDIOC_PRIVATE + 26, unsigned char)
 /*
  * Events
  *
@@ -438,8 +516,8 @@ struct vin_vsync_event_data {
 #define VIDIOC_VIN_ISP_STAT_EN \
 	_IOWR('V', BASE_VIDIOC_PRIVATE + 33, unsigned int)
 
-#define ISP_MSC_TBL_SIZE	484
-#define ISP_MSC_TBL_LENGTH			(3*ISP_MSC_TBL_SIZE)
+//#define ISP_MSC_TBL_SIZE	484
+//#define ISP_MSC_TBL_LENGTH			(3*ISP_MSC_TBL_SIZE)
 
 struct sensor_config {
 	int width;
@@ -453,6 +531,10 @@ struct sensor_config {
 	unsigned int bin_factor;/*binning factor                    */
 	unsigned int intg_min;	/*integration min, unit: line, Q4   */
 	unsigned int intg_max;	/*integration max, unit: line, Q4   */
+	unsigned int intg_mid_min;	/*middle integration min, unit: line, Q4   */
+	unsigned int intg_mid_max;	/*middle integration max, unit: line, Q4   */
+	unsigned int intg_short_min;	/*short integration min, unit: line, Q4   */
+	unsigned int intg_short_max;	/*short integration max, unit: line, Q4   */
 	unsigned int gain_min;	/*sensor gain min, Q4               */
 	unsigned int gain_max;	/*sensor gain max, Q4               */
 	unsigned int mbus_code;	/*media bus code                    */
@@ -467,7 +549,11 @@ struct sensor_config {
 
 struct sensor_exp_gain {
 	int exp_val;
+	int exp_mid_val;
+	int exp_short_val;
 	int gain_val;
+	int gain_mid_val;
+	int gain_short_val;
 	int r_gain;
 	int b_gain;
 };
@@ -475,6 +561,12 @@ struct sensor_exp_gain {
 struct sensor_fps {
 	int fps;
 };
+
+struct sensor_flip {
+	unsigned char hflip;
+	unsigned char vflip;
+};
+
 struct sensor_temp {
 	int temp;
 };
@@ -482,6 +574,42 @@ struct sensor_temp {
 struct isp_table_reg_map {
 	void __user *addr;
 	unsigned int size;
+};
+
+struct isp_debug_info {
+	int exp_val;
+	int gain_val;
+	unsigned int lum_idx;
+	unsigned int awb_color_temp;
+	unsigned int awb_rgain;
+	unsigned int awb_bgain;
+	int contrast_level;
+	int brightness_level;
+	int sharpness_level;
+	int saturation_level;
+	int tdf_level;
+	int denoise_level;
+	int pltmwdr_level;
+	int sensor_temper;
+	char libs_version[64];
+	char isp_cfg_version[128];
+};
+
+typedef enum _switch_choice_type {
+	SWITCH_A = 0,
+	SWITCH_B = 1,
+	SWITCH_MAX,
+} switch_choice_type;
+
+typedef enum _switch_ctrl_type {
+	GET_SWITCH = 0,
+	SET_SWITCH = 1,
+	CTRL_MAX,
+} switch_ctrl_type;
+
+struct sensor_mipi_switch_entity {
+	switch_ctrl_type switch_ctrl;
+	unsigned int mipi_switch_status;
 };
 
 struct actuator_ctrl {
@@ -499,8 +627,21 @@ struct flash_para {
 
 struct msc_para {
 	unsigned char data[2048];
-}
-;
+};
+
+struct ir_switch {
+	int ir_on;
+	int ir_flash_on;
+	int ir_hold;
+};
+
+struct sensor_resolution {
+	__u32 width_max;
+	__u32 height_max;
+	__u32 width_min;
+	__u32 height_min;
+};
+
 /*
  * Camera Sensor IOCTLs
  */
@@ -521,6 +662,8 @@ struct msc_para {
 	_IOWR('V', BASE_VIDIOC_PRIVATE + 65, struct actuator_para)
 #define VIDIOC_VIN_FLASH_EN \
 	_IOWR('V', BASE_VIDIOC_PRIVATE + 66, struct flash_para)
+#define VIDIOC_VIN_SET_IR \
+	_IOWR('V', BASE_VIDIOC_PRIVATE + 67, struct ir_switch)
 
 #define VIDIOC_VIN_ISP_LOAD_REG \
 	_IOWR('V', BASE_VIDIOC_PRIVATE + 70, struct isp_table_reg_map)
@@ -539,6 +682,14 @@ struct msc_para {
 
 #define VIDIOC_VIN_SET_SENSOR_OTP_INFO \
 	_IOWR('V', BASE_VIDIOC_PRIVATE + 75, unsigned long long)
+#define VIDIOC_VIN_ISP_SYNC_DEBUG_INFO \
+	_IOWR('V', BASE_VIDIOC_PRIVATE + 76, struct isp_debug_info)
+#define VIDIOC_VIN_SENSOR_GET_FPS \
+	_IOWR('V', BASE_VIDIOC_PRIVATE + 77, struct sensor_fps)
+#define VIDIOC_VIN_SENSOR_GET_FLIP \
+	_IOWR('V', BASE_VIDIOC_PRIVATE + 78, struct sensor_flip)
+#define VIDIOC_VIN_SENSOR_MIPI_SWITCH \
+	_IOWR('V', BASE_VIDIOC_PRIVATE + 79, struct sensor_mipi_switch_entity)
 
 #endif /*_SUNXI_CAMERA_H_*/
 

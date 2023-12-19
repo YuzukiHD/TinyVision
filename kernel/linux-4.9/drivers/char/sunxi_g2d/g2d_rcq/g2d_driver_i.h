@@ -26,7 +26,7 @@
 #if defined(CONFIG_FPGA_V4_PLATFORM) || defined(CONFIG_FPGA_V7_PLATFORM)
 #define WAIT_CMD_TIME_MS 500
 #else
-#define WAIT_CMD_TIME_MS 100
+#define WAIT_CMD_TIME_MS 50
 #endif
 
 

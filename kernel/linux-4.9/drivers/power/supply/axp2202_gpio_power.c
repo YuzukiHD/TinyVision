@@ -40,32 +40,33 @@ struct axp2202_gpio_power {
 	struct device             *dev;
 	struct regmap             *regmap;
 	struct power_supply       *gpio_supply;
+	struct power_supply       *usb_psy;
 	struct axp_config_info  dts_info;
 	struct delayed_work        gpio_supply_mon;
 	struct delayed_work        gpio_chg_state;
 	struct gpio_config axp_acin_det;
-	struct gpio_config usbid_drv;
-	struct gpio_config axp_vbus_det;
-	int acin_det_gpio_value;
-	int vbus_det_gpio_value;
 };
 
-int ac_in_flag;
-int vbus_in_flag;
 
 static enum power_supply_property axp2202_gpio_props[] = {
 	POWER_SUPPLY_PROP_MODEL_NAME,
+	POWER_SUPPLY_PROP_ONLINE,
 };
 
 static int axp2202_gpio_get_property(struct power_supply *psy,
 				       enum power_supply_property psp,
 				       union power_supply_propval *val)
 {
+	struct axp2202_gpio_power *gpio_power = power_supply_get_drvdata(psy);
+
 	int ret = 0;
 
 	switch (psp) {
 	case POWER_SUPPLY_PROP_MODEL_NAME:
 		val->strval = psy->desc->name;
+		break;
+	case POWER_SUPPLY_PROP_ONLINE:
+		val->intval = __gpio_get_value(gpio_power->axp_acin_det.gpio);
 		break;
 	default:
 		ret = -EINVAL;
@@ -82,258 +83,150 @@ static const struct power_supply_desc axp2202_gpio_desc = {
 	.num_properties = ARRAY_SIZE(axp2202_gpio_props),
 };
 
-
 int axp2202_irq_handler_gpio_in(void *data)
 {
 	struct axp2202_gpio_power *gpio_power = data;
+	struct device_node *np = NULL;
+	union power_supply_propval temp;
 
+	pr_info("[acin_irq]axp2202_gpio_in\n");
 	power_supply_changed(gpio_power->gpio_supply);
-	ac_in_flag = 1;
+	if (gpio_power->usb_psy && (!IS_ERR(gpio_power->usb_psy))) {
+		temp.intval = 2500;
+		np = of_parse_phandle(gpio_power->dev->of_node, "det_usb_supply", 0);
+		if (np)
+			of_property_read_u32(np, "pmu_usbad_cur", &temp.intval);
 
+		pr_info("[acin_irq] ad_current_limit = %d\n", temp.intval);
+		power_supply_set_property(gpio_power->usb_psy,
+						POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT, &temp);
+	}
 	return 0;
 }
 
 int axp2202_irq_handler_gpio_out(void *data)
 {
 	struct axp2202_gpio_power *gpio_power = data;
+	struct device_node *np = NULL;
+	union power_supply_propval temp;
 
+	pr_info("[acout_irq]axp2202_gpio_out\n");
 	power_supply_changed(gpio_power->gpio_supply);
-	ac_in_flag = 0;
+	if (gpio_power->usb_psy && (!IS_ERR(gpio_power->usb_psy))) {
+		power_supply_get_property(gpio_power->usb_psy, POWER_SUPPLY_PROP_ONLINE, &temp);
+		if (temp.intval) {
+			power_supply_get_property(gpio_power->usb_psy, POWER_SUPPLY_PROP_USB_TYPE, &temp);
+			if (temp.intval == POWER_SUPPLY_USB_TYPE_SDP) {
+				temp.intval = 500;
+				np = of_parse_phandle(gpio_power->dev->of_node, "det_usb_supply", 0);
+				if (np)
+					of_property_read_u32(np, "pmu_usbpc_cur", &temp.intval);
 
+				pr_info("[acout_irq] pc_current_limit = %d\n", temp.intval);
+				power_supply_set_property(gpio_power->usb_psy,
+							POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT, &temp);
+			}
+		}
+	}
 	return 0;
 }
 
 static irqreturn_t axp_acin_gpio_isr(int irq, void *data)
 {
-	struct axp2202_gpio_power *chg_dev = data;
-	chg_dev->acin_det_gpio_value = __gpio_get_value(
-			chg_dev->axp_acin_det.gpio);
+	struct axp2202_gpio_power *gpio_power = data;
 
-	if (chg_dev->acin_det_gpio_value == 1) {
-		pr_info("[acin_irq] ac_in_flag = %d\n",
-			ac_in_flag);
-		pr_info("acin_det_gpio_value == 1\n\n");
-		axp2202_irq_handler_gpio_in(chg_dev);
-	} else {
-		pr_info("[acout_irq] ac_in_flag = %d\n",
-			ac_in_flag);
-		pr_info("nacin_det_gpio_value == 0\n\n");
-		axp2202_irq_handler_gpio_out(chg_dev);
-	}
-
-	return IRQ_HANDLED;
-}
-
-static irqreturn_t axp_vbus_det_isr(int irq, void *data)
-{
-	struct axp2202_gpio_power *chg_dev = data;
-	chg_dev->acin_det_gpio_value = __gpio_get_value(
-			chg_dev->axp_vbus_det.gpio);
-
-	if (chg_dev->vbus_det_gpio_value == 1) {
-		vbus_in_flag = 1;
-		pr_info("[acin_irq] vbus_dev_flag = %d\n",
-			vbus_in_flag);
-		pr_info("vbus_det_gpio_value == 1\n\n");
-	} else {
-		vbus_in_flag = 0;
-		pr_info("[acout_irq] vbus_dev_flag = %d\n",
-			vbus_in_flag);
-		pr_info("vbus_det_gpio_value == 0\n\n");
-	}
+	cancel_delayed_work_sync(&gpio_power->gpio_chg_state);
+	schedule_delayed_work(&gpio_power->gpio_chg_state, 0);
 
 	return IRQ_HANDLED;
 }
 
 enum axp2202_gpio_virq_index {
 	AXP2202_VIRQ_GPIO,
-	AXP2202_VBUS_DET,
 };
 
 static struct axp_interrupts axp_gpio_irq[] = {
 	[AXP2202_VIRQ_GPIO] = { "pmu_acin_det_gpio", axp_acin_gpio_isr },
-	[AXP2202_VBUS_DET] = { "pmu_acin_det_gpio", axp_vbus_det_isr },
 };
 
-static int axp_acin_gpio_init(struct axp2202_gpio_power *chg_dev)
+static int axp_acin_gpio_init(struct axp2202_gpio_power *gpio_power)
 {
 	unsigned long int config_set;
 	int pull = 0;
+	char pin_name[SUNXI_PIN_NAME_MAX_LEN];
 
 	int id_irq_num = 0;
 	unsigned long irq_flags = 0;
-	int ret = 0;
-	char pin_name[SUNXI_PIN_NAME_MAX_LEN];
+	int ret = 0, i;
 
-	if (!gpio_is_valid(chg_dev->axp_acin_det.gpio)) {
-		pr_err("ERR: get pmu_acin_det_gpio is fail\n");
-		return -EINVAL;
+	if (!gpio_is_valid(gpio_power->axp_acin_det.gpio)) {
+		pr_warning("get pmu_acin_det_gpio is fail\n");
+		return -EPROBE_DEFER;
 	}
-
-	if (!gpio_is_valid(chg_dev->usbid_drv.gpio)) {
-		pr_err("ERR: get pmu_usbid_drv_gpio is fail\n");
-		return -EINVAL;
-	}
-
-	if (!gpio_is_valid(chg_dev->axp_vbus_det.gpio)) {
-		pr_err("ERR: get axp_vbus_det_gpio is fail\n");
-		return -EINVAL;
-	}
-
-	pr_info("axp_acin_gpio_init:%d, usbid_drv:%d, axp_vbus_det:%d\n",
-			chg_dev->axp_acin_det.gpio, chg_dev->usbid_drv.gpio, chg_dev->axp_vbus_det.gpio);
 
 	ret = gpio_request(
-			chg_dev->axp_acin_det.gpio,
+			gpio_power->axp_acin_det.gpio,
 			"pmu_acin_det_gpio");
-
 	if (ret != 0) {
-		pr_err("ERR: pmu_acin_det gpio_request failed\n");
-		return -EINVAL;
+		pr_warning("pmu_acin_det gpio_request failed\n");
+		return -EPROBE_DEFER;
 	}
+	/* set acin input */
+	gpio_direction_input(gpio_power->axp_acin_det.gpio);
 
-	ret = gpio_request(
-			chg_dev->usbid_drv.gpio,
-			"pmu_acin_usbid_drv");
-
-	if (ret != 0) {
-		pr_err("ERR: pmu_usbid_drv gpio_request failed\n");
-		return -EINVAL;
-	}
-
-	ret = gpio_request(
-			chg_dev->axp_vbus_det.gpio,
-			"pmu_vbus_det_gpio");
-
-	if (ret != 0) {
-		pr_err("ERR: pmu_vbus_det_gpio gpio_request failed\n");
-		return -EINVAL;
-	}
-
-
-	/* set acin input usbid output */
-
-	gpio_direction_input(chg_dev->axp_acin_det.gpio);
-	gpio_direction_output(chg_dev->usbid_drv.gpio, 1);
-	gpio_direction_input(chg_dev->axp_vbus_det.gpio);
-
-	/* set id gpio pull up */
+	/* irq config setting */
 	config_set = SUNXI_PINCFG_PACK(
 				PIN_CONFIG_BIAS_PULL_UP,
 				pull);
-	sunxi_gpio_to_name(chg_dev->axp_acin_det.gpio, pin_name);
-
+	irq_flags = IRQF_TRIGGER_FALLING | IRQF_TRIGGER_RISING |
+			IRQF_ONESHOT | IRQF_NO_SUSPEND;
+	/* set id gpio pull up */
+	sunxi_gpio_to_name(gpio_power->axp_acin_det.gpio, pin_name);
 	pin_config_set(SUNXI_PINCTRL, pin_name, config_set);
 
-	id_irq_num = gpio_to_irq(chg_dev->axp_acin_det.gpio);
-
-	if (IS_ERR_VALUE((unsigned long)id_irq_num)) {
-		pr_err("ERR: map pmu_acin_det gpio to virq failed, err %d\n",
-			   id_irq_num);
-		return -EINVAL;
-	}
-
+	id_irq_num = gpio_to_irq(gpio_power->axp_acin_det.gpio);
 	axp_gpio_irq[0].irq = id_irq_num;
 
-	pr_info("acin_id_irq_num:%d, %d \n", axp_gpio_irq[0].irq, id_irq_num);
-
-	irq_flags = IRQF_TRIGGER_FALLING | IRQF_TRIGGER_RISING |
-			IRQF_ONESHOT | IRQF_NO_SUSPEND;
-	ret = request_irq(id_irq_num, axp_gpio_irq[0].isr, irq_flags,
-			axp_gpio_irq[0].name, chg_dev);
-
-
-	if (IS_ERR_VALUE((unsigned long)ret)) {
-		pr_err("ERR: request pmu_acin_det virq %d failed, err %d\n",
-			 id_irq_num, ret);
-		return -EINVAL;
+	for (i = 0; i < ARRAY_SIZE(axp_gpio_irq); i++) {
+		ret = devm_request_any_context_irq(gpio_power->dev, axp_gpio_irq[i].irq, axp_gpio_irq[i].isr, irq_flags,
+				axp_gpio_irq[i].name, gpio_power);
+		if (IS_ERR_VALUE((unsigned long)ret)) {
+			pr_warning("Requested %s IRQ %d failed, err %d\n",
+				axp_gpio_irq[i].name, axp_gpio_irq[i].irq, ret);
+			return -EINVAL;
+		}
+		dev_dbg(gpio_power->dev, "Requested %s IRQ %d: %d\n",
+			axp_gpio_irq[i].name, axp_gpio_irq[i].irq, ret);
 	}
-
-	dev_dbg(chg_dev->dev, "Requested %s IRQ %d: %d\n",
-		axp_gpio_irq[0].name, id_irq_num, ret);
-
-	/* set id vbus_det pull up */
-	config_set = SUNXI_PINCFG_PACK(
-				PIN_CONFIG_BIAS_PULL_UP,
-				pull);
-	sunxi_gpio_to_name(chg_dev->axp_vbus_det.gpio, pin_name);
-
-	pin_config_set(SUNXI_PINCTRL, pin_name, config_set);
-
-	id_irq_num = gpio_to_irq(chg_dev->axp_vbus_det.gpio);
-
-	if (IS_ERR_VALUE((unsigned long)id_irq_num)) {
-		pr_err("ERR: map pmu_vbus_det gpio to virq failed, err %d\n",
-			   id_irq_num);
-		return -EINVAL;
-	}
-
-	axp_gpio_irq[1].irq = id_irq_num;
-
-	pr_info("vbus_det_irq_num:%d, %d \n", axp_gpio_irq[1].irq, id_irq_num);
-
-	irq_flags = IRQF_TRIGGER_FALLING | IRQF_TRIGGER_RISING |
-			IRQF_ONESHOT | IRQF_NO_SUSPEND;
-	ret = request_irq(id_irq_num, axp_gpio_irq[1].isr, irq_flags,
-			axp_gpio_irq[1].name, chg_dev);
-
-
-	if (IS_ERR_VALUE((unsigned long)ret)) {
-		pr_err("ERR: request pmu_vbus_det virq %d failed, err %d\n",
-			 id_irq_num, ret);
-		return -EINVAL;
-	}
-
-	dev_dbg(chg_dev->dev, "Requested %s IRQ %d: %d\n",
-		axp_gpio_irq[1].name, id_irq_num, ret);
 
 	return 0;
 }
+static void axp2202_gpio_power_set_current_fsm(struct work_struct *work)
+{
+	struct axp2202_gpio_power *gpio_power =
+		container_of(work, typeof(*gpio_power), gpio_chg_state.work);
+	int acin_det_gpio_value;
 
+	acin_det_gpio_value = __gpio_get_value(gpio_power->axp_acin_det.gpio);
 
+	pr_info("[ac_irq] ac_in_flag :%d\n", acin_det_gpio_value);
+	if (acin_det_gpio_value == 1) {
+		axp2202_irq_handler_gpio_in(gpio_power);
+	} else {
+		axp2202_irq_handler_gpio_out(gpio_power);
+	}
+}
 static void axp2202_gpio_power_monitor(struct work_struct *work)
 {
 	struct axp2202_gpio_power *gpio_power =
 		container_of(work, typeof(*gpio_power), gpio_supply_mon.work);
 
-	unsigned int reg_value;
-	int gpio_value;
-
-	gpio_value = __gpio_get_value(gpio_power->axp_acin_det.gpio);
-	regmap_read(gpio_power->regmap, AXP2202_CC_STAT0, &reg_value);
-	reg_value &= AXP2202_OTG_MARK;
-
-	if ((reg_value == 0x06) | (reg_value == 0x09) | (reg_value == 0x0c)) {
-		pr_info("\n\nset_otg_type: %s , %d \n", __func__, __LINE__);
-		if (!gpio_value) {
-			regmap_update_bits(gpio_power->regmap, AXP2202_MODULE_EN, AXP2202_CHARGER_ENABLE_MARK, 0);
-			pr_info("\n\nset_otg_type_disable_charger: %s , %d \n", __func__, __LINE__);
-		}
-		gpio_direction_output(gpio_power->usbid_drv.gpio, 0);
-	} else {
-		regmap_update_bits(gpio_power->regmap, AXP2202_MODULE_EN, AXP2202_CHARGER_ENABLE_MARK, AXP2202_CHARGER_ENABLE_MARK);
-		pr_info("\n\nset_no_otg_type_enable_charger: %s , %d \n", __func__, __LINE__);
-
-		gpio_direction_output(gpio_power->usbid_drv.gpio, 1);
-
-	}
-
-	schedule_delayed_work(&gpio_power->gpio_supply_mon, msecs_to_jiffies(500));
+	schedule_delayed_work(&gpio_power->gpio_supply_mon, msecs_to_jiffies(1000));
 }
-
-
-static void axp2202_gpio_power_init(struct axp2202_gpio_power *gpio_power)
-{
-
-}
-
 
 int axp2202_gpio_dt_parse(struct device_node *node,
 			 struct axp_config_info *axp_config)
 {
-	axp_config->wakeup_gpio =
-		of_property_read_bool(node, "wakeup_gpio");
-
 	return 0;
 }
 
@@ -342,7 +235,6 @@ static void axp2202_gpio_parse_device_tree(struct axp2202_gpio_power *gpio_power
 	int ret;
 	struct axp_config_info *cfg;
 
-	/* set input current limit */
 	if (!gpio_power->dev->of_node) {
 		pr_info("can not find device tree\n");
 		return;
@@ -354,11 +246,7 @@ static void axp2202_gpio_parse_device_tree(struct axp2202_gpio_power *gpio_power
 		pr_info("can not parse device tree err\n");
 		return;
 	}
-
-	/*init axp2202 gpio by device tree*/
-	axp2202_gpio_power_init(gpio_power);
 }
-
 
 static int axp2202_gpio_probe(struct platform_device *pdev)
 {
@@ -371,12 +259,12 @@ static int axp2202_gpio_probe(struct platform_device *pdev)
 	struct power_supply_config psy_cfg = {};
 
 	if (!of_device_is_available(node)) {
-		pr_err("axp2202-gpio device is not configed\n");
+		pr_err("axp2202-acin device is not configed\n");
 		return -ENODEV;
 	}
 
 	if (!axp_dev->irq) {
-		pr_err("can not register axp2202-gpio without irq\n");
+		pr_err("can not register axp2202-acin without irq\n");
 		return -EINVAL;
 	}
 
@@ -401,44 +289,34 @@ static int axp2202_gpio_probe(struct platform_device *pdev)
 			&axp2202_gpio_desc, &psy_cfg);
 
 	if (IS_ERR(gpio_power->gpio_supply)) {
-		pr_err("axp2202 failed to register gpio power\n");
+		pr_err("axp2202 failed to register acin power-sypply\n");
 		ret = PTR_ERR(gpio_power->gpio_supply);
 		return ret;
 	}
+
+	if (of_find_property(gpio_power->dev->of_node, "det_usb_supply", NULL)) {
+		gpio_power->usb_psy = devm_power_supply_get_by_phandle(gpio_power->dev, "det_usb_supply");
+	} else {
+		pr_err("axp2202 acin-sypply failed to find usb power\n");
+		gpio_power->usb_psy =  NULL;
+	}
+
+	INIT_DELAYED_WORK(&gpio_power->gpio_supply_mon, axp2202_gpio_power_monitor);
+	INIT_DELAYED_WORK(&gpio_power->gpio_chg_state, axp2202_gpio_power_set_current_fsm);
 
 	gpio_power->axp_acin_det.gpio =
 		of_get_named_gpio(pdev->dev.of_node,
 				"pmu_acin_det_gpio", 0);
 
-	gpio_power->usbid_drv.gpio =
-		of_get_named_gpio(pdev->dev.of_node,
-				"pmu_acin_usbid_drv", 0);
-
-	gpio_power->axp_vbus_det.gpio =
-		of_get_named_gpio(pdev->dev.of_node,
-				"pmu_vbus_det_gpio", 0);
-
-	if (gpio_is_valid(gpio_power->axp_acin_det.gpio)) {
-		if (gpio_is_valid(gpio_power->usbid_drv.gpio)) {
-			if (gpio_is_valid(gpio_power->axp_vbus_det.gpio)) {
-				ret = axp_acin_gpio_init(gpio_power);
-			if (ret != 0)
-				pr_err("axp acin init failed\n");
-			} else {
-				pr_info("get pmu_vbus_det_gpio is fail\n");
-			}
-		} else {
-			pr_info("get pmu_acin_usbid_drv is fail\n");
-		}
-	} else {
-		pr_info("get pmu_acin_det_gpio is fail\n");
+	ret = axp_acin_gpio_init(gpio_power);
+	if (ret != 0) {
+		pr_err("axp acin init failed\n");
+		return ret;
 	}
 
+	schedule_delayed_work(&gpio_power->gpio_supply_mon, msecs_to_jiffies(1000));
 	platform_set_drvdata(pdev, gpio_power);
-	printk("axp2202_gpio_probe: %s , %d \n", __func__, __LINE__);
-
-	INIT_DELAYED_WORK(&gpio_power->gpio_supply_mon, axp2202_gpio_power_monitor);
-	schedule_delayed_work(&gpio_power->gpio_supply_mon, msecs_to_jiffies(500));
+	pr_info("axp2202_gpio_probe finish: %s , %d \n", __func__, __LINE__);
 
 	return ret;
 
@@ -447,7 +325,6 @@ err:
 
 	return ret;
 }
-
 
 static int axp2202_gpio_remove(struct platform_device *pdev)
 {
@@ -464,40 +341,30 @@ static int axp2202_gpio_remove(struct platform_device *pdev)
 	return 0;
 }
 
-
-
-static inline void axp2202_gpio_irq_set(unsigned int irq, bool enable)
+static void axp2202_gpio_shutdown(struct platform_device *pdev)
 {
-	if (enable)
-		enable_irq(irq);
-	else
-		disable_irq(irq);
+	struct axp2202_gpio_power *gpio_power = platform_get_drvdata(pdev);
+
+	cancel_delayed_work_sync(&gpio_power->gpio_supply_mon);
+	cancel_delayed_work_sync(&gpio_power->gpio_chg_state);
 }
 
-static void axp2202_gpio_virq_dts_set(struct axp2202_gpio_power *gpio_power, bool enable)
+static int axp2202_gpio_suspend(struct platform_device *pdev, pm_message_t state)
 {
-	struct axp_config_info *dts_info = &gpio_power->dts_info;
+	struct axp2202_gpio_power *gpio_power = platform_get_drvdata(pdev);
 
-	if (!dts_info->wakeup_gpio)
-		axp2202_gpio_irq_set(axp_gpio_irq[AXP2202_VIRQ_GPIO].irq,
-				enable);
-}
+	cancel_delayed_work_sync(&gpio_power->gpio_supply_mon);
+	cancel_delayed_work_sync(&gpio_power->gpio_chg_state);
 
-static int axp2202_gpio_suspend(struct platform_device *p, pm_message_t state)
-{
-	struct axp2202_gpio_power *gpio_power = platform_get_drvdata(p);
-
-
-	axp2202_gpio_virq_dts_set(gpio_power, false);
 	return 0;
 }
 
-static int axp2202_gpio_resume(struct platform_device *p)
+static int axp2202_gpio_resume(struct platform_device *pdev)
 {
-	struct axp2202_gpio_power *gpio_power = platform_get_drvdata(p);
+	struct axp2202_gpio_power *gpio_power = platform_get_drvdata(pdev);
 
-
-	axp2202_gpio_virq_dts_set(gpio_power, true);
+	schedule_delayed_work(&gpio_power->gpio_chg_state, 0);
+	schedule_delayed_work(&gpio_power->gpio_supply_mon, 0);
 
 	return 0;
 }
@@ -517,13 +384,13 @@ static struct platform_driver axp2202_gpio_power_driver = {
 	},
 	.probe = axp2202_gpio_probe,
 	.remove = axp2202_gpio_remove,
+	.shutdown = axp2202_gpio_shutdown,
 	.suspend = axp2202_gpio_suspend,
 	.resume = axp2202_gpio_resume,
 };
 
 module_platform_driver(axp2202_gpio_power_driver);
 
-MODULE_AUTHOR("wangxiaoliang <wangxiaoliang@x-powers.com>");
+MODULE_AUTHOR("xinouyang <xinouyang@allwinnertech.com>");
 MODULE_DESCRIPTION("axp2202 gpio driver");
 MODULE_LICENSE("GPL");
-

@@ -35,8 +35,10 @@ static struct cpufreq_nvmem_data ver_data;
 
 struct cpufreq_soc_data {
 	void (*nvmem_xlate)(u32 *versions, char *name);
+	bool nvmem_speed;
 	bool nvmem_Icpu;
 	bool nvmem_bin;
+	bool has_nvmem_extend_bin;
 };
 
 static int sun50i_nvmem_get_data(char *cell_name, u32 *data)
@@ -98,6 +100,93 @@ err:
 	return ret;
 }
 
+static const char sun8iw21_ic_index_list[][32] = {
+	{"allwinner,qg3101"},
+	{"allwinner,v851s"},
+	{"allwinner,v851se"},
+	{"allwinner,v853s"},
+	{"allwinner,r853s"},
+	{"allwinner,v853"},
+	{"allwinner,r853"},
+};
+
+
+static unsigned int sun8iw21_get_ic_index(void)
+{
+	int index;
+	for (index = 0; index < ARRAY_SIZE(sun8iw21_ic_index_list); index++) {
+		if (of_machine_is_compatible(sun8iw21_ic_index_list[index]) > 0) {
+			return index+1;
+		}
+	}
+	return 0;
+
+
+}
+
+static void sun8iw21_nvmem_xlate(u32 *versions, char *name)
+{
+	int value = 0;
+	u32 SID18 = (ver_data.nv_bin >> 24) & 0x1;
+	u32 ic_index = sun8iw21_get_ic_index();
+	u32 vf_tbl_sel = 0;
+	struct device_node *np = of_find_node_by_path("/cpus/cpu@0");
+	if (np)
+		of_property_read_u32(np, "vf_tbl_sel", &vf_tbl_sel);
+
+	switch (ic_index) {
+	case 1:
+		if (vf_tbl_sel == 0)
+			value = 1;
+		else
+			value = 2;
+		break;
+	case 2:
+	case 3:
+		if (vf_tbl_sel == 0)
+			value = 3;
+		else
+			value = 4;
+		break;
+	case 4:
+	case 5:
+		if (vf_tbl_sel == 0)
+			value = 5;
+		else if (vf_tbl_sel == 1)
+			value = 6;
+		else if (vf_tbl_sel == 2)
+			value = 10;
+		else if (vf_tbl_sel == 3)
+			value = 11;
+		else
+			value = 5;
+		break;
+	case 6:
+	case 7:
+		if (vf_tbl_sel == 0) {
+			if (SID18 == 1) {
+				value = 7;
+			} else {
+				value = 8;
+			}
+		} else {
+			value = 9;
+		}
+		break;
+	default:
+		value = 0;
+	}
+	/* printk("\nline:%d %s P0:%d, Isys:%d vf_tbl_sel:%d, ic_index:%d value:%d\n\n", __LINE__, __func__, P0, Isys, vf_tbl_sel, ic_index, value); */
+	*versions = (1 << value);
+	/* snprintf(name, MAX_NAME_LEN, "a%d", value); */
+
+}
+
+static struct cpufreq_soc_data sun8iw21_soc_data = {
+	.nvmem_xlate = sun8iw21_nvmem_xlate,
+	.nvmem_bin = true,
+};
+
 static void sun50iw9_icpu_xlate(char *prop_name, char *name, u32 i_data)
 {
 	int value = 0;
@@ -139,23 +228,24 @@ static void sun50iw9_nvmem_xlate(u32 *versions, char *name)
 
 static struct cpufreq_soc_data sun50iw9_soc_data = {
 	.nvmem_xlate = sun50iw9_nvmem_xlate,
+	.nvmem_speed = true,
 	.nvmem_Icpu = true,
 };
 
+#define SUN50IW10_ICPU_EFUSE_OFF (0x1c)
+#define SUN50IW10_PCPU_EFUSE_OFF (0x20)
+static bool version_before_f;
 static void sun50iw10_bin_xlate(bool high_speed, char *name, u32 bin)
 {
 	int value = 0;
-	bool version_before_f;
-	unsigned int ver_bits = sunxi_get_soc_ver() & 0x7;
-	u32 bin_ext = ver_data.nv_bin_ext;
+	u32 bin_icpu, bin_pcpu;
 
 	bin >>= 12;
-	bin_ext >>= 31;
 
-	if (ver_bits == 0 || ver_bits == 3 || ver_bits == 4)
-		version_before_f = true;
-	else
-		version_before_f = false;
+	sunxi_get_module_param_from_sid(&bin_icpu, SUN50IW10_ICPU_EFUSE_OFF, 4);
+	bin_icpu &= 0xfff; /* the unit is 0.1mA */
+	sunxi_get_module_param_from_sid(&bin_pcpu, SUN50IW10_PCPU_EFUSE_OFF, 4);
+	bin_pcpu &= 0xfff;
 
 	if (high_speed) {
 		switch (bin) {
@@ -180,7 +270,7 @@ static void sun50iw10_bin_xlate(bool high_speed, char *name, u32 bin)
 
 		snprintf(name, MAX_NAME_LEN, "b%d", value);
 	} else {
-		if (bin_ext && (!version_before_f)) {
+		if ((!version_before_f) && (bin_pcpu >= 2900) && (bin_icpu >= 260 && bin_icpu < 360)) {
 			value = 6;
 		} else {
 			switch (bin) {
@@ -218,28 +308,111 @@ static void sun50iw10_bin_xlate(bool high_speed, char *name, u32 bin)
 	pr_debug("sun50iw10 vf-table: %s\n", name);
 }
 
+static void sun50iw10_bin_force_vf1(u32 *versions, char *name)
+{
+	bool force_vf1;
+	u32 bin_icpu, bin_pcpu;
+
+	sunxi_get_module_param_from_sid(&bin_icpu, SUN50IW10_ICPU_EFUSE_OFF, 4);
+	bin_icpu &= 0xfff; /* the unit is 0.1mA */
+	sunxi_get_module_param_from_sid(&bin_pcpu, SUN50IW10_PCPU_EFUSE_OFF, 4);
+	bin_pcpu &= 0xfff;
+
+	if (version_before_f && (bin_icpu >= 84 && bin_icpu < 160) && (bin_pcpu >= 2900 && bin_pcpu < 3100))
+		force_vf1 = true;
+	else
+		force_vf1 = false;
+
+	if (force_vf1) {
+		snprintf(name, MAX_NAME_LEN, "a0");
+	}
+}
+
+static void sun50iw10_bin_xlate_0x8000(bool high_speed, char *name, u32 bin)
+{
+
+	int value = 0;
+
+	snprintf(name, MAX_NAME_LEN, "c%d", value);
+}
+
+static void sun50iw10_bin_xlate_0x0800(bool high_speed, char *name, u32 bin)
+{
+	int value = 0;
+	u32 bin_icpu, bin_pcpu;
+
+	bin >>= 12;
+
+	sunxi_get_module_param_from_sid(&bin_icpu, SUN50IW10_ICPU_EFUSE_OFF, 4);
+	bin_icpu &= 0xfff; /* the unit is 0.1mA */
+	sunxi_get_module_param_from_sid(&bin_pcpu, SUN50IW10_PCPU_EFUSE_OFF, 4);
+	bin_pcpu &= 0xfff;
+
+	switch (bin) {
+	case 0b100:
+		if (version_before_f) {
+			/* ic version A-E */
+			value = 1;
+		} else {
+			/* ic version F and later version */
+			value = 3;
+		}
+		break;
+	default:
+		if (version_before_f) {
+			/* ic version A-E */
+			value = 0;
+		} else {
+			/* ic version F and later version */
+			value = 2;
+		}
+	}
+	snprintf(name, MAX_NAME_LEN, "b%d", value);
+
+	if (!version_before_f && ((bin_pcpu > 3050) && (bin_icpu >= 140 && bin_icpu < 240))) {
+		/* ic version F and later version */
+		value = 0;
+		snprintf(name, MAX_NAME_LEN, "c%d", value);
+	}
+}
+
 static void sun50iw10_nvmem_xlate(u32 *versions, char *name)
 {
+	unsigned int ver_bits = sunxi_get_soc_ver() & 0x7;
+
+	if (ver_bits == 0 || ver_bits == 3 || ver_bits == 4)
+		version_before_f = true;
+	else
+		version_before_f = false;
+
 	switch (ver_data.nv_speed) {
 	case 0x0200:
 	case 0x0600:
 	case 0x0620:
 	case 0x0640:
-	case 0x0800:
 	case 0x1000:
 	case 0x1400:
 	case 0x2000:
 	case 0x4000:
 		sun50iw10_bin_xlate(true, name, ver_data.nv_bin);
 		break;
+	case 0x8000:
+		sun50iw10_bin_xlate_0x8000(true, name, ver_data.nv_bin);
+		break;
+	case 0x0800:
+		sun50iw10_bin_xlate_0x0800(true, name, ver_data.nv_bin);
+		break;
 	case 0x0400:
 	default:
 		sun50iw10_bin_xlate(false, name, ver_data.nv_bin);
+		sun50iw10_bin_force_vf1(versions, name);
 	}
+	pr_notice("using table: %s\n", name);
 }
 
 static struct cpufreq_soc_data sun50iw10_soc_data = {
 	.nvmem_xlate = sun50iw10_nvmem_xlate,
+	.nvmem_speed = true,
 	.nvmem_bin = true,
 };
 
@@ -281,9 +454,11 @@ static int sun50i_cpufreq_get_efuse(const struct cpufreq_soc_data *soc_data,
 {
 	int ptr;
 
-	ptr = sun50i_nvmem_get_data("speed", &ver_data.nv_speed);
-	if (ptr)
-		return ptr;
+	if (soc_data->nvmem_speed) {
+		ptr = sun50i_nvmem_get_data("speed", &ver_data.nv_speed);
+		if (ptr)
+			return ptr;
+	}
 
 	if (soc_data->nvmem_Icpu) {
 		ptr = sun50i_nvmem_get_data("Icpu", &ver_data.nv_Icpu);
@@ -295,6 +470,9 @@ static int sun50i_cpufreq_get_efuse(const struct cpufreq_soc_data *soc_data,
 		ptr = sun50i_nvmem_get_data("bin", &ver_data.nv_bin);
 		if (ptr)
 			return ptr;
+	}
+
+	if (soc_data->has_nvmem_extend_bin) {
 		ptr = sun50i_nvmem_get_data("bin_ext", &ver_data.nv_bin_ext);
 		if (ptr)
 			return ptr;
@@ -318,13 +496,17 @@ static int sun50i_cpufreq_nvmem_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	match = dev_get_platdata(&pdev->dev);
-	if (!match)
+	if (!match) {
+		kfree(opp_tables);
 		return -EINVAL;
+	}
 
 	ret = sun50i_cpufreq_get_efuse(match->data,
 						&ver_data.version, ver_data.name);
-	if (ret)
+	if (ret) {
+		kfree(opp_tables);
 		return ret;
+	}
 
 	for_each_possible_cpu(cpu) {
 		struct device *cpu_dev = get_cpu_device(cpu);
@@ -408,6 +590,10 @@ static struct platform_driver sun50i_cpufreq_driver = {
 };
 
 static const struct of_device_id sun50i_cpufreq_match_list[] = {
+	{
+		.compatible = "arm,sun8iw21p1",
+		.data = &sun8iw21_soc_data,
+	},
 	{
 		.compatible = "arm,sun50iw9p1",
 		.data = &sun50iw9_soc_data,

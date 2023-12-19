@@ -235,7 +235,8 @@ long ion_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 				sizeof(struct sunxi_cache_range)))
 			return -EFAULT;
 
-		if (IS_ERR((void *)data.start) || IS_ERR((void *)data.end)) {
+		if (IS_ERR((void *)data.start) || IS_ERR((void *)data.end)
+			|| data.start >= data.end) {
 			pr_err("flush 0x%x, end 0x%x fault user virt address!\n",
 			       (u32)data.start, (u32)data.end);
 			return -EFAULT;

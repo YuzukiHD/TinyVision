@@ -16,20 +16,10 @@
 #ifndef CDC_CONFIG_H
 #define CDC_CONFIG_H
 
-// option for debug level.
-#define OPTION_LOG_LEVEL_CLOSE      0
-#define OPTION_LOG_LEVEL_ERROR      1
-#define OPTION_LOG_LEVEL_WARNING    2
-#define OPTION_LOG_LEVEL_DEFAULT    3
-#define OPTION_LOG_LEVEL_DETAIL     4
-
 // option for hls seek.
 #define OPTION_HLS_SEEK_IN_SEGMENT  1
 #define OPTION_HLS_NOT_SEEK_IN_SEGMENT 0
 
-#ifndef CONFIG_LOG_LEVEL
-#define CONFIG_LOG_LEVEL    OPTION_LOG_LEVEL_WARNING
-#endif
 
 // <CONFIG_HLS_SEEK=1>: seek to the right request point,
 //it may be slower a little.

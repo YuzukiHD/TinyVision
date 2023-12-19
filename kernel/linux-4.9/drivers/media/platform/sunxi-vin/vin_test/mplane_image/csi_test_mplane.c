@@ -787,6 +787,26 @@ static int camera_init(int sel, int mode)
 		printf("VIDIOC_SET_SENSOR_ISP_CFG error\n");
 	}
 
+#if 0
+	char fdstr[50];
+	FILE *file_fd = NULL;
+	struct isp_memremap_cfg isp_memremap;
+	isp_memremap.en = 1;
+	if (-1 == ioctl(fd, VIDIOC_SET_PHY2VIR, &isp_memremap)) {
+		printf("VIDIOC_SET_PHY2VIR error\n");
+	} else {
+		sprintf(fdstr, "%s/pic.bin", path_name);
+		file_fd = fopen(fdstr, "w");
+		fwrite(isp_memremap.vir_addr, isp_memremap.size, 1, file_fd);
+		fclose(file_fd);
+		printf("vir_addr is 0x%lx\n", (unsigned long)isp_memremap.vir_addr);
+
+		isp_memremap.en = 0;
+		if (-1 == ioctl(fd, VIDIOC_SET_PHY2VIR, &isp_memremap)) {
+			printf("VIDIOC_SET_PHY2VIR error\n");
+		}
+	}
+#endif
 	return 0;
 }
 
@@ -865,6 +885,13 @@ static int camera_fmt_set(int mode)
 	speeddn_cfg.tdm_tx_invalid_num = 0;
 	if (-1 == ioctl(fd, VIDIOC_SET_TDM_SPEEDDN_CFG, &speeddn_cfg)) {
 		printf("VIDIOC_SET_TDM_SPEEDDN_CFG error!\n");
+		return -1;
+	}
+#endif
+#if 0
+	unsigned int max_ch = 2;
+	if (-1 == ioctl(fd, VIDIOC_SET_TDM_DEPTH, &max_ch)) {
+		printf("VIDIOC_SET_TDM_DEPTH error!\n");
 		return -1;
 	}
 #endif
@@ -1067,7 +1094,7 @@ int main(int argc, char *argv[])
 	struct timeval tv1, tv2;
 	float tv;
 
-	install_sig_handler();
+	//install_sig_handler();
 
 	CLEAR(dev_name);
 	CLEAR(path_name);

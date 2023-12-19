@@ -232,6 +232,15 @@ __s32 bld_out_setting(struct blender_submodule *p_bld, g2d_image_enh *p_image)
 	    p_image->clip_rect.w == 0 ? 0 : p_image->clip_rect.w - 1;
 	p_reg->out_size.bits.height =
 	    p_image->clip_rect.h == 0 ? 0 : p_image->clip_rect.h - 1;
+
+#if ((defined CONFIG_ARCH_SUN8IW21P1) || (defined CONFIG_ARCH_SUN20IW2P1) \
+		|| (defined CONFIG_ARCH_SUN20IW3P1))
+	while (p_reg->out_size.bits.height != p_image->clip_rect.h - 1 || p_reg->out_size.bits.width != p_image->clip_rect.w - 1) {
+		p_reg->out_size.bits.height = p_image->clip_rect.h - 1;
+		p_reg->out_size.bits.width = p_image->clip_rect.w - 1;
+	}
+#endif
+
 	p_bld->set_block_dirty(p_bld, 0, 1);
 	ret = 0;
 OUT:

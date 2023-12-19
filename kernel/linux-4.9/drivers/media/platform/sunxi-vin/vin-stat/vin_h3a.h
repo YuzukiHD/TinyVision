@@ -78,6 +78,8 @@ struct isp_stat {
 
 void isp_stat_load_set(struct isp_stat *stat);
 #else // CONFIG_ISP_SERVER_MELIS
+#include "../vin-rp/vin_rp.h"
+
 #define STAT_MAX_BUFS		3
 
 #define STAT_BUF_DONE		0	/* Buffer is ready */
@@ -126,9 +128,15 @@ int isp_stat_enable(struct isp_stat *stat, u8 enable);
 int isp_stat_request_statistics(struct isp_stat *stat);
 
 int isp_config_sensor_info(struct isp_dev *isp);
-int isp_reset_config_sensor_info(struct isp_dev *isp);
+int isp_reset_config_sensor_info(struct isp_dev *isp, enum rpmsg_cmd cmd);
 void isp_sensor_set_exp_gain(struct isp_dev *isp, void *data);
-void isp_save_ae(void *data);
+void isp_set_encpp_cfg(struct isp_dev *isp, void *data);
+void isp_set_ir_cfg(struct isp_dev *isp, void *data);
+void isp_update_isp_attr_cfg(struct isp_dev *isp, void *data);
+void vin_sync_isp_info_node(struct isp_dev *isp, void *data);
+void isp_save_ae(struct isp_dev *isp, void *data);
+void isp_get_sensor_state(struct isp_dev *isp);
+int isp_write_nor_flash(loff_t to, loff_t to_offset, size_t len, const u_char *buf);
 #endif
 
 void isp_stat_isr(struct isp_stat *stat);

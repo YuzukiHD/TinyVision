@@ -20,6 +20,15 @@
 #ifndef _CEDAR_VE_H_
 #define _CEDAR_VE_H_
 
+/* the struct must be same with user-header-file: libcedarc/veAw.h*/
+typedef struct ve_channel_proc_info {
+	unsigned char *base_info_data;
+	unsigned int   base_info_size;
+	unsigned char *advance_info_data;
+	unsigned int   advance_info_size;
+	unsigned int   channel_id;
+} ve_channel_proc_info;
+
 enum IOCTL_CMD {
 	IOCTL_UNKOWN = 0x100,
 	IOCTL_GET_ENV_INFO,
@@ -74,6 +83,11 @@ enum IOCTL_CMD {
 
 	IOCTL_GET_CSI_ONLINE_INFO = 0x710,
 	IOCTL_CLEAR_EN_INT_FLAG   = 0x711,
+
+	/* just for reduce rec/ref buffer of encoder */
+	IOCTL_ALLOC_PAGES_BUF  = 0x720,
+	IOCTL_REC_PAGES_BUF    = 0x721,
+	IOCTL_FREE_PAGES_BUF   = 0x722,
 };
 
 enum VE_INTERRUPT_RESULT_TYPE {
@@ -89,8 +103,6 @@ enum VE_INTERRUPT_RESULT_TYPE {
 #define VE_LOCK_04_REG 0x10
 #define VE_LOCK_ERR 0x80
 
-#define VE_LOCK_PROC_INFO 0x1000
-
 typedef struct CsiOnlineRelatedInfo {
 	unsigned int csi_frame_start_cnt;
 	unsigned int csi_frame_done_cnt;
@@ -99,6 +111,16 @@ typedef struct CsiOnlineRelatedInfo {
 	unsigned int csi_line_start_cnt;
 	unsigned int csi_line_done_cnt;
 } CsiOnlineRelatedInfo;
+
+struct page_buf_info {
+	/* total_size = header + data + ext */
+	unsigned int header_size;
+	unsigned int data_size;
+	unsigned int ext_size;
+	unsigned int phy_addr_0;
+	unsigned int phy_addr_1;
+	unsigned int buf_id;
+};
 
 struct cedarv_env_infomation {
 	unsigned int phymem_start;

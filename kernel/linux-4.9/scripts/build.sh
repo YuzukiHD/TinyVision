@@ -342,6 +342,7 @@ build_modules()
     fi
 
     update_kern_ver
+    build_nand
     if [ "${LICHEE_CHIP}" != "sun8iw8p1" ]; then
 	build_gpu
     fi

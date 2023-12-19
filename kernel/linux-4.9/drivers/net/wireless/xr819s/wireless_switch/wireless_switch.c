@@ -8,6 +8,7 @@
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
  */
+
 #include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -22,12 +23,12 @@
 #include <linux/irq.h>
 #include <linux/param.h>
 #include <linux/rfkill.h>
+
 struct sunxi_wireless_platdata {
 	unsigned int wk_pin;
 	struct rfkill *rfkill;
 	struct platform_device *pdev;
 };
-
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("ANC");
@@ -44,8 +45,8 @@ MODULE_DESCRIPTION("wireless-switch");
 
 #define INPUT_OFFSET    '0'
 
-#define WIRELESS_SWITCH_ERROR(fmt, args...) printk(KERN_ERR"BT SWITCH DEBUG:" fmt, ##args)
-#define WIRELESS_SWITCH_DEBUG(fmt, args...) printk(KERN_DEBUG"BT SWITCH DEBUG:" fmt, ##args)
+#define WIRELESS_SWITCH_ERROR(fmt, args...) printk(KERN_ERR "WIRELESS SWITCH DEBUG:" fmt, ##args)
+#define WIRELESS_SWITCH_DEBUG(fmt, args...) printk(KERN_DEBUG "WIRELESS SWITCH DEBUG:" fmt, ##args)
 
 extern void sunxi_bluetooth_set_power(bool on_off);
 extern void sunxi_wlan_set_power(bool on);
@@ -84,12 +85,11 @@ static void bt_set_wakeup_pin(bool state)
 
 static void bt_set_state(bool state)
 {
-	WIRELESS_SWITCH_DEBUG("%s\n", __func__);
+	WIRELESS_SWITCH_DEBUG("%s %d %d\n", __func__, wlan_state, state);
 
 	if (state == BT_STATE_ON) {
 		if (wlan_state == WLAN_STATE_OFF) {
 			bt_set_reset_pin(state);
-			bt_set_wakeup_pin(state);
 			WIRELESS_SWITCH_DEBUG("wlan off, bt would be turn on\n");
 		} else {
 			bt_set_wakeup_pin(!state);
@@ -100,8 +100,8 @@ static void bt_set_state(bool state)
 	} else if (state == BT_STATE_OFF) {
 		if (wlan_state == WLAN_STATE_OFF) {
 			bt_set_reset_pin(state);
-			bt_set_wakeup_pin(state);
 			WIRELESS_SWITCH_DEBUG("wlan off, bt would be turn off\n");
+		} else {
 		}
 	}
 
@@ -135,8 +135,8 @@ static int sw_rfkill_reg(void)
 	struct device *dev = &wireless->pdev->dev;
 
 	wireless->rfkill = rfkill_alloc("sunxi-wireless", dev, RFKILL_TYPE_BLUETOOTH,
-				    &sunxi_wireless_rfkill_ops, wireless);
-	if (wireless->rfkill == NULL) {
+		&sunxi_wireless_rfkill_ops, wireless);
+	if (!wireless->rfkill) {
 		WIRELESS_SWITCH_ERROR("rfkill alloc failed\n");
 		return ret;
 	}
@@ -161,7 +161,7 @@ static int sw_platform_init(void)
 
 	//kzalloc memory for wireless data struct
 	wireless = kzalloc(sizeof(*wireless), GFP_KERNEL);
-	if (wireless == NULL) {
+	if (!wireless) {
 		WIRELESS_SWITCH_ERROR("kzalloc failed\n");
 		return -1;
 	}
@@ -179,7 +179,11 @@ static int sw_platform_init(void)
 		return -1;
 	}
 
-	np = of_find_node_by_type(NULL, "btlpm");
+	np = of_find_compatible_node(NULL, NULL, "allwinner,sunxi-btlpm");
+	if (!np) {
+		WIRELESS_SWITCH_ERROR("can't find compatible named sunxi-btlpm\n");
+		return -1;
+	}
 
 	wireless->wk_pin = of_get_named_gpio_flags(np, "bt_wake", 0, (enum of_gpio_flags *)&config);
 	WIRELESS_SWITCH_DEBUG("bt_wake is %d\n", wireless->wk_pin);

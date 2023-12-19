@@ -539,7 +539,7 @@ exit:
 
 }
 
-static void xradio_vendor_close_mkeep_alive(void)
+void xradio_vendor_close_mkeep_alive(void)
 {
 	keep_alive_queue_clear();
 }
@@ -558,9 +558,4 @@ void xradio_vendor_init(struct wiphy *wiphy)
 			(unsigned long)local);
 
 	return;
-}
-
-void xradio_vendor_deinit(void)
-{
-	xradio_vendor_close_mkeep_alive();
 }

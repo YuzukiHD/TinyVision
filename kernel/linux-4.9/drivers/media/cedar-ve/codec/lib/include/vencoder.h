@@ -48,6 +48,17 @@ extern "C" {
 
 #define H264_VERSION2_USE64 0
 #define SHARP_ROI_MAX_NUM (8)
+
+#define AE_AVG_ROW  (18)
+#define AE_AVG_COL  (24)
+#define AE_AVG_NUM  (432)
+#define AE_HIST_NUM (256)
+
+#define DEFAULT_MOTION_SEARCH_HOR_REGION_NUM (10)
+#define DEFAULT_MOTION_SEARCH_VER_REGION_NUM (5)
+#define DEFAULT_REGION_D3D_HOR_REGION_NUM    (15)
+#define DEFAULT_REGION_D3D_VER_REGION_NUM    (8)
+
 #define DEBUG_SHOW_ENCODE_TIME     1
 /** VENC_IN is used to identify inputs to an VENC function.  This designation
     will also be used in the case of a pointer that points to a parameter
@@ -63,7 +74,8 @@ extern "C" {
 #define VENC_OUT
 #endif
 
-#define PRINTF_CODE_POS logd("func = %s, line = %d", __FUNCTION__, __LINE__);
+#define PRINTF_CODE_POS
+//logd("func = %s, line = %d", __FUNCTION__, __LINE__);
 
 typedef enum eVencEncppScalerRatio {
 	VENC_ISP_SCALER_0       = 0, //not scaler
@@ -94,6 +106,43 @@ typedef struct s3DfilterParam {
 	unsigned char max_coef; //* range[0~16]: maximum weight of 3d filter,
 } s3DfilterParam;
 
+typedef struct VencRegionD3DRegion {
+	int pix_x_bgn;
+	int pix_x_end;
+	int pix_y_bgn;
+	int pix_y_end;
+	int total_num;
+	int zero_mv_num;
+	int is_possible_static;
+	int is_really_static;
+	float zero_mv_rate;
+} VencRegionD3DRegion;
+
+typedef struct VencRegionD3DResult {
+	int total_region_num;
+	int static_region_num;
+	VencRegionD3DRegion *region;
+} VencRegionD3DResult;
+
+typedef struct VencRegionD3DParam {
+	int en_region_d3d;
+	int dis_default_para;
+	int hor_region_num;
+	int ver_region_num;
+	int hor_expand_num;
+	int ver_expand_num;
+	float zero_mv_rate_th[3];
+	unsigned char chroma_offset;
+	unsigned char static_coef[3]; //* fallow by zero_mv_rate
+	unsigned char motion_coef[4]; //* fallow by MoveStatus
+} VencRegionD3DParam;
+
+typedef struct VencExtremeD3DParam {
+	unsigned char  en_extreme_d3d;
+	float          zero_mv_ratio_th;
+	s3DfilterParam ex_d3d_param;
+} VencExtremeD3DParam;
+
 typedef struct s2DfilterParam {
 	unsigned char enable_2d_filter;
 	unsigned char filter_strength_uv; //* range[0~255], 0 means close 2d filter, advice: 32
@@ -114,9 +163,24 @@ typedef struct {
 	unsigned short moving_level_table[ISP_TABLE_LEN * ISP_TABLE_LEN];
 } MovingLevelInfo;
 
-typedef struct {
+typedef struct VencVe2IspParam {
+	int d2d_level; //[1,1024], 256 means 1X
+	int d3d_level; //[1,1024], 256 means 1X
 	MovingLevelInfo mMovingLevelInfo;
 } VencVe2IspParam;
+
+typedef struct VencVe2IspD2DLimit {
+	int en_d2d_limit;
+	int d2d_level[6];
+} VencVe2IspD2DLimit;
+
+typedef struct VencTargetBitsClipParam {
+	int dis_default_para;
+	int mode;
+	int en_gop_clip;
+	float gop_bit_ratio_th[3];
+	float coef_th[5][2];
+} VencTargetBitsClipParam;
 
 typedef enum eGdcPerspFunc {
 	Gdc_Persp_Only,
@@ -151,6 +215,13 @@ typedef enum eRotationType {
 	RotAngle_180,
 	RotAngle_270,
 } eRotationType;
+
+typedef enum {
+    CAMERA_ADAPTIVE_STATIC = 0,
+    CAMERA_FORCE_STATIC = 1,
+    CAMERA_FORCE_MOVING = 2,
+    CAMERA_STATUS_NUM
+} eCameraStatus;
 
 typedef struct {
 	unsigned char bGDC_en;
@@ -266,6 +337,21 @@ typedef struct sEncppSharpParam {
 	sEncppSharpParamDynamic *pDynamicParam;
 	sEncppSharpParamStatic *pStaticParam;
 } sEncppSharpParam;
+
+typedef struct {
+    int win_pix_n;
+    char avg[AE_AVG_NUM];
+    //int hist[256];
+    //int hist1[256];
+} sIspAeStatus;
+
+typedef struct {
+    eCameraStatus mEnCameraMove;
+    int mEnvLv;
+    int mAeWeightLum;
+    sEncppSharpParam mSharpParam;
+    sIspAeStatus mIspAeStatus;
+} VencIsp2VeParam;
 
 #if 0
 typedef struct ROIHEADER
@@ -576,6 +662,8 @@ typedef struct VencBaseConfig {
 	//* flag&0x2: printf reg after  interrupt
 	eVeLbcMode rec_lbc_mode; //*0: disable, 1:1.5x , 2: 2.0x, 3: 2.5x, 4: no_lossy
 	//*for debug(end)
+
+	int channel_id;
 } VencBaseConfig;
 
 /**
@@ -721,142 +809,32 @@ typedef struct VeProcSet {
 	unsigned int nStatisFrRateTime;
 } VeProcSet;
 
-typedef struct VeProcEncH265Info {
-	float Lambda;
-	float LambdaC;
-	float LambdaSqrt;
+typedef struct {
+    long long mb_start;
+    long long mb_end;
+    long long mb_time;
+    long long mv_start;
+    long long mv_end;
+    long long mv_time;
+    long long bin_start;
+    long long bin_end;
+    long long bin_time;
+    long long r3d_start;
+    long long r3d_end;
+    long long r3d_time;
+    long long int_start;
+    long long int_end;
+    long long int_time;
+    long long sum_start;
+    long long sum_end;
+    long long sum_time;
+    long long avg_int_time;
+} StatisticTime;
 
-	unsigned int uIntraCoef0;
-	unsigned int uIntraCoef1;
-	unsigned int uIntraCoef2;
-	unsigned int uIntraTh32;
-	unsigned int uIntraTh16;
-	unsigned int uIntraTh8;
-
-	unsigned int uInterTend;
-	unsigned int uSkipTend;
-	unsigned int uMergeTend;
-
-	unsigned char fast_intra_en;
-	unsigned char adaptitv_tu_split_en;
-	unsigned int combine_4x4_md_th;
-} VeProcEncH265Info;
-
-typedef struct VeProcEncInfo {
-	unsigned int nChannelNum;
-	unsigned int nProfileIdc;
-	unsigned int nLevelIdc;
-	int nIDRItl;
-	int nBitRate;
-	int nFrameRate;
-
-	unsigned int nInputWidth;
-	unsigned int nInputHeight;
-	unsigned int nDstWidth;
-	unsigned int nDstHeight;
-	unsigned int nStride;
-
-	int eSliceType;
-	int nCurrQp;
-	int nFrameIndex;
-	int nTotalIndex;
-
-	int nInitQp;
-	int nRealBits;
-	int nTargetBits;
-
-	unsigned int uMaxBitRate;
-	int nQuality;
-	int nIFrmBitsCoef;
-	int nPFrmBitsCoef;
-
-	unsigned int uSceneStatus;
-	unsigned int uMoveStatus;
-	unsigned int uMovingLevel;
-	unsigned int uMovingTh;
-	float BinImgRatio;
-	int nEnvLv;
-
-	unsigned char MadEn;
-	float MadHistogram[12][11];
-	unsigned char ClassifyTh[12];
-
-	unsigned char MdEn;
-	float MdHistogram[16][11];
-	int MdQp[16];
-	unsigned int MdLevel[16];
-
-	VENC_RC_MODE eRcMode;
-	VENC_VIDEO_GOP_MODE eGopMode;
-	VencFixQP fix_qp;
-	int i_qp_offset;
-	int i_qp_max;
-	int i_qp_min;
-	int p_qp_max;
-	int p_qp_min;
-	int en_mb_qp_limit;
-
-	unsigned int AFBC_Enable;
-	unsigned int LBC_Enable;
-	unsigned int rot_angle;
-	unsigned char filter3d_level;
-
-	int crop_left;
-	int crop_top;
-	int crop_width;
-	int crop_height;
-
-	unsigned int qp_offset1;
-	unsigned int qp_offset2;
-	unsigned int qp_offset3;
-	unsigned int qp_offset4;
-	unsigned int qp_offset5;
-	unsigned int qp_offset6;
-	unsigned int qp_offset7;
-	unsigned int qp_offset8;
-
-	unsigned int avr_bit_rate;
-	unsigned int real_bit_rate;
-	unsigned int avr_frame_rate;
-	unsigned int real_frame_rate;
-
-	int vbv_size;
-	int UnusedBufferSize;
-	int nValidFrameNum;
-	int nValidDataSize;
-
-	unsigned char mv_tu_split_en;
-	unsigned char mv_amp_en;
-	int mv_lambda_offset;
-	unsigned char pmv_en;
-	unsigned char cpmv_case5_en;
-	unsigned char cpmv_case4_en;
-	unsigned char cpmv_case3_en;
-	unsigned int cpmv_case3_th;
-	unsigned char cpmv_case2_en;
-	unsigned int cpmv_case2_th;
-	unsigned char cpmv_case1_en;
-	unsigned int cpmv_case1_th;
-	unsigned char mv_denoise_en;
-	unsigned int noise_estimate;
-
-	unsigned char f2d_en;
-	unsigned int f2d_strength_uv;
-	unsigned int f2d_strength_y;
-	unsigned int f2d_th_uv;
-	unsigned int f2d_th_y;
-
-	unsigned char f3d_en;
-	unsigned char f3d_pix_level_en;
-	unsigned char f3d_smooth_en;
-	unsigned int f3d_max_pix_diff_th;
-	unsigned int f3d_max_mv_th;
-	unsigned int f3d_max_mad_th;
-	unsigned int f3d_min_coef;
-	unsigned int f3d_max_coef;
-
-	VeProcEncH265Info sH265Info;
-} VeProcEncInfo;
+typedef struct {
+    float nSceneCoef[3];
+    float nMoveCoef[5];
+} VencIPTargetBitsRatio;
 
 typedef struct VencOutputBuffer {
 	int nID;
@@ -986,9 +964,11 @@ typedef enum VENC_SUPERFRAME_MODE {
 } VENC_SUPERFRAME_MODE;
 
 typedef struct VencSuperFrameConfig {
-	VENC_SUPERFRAME_MODE eSuperFrameMode;
-	unsigned int nMaxIFrameBits;
-	unsigned int nMaxPFrameBits;
+	VENC_SUPERFRAME_MODE    eSuperFrameMode;
+	unsigned int            nMaxIFrameBits;
+	unsigned int            nMaxPFrameBits;
+    int                     nMaxRencodeTimes;
+    float                   nMaxP2IFrameBitsRatio;
 } VencSuperFrameConfig;
 
 typedef struct VencBitRateRange {
@@ -1107,6 +1087,196 @@ typedef struct VencEncodeTimeS {
 	unsigned int max_empty_time;
 	unsigned int max_empty_time_frame_num;
 } VencEncodeTimeS;
+
+typedef struct VencH264ConstraintFlag {
+	unsigned char                 reserve_zero : 2;
+	unsigned char                 constraint_5 : 1;
+	unsigned char                 constraint_4 : 1;
+	unsigned char                 constraint_3 : 1;
+	unsigned char                 constraint_2 : 1;
+	unsigned char                 constraint_1 : 1;
+	unsigned char                 constraint_0 : 1;
+} VencH264ConstraintFlag;
+
+typedef struct VeProcEncH265Info {
+	float Lambda;
+	float LambdaC;
+	float LambdaSqrt;
+
+	unsigned int uIntraCoef0;
+	unsigned int uIntraCoef1;
+	unsigned int uIntraCoef2;
+	unsigned int uIntraTh32;
+	unsigned int uIntraTh16;
+	unsigned int uIntraTh8;
+
+	unsigned int uInterTend;
+	unsigned int uSkipTend;
+	unsigned int uMergeTend;
+
+	unsigned char fast_intra_en;
+	unsigned char adaptitv_tu_split_en;
+	unsigned int combine_4x4_md_th;
+} VeProcEncH265Info;
+
+typedef struct VeProcEncInfo {
+	unsigned int                nChannelNum;
+
+	unsigned char               bEnEncppSharp;
+
+	unsigned int                bOnlineMode;
+	unsigned int                bOnlineChannel;
+	unsigned int                nOnlineShareBufNum;
+
+	unsigned int                nCsiOverwriteFrmNum;
+
+	int                         nInputFormat;
+
+	int                         nRecLbcMode;
+
+	unsigned int                nInputWidth;
+	unsigned int                nInputHeight;
+	unsigned int                nDstWidth;
+	unsigned int                nDstHeight;
+	unsigned int                nStride;
+
+	unsigned int                rot_angle;
+
+	int                         crop_left;
+	int                         crop_top;
+	int                         crop_width;
+	int                         crop_height;
+
+	unsigned int                nProfileIdc;
+	unsigned int                nLevelIdc;
+
+	int                         nBitRate;
+	int                         nFrameRate;
+
+	VENC_RC_MODE                eRcMode;
+	VENC_VIDEO_GOP_MODE         eGopMode;
+	int                         nIDRItl;
+	int                         nProductMode;
+	int                         nColourMode;
+
+	VencFixQP                   fix_qp;
+
+	int                         i_qp_max;
+	int                         i_qp_min;
+	int                         p_qp_max;
+	int                         p_qp_min;
+	int                         nInitQp;
+	int                         en_mb_qp_limit;
+
+	VencROIConfig               sRoi[8];
+
+	unsigned int                avr_bit_rate;
+	unsigned int                real_bit_rate;
+	unsigned int                avr_frame_rate;
+	unsigned int                real_frame_rate;
+
+	int                         vbv_size;
+	int                         UnusedBufferSize;
+	int                         nValidFrameNum;
+	int                         nValidDataSize;
+
+	int                         eSliceType;
+	int                         nCurrQp;
+	int                         nFrameIndex;
+	int                         nTotalIndex;
+
+	int                         nRealBits;
+	int                         nTargetBits;
+
+	StatisticTime               sStaTime;
+
+	/******************Advanced Parameters******************/
+	unsigned char               bIntra4x4;
+	unsigned char               bIntraInP;
+    unsigned char               bSmallSearchRange;
+
+	unsigned char               bD3DInIFrm;
+	unsigned char               bTightMbQp;
+	unsigned char               bExtremeD3D;
+
+	unsigned char               f2d_en;
+	unsigned int                f2d_strength_uv;
+	unsigned int                f2d_strength_y;
+	unsigned int                f2d_th_uv;
+	unsigned int                f2d_th_y;
+
+	unsigned char               f3d_en;
+	unsigned int                f3d_max_mv_th;
+	unsigned int                f3d_max_mad_th;
+	unsigned char               f3d_pix_level_en;
+	unsigned int                f3d_max_pix_diff_th;
+	unsigned char               f3d_smooth_en;
+	unsigned int                f3d_min_coef;
+	unsigned int                f3d_max_coef;
+
+	VencRegionD3DParam          sRegionD3DParam;
+
+	unsigned char               mv_tu_split_en;
+	unsigned char               mv_amp_en;
+	int                         mv_lambda_offset;
+	unsigned char               pmv_en;
+	unsigned char               cpmv_case5_en;
+	unsigned char               cpmv_case4_en;
+	unsigned char               cpmv_case3_en;
+	unsigned int                cpmv_case3_th;
+	unsigned char               cpmv_case2_en;
+	unsigned int                cpmv_case2_th;
+	unsigned char               cpmv_case1_en;
+	unsigned int                cpmv_case1_th;
+	unsigned char               mv_denoise_en;
+	unsigned int                noise_estimate;
+
+	VencIPTargetBitsRatio       sBitsRatio;
+	VencTargetBitsClipParam     sBitsClipParam;
+
+	float                       WeakTextTh;
+	unsigned char               MbRcEn;
+	int                         EnIFrmMbRcMoveStatus;
+	unsigned char               MadEn;
+	float                       MadHistogram[12][11];
+	unsigned char               ClassifyTh[12];
+	unsigned char               MdEn;
+	float                       MdHistogram[16][11];
+	int                         MdQp[16];
+	unsigned int                MdLevel[16];
+
+	unsigned int                uMaxBitRate;
+	int                         nQuality;
+	int                         nIFrmBitsCoef;
+	int                         nPFrmBitsCoef;
+
+	unsigned int                uSceneStatus;
+	unsigned int                uMoveStatus;
+	unsigned int                uMovingLevel;
+	float                       BinImgRatio;
+
+	int                         nEnvLv;
+	int                         nAeWeightLum;
+
+	unsigned char               en_camera_move;
+	unsigned char               lens_moving;
+
+	VencVe2IspD2DLimit          ve2isp_d2d;
+	int                         isp_d2d_level;
+	int                         isp_d3d_level;
+
+	int                         bIsOverflow;
+	int                         nIspScale;
+
+	int                         nSuperFrameMode;
+	int                         nSuperMaxIBytes;
+	int                         nSuperMaxPBytes;
+	int                         nSuperMaxTimes;
+	float                       nSuperP2IBitsRatio;
+	int                         nSuperTotalTimes;
+
+	VeProcEncH265Info           sH265Info;
+} VeProcEncInfo;
 
 typedef enum VENC_INDEXTYPE {
 	VENC_IndexParamBitrate = 0x0,
@@ -1310,6 +1480,9 @@ typedef enum VENC_INDEXTYPE {
 	/**< reference type: VencVbrParam */
 	VENC_IndexParamSetVbrParam,
 
+	/**< reference type: VencIPTargetBitsRatio */
+	VENC_IndexParamIPTargetBitsRatio,
+
 	/**< reference type: Set or Get VencMotionSearchParam* */
 	VENC_IndexParamMotionSearchParam,
 
@@ -1341,7 +1514,56 @@ typedef enum VENC_INDEXTYPE {
 	VENC_IndexParamVe2IspParam,
 
 	/**< reference type: int */
+	VENC_IndexParamEnvLv,
+
+	/**< reference type: int */
+	VENC_IndexParamAeWeightLum,
+
+	/**< reference type: eCameraStatus */
+	VENC_IndexParamEnCameraMove,
+
+	/**< reference type: VencTargetBitsClipParam */
+	VENC_IndexParamTargetBitsClipParam,
+
+	/**< reference type: int */
+	VENC_IndexParamEnIFrmMbRcMoveStatus,
+
+	/**< reference type: sIspAeStatus */
+	VENC_IndexParamIspAeStatus,
+
+	/* set rec_lbc_mode */
+	VENC_IndexParamSetRecRefLbcMode,
+
 	VENC_IndexParamGetVbvShareFd,
+
+	VENC_IndexParamEnableRecRefBufReduceFunc,
+
+	/**< reference type: float [0,100]*/
+	VENC_IndexParamWeakTextTh,
+
+	/**< reference type: int [0,1]*/
+	VENC_IndexParamEnD3DInIFrm,
+
+	/**< reference type: int [0,1]*/
+	VENC_IndexParamEnTightMbQp,
+
+	/**< reference type: VencExtremeD3DParam */
+	VENC_IndexParamSetExtremeD3D,
+
+	/**< reference type: Set or Get VencRegionD3DParam* */
+	VENC_IndexParamRegionD3DParam,
+
+	/**< reference type: Get VencRegionD3DResult* */
+	VENC_IndexParamRegionD3DResult,
+
+	/**< reference type: int */
+	VENC_IndexParamChromaQPOffset,
+
+	/**< reference type:  VencH264ConstraintFlag */
+	VENC_IndexParamH264ConstraintFlag,
+
+	/**< reference type: VencVe2IspD2DLimit */
+	VENC_IndexParamVe2IspD2DLimit
 } VENC_INDEXTYPE;
 typedef struct VencEnvLvRange {
 	int env_lv_high_th;
@@ -1488,6 +1710,7 @@ typedef struct VencH264Param {
 	VENC_CODING_MODE nCodingMode;
 	VencGopParam sGopParam;
 	VencRcParam sRcParam;
+	int breduce_refrecmem;
 } VencH264Param;
 
 typedef struct {
@@ -1502,6 +1725,7 @@ typedef struct {
 	int nQPInit; /* qp of first IDR_frame if use rate control */
 	VencRcParam sRcParam;
 	VencGopParam sGopParam;
+	int breduce_refrecmem;
 } VencH265Param;
 
 typedef struct {
@@ -1639,42 +1863,38 @@ typedef struct {
 } VencVUIBitstreamRestriction;
 
 typedef struct {
-	int pix_x_bgn;
-	int pix_x_end;
-	int pix_y_bgn;
-	int pix_y_end;
-	int total_num;
-	int intra_num;
-	int large_mv_num;
-	int small_mv_num;
-	int zero_mv_num;
-	int large_sad_num;
-	int is_motion;
+    int pix_x_bgn;
+    int pix_x_end;
+    int pix_y_bgn;
+    int pix_y_end;
+    int total_num;
+    int intra_num;
+    int large_mv_num;
+    int small_mv_num;
+    int zero_mv_num;
+    int large_sad_num;
+    int is_motion;
 } VencMotionSearchRegion;
 
 typedef struct {
-	int en_motion_search;
-	int dis_default_para;
-	int large_mv_th;
-	int least_motion_region_num;
-	int dis_search_region[50];
-	float large_mv_th_coef;
-	float large_mv_ratio_th; // include intra and large mv
-	float non_zero_mv_ratio_th; // include intra, large mv and samll mv
-	float large_sad_ratio_th;
-} VencMotionSearchParam;
+    int total_region_num;
+    int motion_region_num;
+    VencMotionSearchRegion *region;
+} VencMotionSearchResult;
 
 typedef struct {
-	int region_hgt;
-	int ex_row_hgt;
-	int region_wth;
-	int ex_col_wth;
-	int motion_rengion_num;
-	VencMotionSearchParam param;
-	VencMotionSearchRegion region[50];
-} VencMotionSearch;
-typedef void *VideoEncoder;
+    int en_motion_search;
+    int dis_default_para;
+    int hor_region_num;
+    int ver_region_num;
+    int large_mv_th;
+    float large_mv_ratio_th;    // include intra and large mv
+    float non_zero_mv_ratio_th; // include intra, large mv and samll mv
+    float large_sad_ratio_th;
+} VencMotionSearchParam;
 
+typedef void *VideoEncoder;
+int raise(int signum);
 //* new api
 VideoEncoder *VencCreate(VENC_CODEC_TYPE eCodecType);
 void VencDestroy(VideoEncoder *pEncoder);
@@ -1700,7 +1920,7 @@ typedef enum {
 	VencEvent_FrameFormatNotMatch  = 0, // frame format is not match to initial setting.
 	VencEvent_UpdateMbModeInfo     = 1,
 	VencEvent_UpdateMbStatInfo     = 2,
-	VencEvent_UpdateSharpParam     = 3,
+	VencEvent_UpdateIspToVeParam     = 3,
 	VencEvent_UpdateIspMotionParam = 4,
 	VencEvent_UpdateVeToIspParam   = 5,
 	VencEvent_Max		       = 0x7FFFFFFF
@@ -1764,6 +1984,8 @@ typedef struct
 
 int VencSetCallbacks(VideoEncoder *pEncoder, VencCbType *pCallbacks, void *pAppData1, void *pAppData2);
 int encodeOneFrame(VideoEncoder *pEncoder);
+
+void cdc_log_set_level(unsigned int level);
 #endif //_VENCODER_H_
 
 #ifdef __cplusplus

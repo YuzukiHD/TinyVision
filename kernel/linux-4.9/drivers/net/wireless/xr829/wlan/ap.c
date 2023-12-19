@@ -115,9 +115,21 @@ int xradio_sta_remove(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 	    (struct xradio_sta_priv *)&sta->drv_priv;
 	struct xradio_vif *priv = xrwl_get_vif_from_ieee80211(vif);
 	struct xradio_link_entry *entry;
+	int suspend_lock_state;
 
 	ap_printk(XRADIO_DBG_TRC, "%s\n", __func__);
+	suspend_lock_state = atomic_cmpxchg(&hw_priv->suspend_lock_state,
+								XRADIO_SUSPEND_LOCK_IDEL, XRADIO_SUSPEND_LOCK_OTHERS);
+	if (suspend_lock_state == XRADIO_SUSPEND_LOCK_SUSPEND) {
+		sta_printk(XRADIO_DBG_WARN,
+				"%s:refuse because of suspend\n", __func__);
+		return -EBUSY;
+	}
+	down(&hw_priv->conf_lock);
+	atomic_set(&hw_priv->suspend_lock_state, XRADIO_SUSPEND_LOCK_IDEL);
+
 	if (!atomic_read(&priv->enabled)) {
+		up(&hw_priv->conf_lock);
 		ap_printk(XRADIO_DBG_NIY, "%s vif(type=%d) is not enable!\n",
 				__func__, vif->type);
 		return 0;
@@ -128,6 +140,7 @@ int xradio_sta_remove(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 #endif
 
 	if (priv->mode != NL80211_IFTYPE_AP || !sta_priv->link_id) {
+		up(&hw_priv->conf_lock);
 		ap_printk(XRADIO_DBG_NIY, "no station to remove\n");
 		return 0;
 	}
@@ -140,6 +153,7 @@ int xradio_sta_remove(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 	if (queue_work(hw_priv->workqueue, &priv->link_id_work) <= 0)
 		wsm_unlock_tx(hw_priv);
 	spin_unlock_bh(&priv->ps_state_lock);
+	up(&hw_priv->conf_lock);
 	flush_workqueue(hw_priv->workqueue);
 	flush_workqueue(hw_priv->spare_workqueue);
 
@@ -494,6 +508,7 @@ void xradio_bss_info_changed(struct ieee80211_hw *dev,
 {
 	struct xradio_common *hw_priv = dev->priv;
 	struct xradio_vif *priv = xrwl_get_vif_from_ieee80211(vif);
+	int suspend_lock_state;
 
 	ap_printk(XRADIO_DBG_TRC, "%s\n", __func__);
 
@@ -507,7 +522,17 @@ void xradio_bss_info_changed(struct ieee80211_hw *dev,
 	if (priv->if_id == XRWL_GENERIC_IF_ID)
 		return;
 #endif
+
+	suspend_lock_state = atomic_cmpxchg(&hw_priv->suspend_lock_state,
+								XRADIO_SUSPEND_LOCK_IDEL, XRADIO_SUSPEND_LOCK_OTHERS);
+	if (suspend_lock_state == XRADIO_SUSPEND_LOCK_SUSPEND) {
+		ap_printk(XRADIO_DBG_WARN,
+			   "%s:refuse because of suspend\n", __func__);
+		return;
+	}
+
 	down(&hw_priv->conf_lock);
+	atomic_set(&hw_priv->suspend_lock_state, XRADIO_SUSPEND_LOCK_IDEL);
 
 	/*We do somethings first which is not of priv.*/
 	if (changed & BSS_CHANGED_RETRY_LIMITS) {
@@ -1434,9 +1459,11 @@ void xradio_suspend_resume(struct xradio_vif *priv,
 			 * to suspend, following wakeup will consume much more
 			 * power than it could be saved. */
 #ifdef CONFIG_PM
+#ifndef CONFIG_XRADIO_SUSPEND_POWER_OFF
 			xradio_pm_stay_awake(&hw_priv->pm_state,
 					     (priv->join_dtim_period * \
 					     (priv->beacon_int + 20) * HZ / 1024));
+#endif
 #endif
 			priv->tx_multicast = priv->aid0_bit_set &&
 					     priv->buffered_multicasts;
@@ -1915,6 +1942,15 @@ static int xradio_start_ap(struct xradio_vif *priv)
 	memcpy(&start.ssid[0], priv->ssid, start.ssidLength);
 
 	memset(&priv->link_id_db, 0, sizeof(priv->link_id_db));
+
+#ifdef SUPPORT_STA_AP_COEX
+	if (priv->if_id == 1) {
+		ret = wsm_write_mib(hw_priv, WSM_MIB_ID_CHANGE_MAC,
+			hw_priv->addresses[2].addr, ETH_ALEN, priv->if_id);
+	}
+	if (ret)
+		return ret;
+#endif
 
 #ifdef SUPPORT_HT40
 

@@ -26,11 +26,19 @@
 /* extern */   struct xradio_common;
  /* private */ struct xradio_suspend_state;
 
+#ifndef CONFIG_WAKELOCK
+enum xradio_pm_keep_wake_state {
+	XRADIO_PM_STATE_ALLOW_SUSPEND,
+	XRADIO_PM_STATE_KEEP_WAKE,
+};
+#endif
+
 struct xradio_pm_state {
 #ifdef CONFIG_WAKELOCK
 	struct wake_lock wakelock;
 #else
 	struct timer_list stay_awake;
+	atomic_t status;
 #endif
 	spinlock_t lock;
 	long expires_save;
@@ -47,6 +55,12 @@ enum suspend_state {
 #ifdef CONFIG_XRADIO_SUSPEND_POWER_OFF
 	XRADIO_POWEROFF_SUSP
 #endif
+};
+
+enum suspend_lock_state {
+	XRADIO_SUSPEND_LOCK_IDEL = 0,
+	XRADIO_SUSPEND_LOCK_SUSPEND,
+	XRADIO_SUSPEND_LOCK_OTHERS,
 };
 
 int xradio_pm_init(struct xradio_pm_state *pm, struct xradio_common *priv);

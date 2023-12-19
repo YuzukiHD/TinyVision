@@ -86,9 +86,9 @@
 
 typedef struct _vip_ion_mm {
 	size_t size;
-	void *phy_addr;
+	dma_addr_t phy_addr;
 	void *vir_addr;
-	void *dma_addr;
+	dma_addr_t dma_addr;
 	struct dma_buf *dma_buffer;
 	struct ion_client *client;
 	struct ion_handle *handle;

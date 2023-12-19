@@ -62,8 +62,11 @@ extern struct sensor_info *to_state(struct v4l2_subdev *sd);
 extern void sensor_cfg_req(struct v4l2_subdev *sd, struct sensor_config *cfg);
 extern void sensor_isp_input(struct v4l2_subdev *sd, struct v4l2_mbus_framefmt *mf);
 extern unsigned int sensor_get_exp(struct v4l2_subdev *sd);
+extern void sensor_check_vblank(struct v4l2_subdev *sd);
 extern unsigned int sensor_get_clk(struct v4l2_subdev *sd, struct v4l2_mbus_config *cfg,
 			unsigned long *top_clk, unsigned long *isp_clk);
+extern void sensor_get_resolution(struct v4l2_subdev *sd, struct sensor_resolution *sensor_resolution);
+extern int sensor_set_ir(struct v4l2_subdev *sd, struct ir_switch *ir_switch);
 extern int sensor_enum_mbus_code(struct v4l2_subdev *sd,
 				struct v4l2_subdev_pad_config *cfg,
 				struct v4l2_subdev_mbus_code_enum *code);

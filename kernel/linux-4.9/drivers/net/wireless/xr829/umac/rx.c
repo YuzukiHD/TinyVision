@@ -683,6 +683,10 @@ static void ieee80211_sta_reorder_release(struct ieee80211_hw *hw,
  * rcu_read_lock protection. It returns false if the frame
  * can be processed immediately, true if it was consumed.
  */
+
+static u16 last_head_seq_num;
+static u16 same_counter;
+
 static bool ieee80211_sta_manage_reorder_buf(struct ieee80211_hw *hw,
 					     struct tid_ampdu_rx *tid_agg_rx,
 					     struct sk_buff *skb)
@@ -704,8 +708,31 @@ static bool ieee80211_sta_manage_reorder_buf(struct ieee80211_hw *hw,
 
 	/* frame with out of date sequence number */
 	if (seq_less(mpdu_seq_num, head_seq_num)) {
-		dev_kfree_skb(skb);
-		goto out;
+#if 1
+		/*workaround begin*/
+		if (last_head_seq_num == head_seq_num)
+			same_counter++;
+		else
+			same_counter = 0;
+		last_head_seq_num = head_seq_num;
+		/*workaround end*/
+#endif
+
+#if 1
+		/*workaround begin*/
+		if (same_counter == 32) {
+			ieee80211_release_reorder_frames(hw, tid_agg_rx, mpdu_seq_num);
+			tid_agg_rx->head_seq_num = mpdu_seq_num;
+			head_seq_num = tid_agg_rx->head_seq_num;
+			same_counter = 0;
+		} else {
+		/*workaround end*/
+#endif
+			dev_kfree_skb(skb);
+			goto out;
+#if 1
+		}
+#endif
 	}
 
 	/*
@@ -1769,6 +1796,7 @@ static bool ieee80211_frame_allowed(struct ieee80211_rx_data *rx, __le16 fc)
 /*
  * requires that rx->skb is a frame with ethernet header
  */
+extern int xradio_arp_updata(u8 *mac_addr, u8 *ip_addr, struct sk_buff *skb);
 static void
 ieee80211_deliver_skb(struct ieee80211_rx_data *rx)
 {
@@ -3137,7 +3165,7 @@ void mac80211_rx(struct ieee80211_hw *hw, struct sk_buff *skb)
 
 	/* We might be during a HW reconfig, prevent Rx for the same reason */
 	if (unlikely(local->in_reconfig))
-			goto drop;
+		goto drop;
 
 	/*
 	 * The same happens when we're not even started,

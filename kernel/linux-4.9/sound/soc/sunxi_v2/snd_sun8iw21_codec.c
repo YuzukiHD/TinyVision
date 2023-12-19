@@ -515,12 +515,11 @@ static const DECLARE_TLV_DB_SCALE(digital_tlv, -7424, 116, 0);
 static const DECLARE_TLV_DB_SCALE(dac_vol_tlv, -11925, 75, 0);
 static const DECLARE_TLV_DB_SCALE(adc_vol_tlv, -11925, 75, 0);
 static const DECLARE_TLV_DB_SCALE(mic_gain_tlv, 0, 100, 0);
-static const DECLARE_TLV_DB_SCALE(fmin_gain_tlv, 0, 600, 0);
-static const DECLARE_TLV_DB_SCALE(linein_gain_tlv, 0, 600, 0);
+static const DECLARE_TLV_DB_SCALE(linein_gain_tlv, 0, 100, 0);
 static const unsigned int lineout_tlv[] = {
 	TLV_DB_RANGE_HEAD(2),
-	0, 1, TLV_DB_SCALE_ITEM(0, 0, 1),
-	2, 31, TLV_DB_SCALE_ITEM(-4350, 150, 1),
+	0, 1, TLV_DB_SCALE_ITEM(SNDRV_CTL_TLVD_DB_GAIN_MUTE, 0, 1),
+	2, 31, TLV_DB_SCALE_ITEM(-4350, 150, 0),
 };
 
 /* DAC&ADC-DRC&HPF FUNC */
@@ -788,28 +787,34 @@ static int sunxi_codec_set_adchpf_mode(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
-static int sunxi_get_gain_volsw(struct snd_kcontrol *kcontrol,
-				struct snd_ctl_elem_value *ucontrol)
+static int sunxi_codec_get_gain_volsw(struct snd_kcontrol *kcontrol,
+				      struct snd_ctl_elem_value *ucontrol)
 {
 	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct sunxi_codec *codec = snd_soc_component_get_drvdata(component);
-	struct sunxi_dts *dts = &codec->dts;
+	struct sunxi_codec_runtime *runtime = &codec->runtime;
 	struct soc_mixer_control *mc = (struct soc_mixer_control *)kcontrol->private_value;
+	unsigned int val_tmp;
 	unsigned int invert = mc->invert;
 	unsigned int shift = mc->shift;
 	int max = mc->max;
 	int min = mc->min;
-	u32 val_tmp;
 
 	switch (shift) {
-	case MIC1_GAIN_SHIFT:
-		val_tmp = dts->mic1gain;
+	case KCONTROL_SHIFT_MIC1_GAIN:
+		val_tmp = runtime->mic1gain;
 	break;
-	case MIC2_GAIN_SHIFT:
-		val_tmp = dts->mic2gain;
+	case KCONTROL_SHIFT_MIC2_GAIN:
+		val_tmp = runtime->mic2gain;
+	break;
+	case KCONTROL_SHIFT_LINEINL_GAIN:
+		val_tmp = runtime->lineinlgain;
+	break;
+	case KCONTROL_SHIFT_LINEINR_GAIN:
+		val_tmp = runtime->lineinrgain;
 	break;
 	default:
-		SND_LOG_ERR(HLOG, "the gain is null\n");
+		SND_LOG_ERR(HLOG, "unsupport control shift %u\n", shift);
 	break;
 	}
 
@@ -824,39 +829,51 @@ static int sunxi_get_gain_volsw(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
-static int sunxi_put_gain_volsw(struct snd_kcontrol *kcontrol,
-				struct snd_ctl_elem_value *ucontrol)
+static int sunxi_codec_put_gain_volsw(struct snd_kcontrol *kcontrol,
+				      struct snd_ctl_elem_value *ucontrol)
 {
 	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
 	struct sunxi_codec *codec = snd_soc_component_get_drvdata(component);
-	struct sunxi_dts *dts = &codec->dts;
+	struct sunxi_codec_runtime *runtime = &codec->runtime;
 	struct regmap *regmap = codec->mem.regmap;
 	struct soc_mixer_control *mc = (struct soc_mixer_control *)kcontrol->private_value;
+	unsigned int val_tmp;
 	unsigned int invert = mc->invert;
 	unsigned int shift = mc->shift;
 	int max = mc->max;
 	int min = mc->min;
-	u32 val_tmp;
 
 	val_tmp = ucontrol->value.integer.value[0] + min;
 	if (invert)
 		val_tmp = max - val_tmp;
 
 	switch (shift) {
-	case MIC1_GAIN_SHIFT:
-		dts->mic1gain = val_tmp;
-		if (codec->mic1gain_run)
+	case KCONTROL_SHIFT_MIC1_GAIN:
+		runtime->mic1gain = val_tmp;
+		if (runtime->mic1_run)
 			regmap_update_bits(regmap, SUNXI_ADC1_REG, 0x1F << ADC1_PGA_GAIN_CTRL,
-					   dts->mic1gain << ADC1_PGA_GAIN_CTRL);
+					   runtime->mic1gain << ADC1_PGA_GAIN_CTRL);
 	break;
-	case MIC2_GAIN_SHIFT:
-		dts->mic2gain = val_tmp;
-		if (codec->mic2gain_run)
+	case KCONTROL_SHIFT_MIC2_GAIN:
+		runtime->mic2gain = val_tmp;
+		if (runtime->mic2_run)
 			regmap_update_bits(regmap, SUNXI_ADC2_REG, 0x1F << ADC2_PGA_GAIN_CTRL,
-					   dts->mic2gain << ADC2_PGA_GAIN_CTRL);
+					   runtime->mic2gain << ADC2_PGA_GAIN_CTRL);
+	break;
+	case KCONTROL_SHIFT_LINEINL_GAIN:
+		runtime->lineinlgain = val_tmp;
+		if (runtime->linein_run)
+			regmap_update_bits(regmap, SUNXI_ADC1_REG, 0x1F << ADC1_PGA_GAIN_CTRL,
+					   runtime->lineinlgain << ADC1_PGA_GAIN_CTRL);
+	break;
+	case KCONTROL_SHIFT_LINEINR_GAIN:
+		runtime->lineinrgain = val_tmp;
+		if (runtime->linein_run)
+			regmap_update_bits(regmap, SUNXI_ADC1_REG, 0x1F << ADC1_PGA_GAIN_CTRL,
+					   runtime->lineinrgain << ADC1_PGA_GAIN_CTRL);
 	break;
 	default:
-		SND_LOG_ERR(HLOG, "the gain is null\n");
+		SND_LOG_ERR(HLOG, "unsupport control shift %u\n", shift);
 	break;
 	}
 
@@ -889,45 +906,95 @@ static const struct snd_kcontrol_new sunxi_codec_controls[] = {
 		       ADC2_VOL, 0xFF, 0, adc_vol_tlv),
 	/* MIC1 Gain */
 	SOC_SINGLE_EXT_TLV("MIC1 gain volume", SND_SOC_NOPM,
-			   MIC1_GAIN_SHIFT, 0x1F, 0,
-			   sunxi_get_gain_volsw, sunxi_put_gain_volsw,
+			   KCONTROL_SHIFT_MIC1_GAIN, 0x1F, 0,
+			   sunxi_codec_get_gain_volsw, sunxi_codec_put_gain_volsw,
 			   mic_gain_tlv),
 	/* MIC2 Gain */
 	SOC_SINGLE_EXT_TLV("MIC2 gain volume", SND_SOC_NOPM,
-			   MIC2_GAIN_SHIFT, 0x1F, 0,
-			   sunxi_get_gain_volsw, sunxi_put_gain_volsw,
+			   KCONTROL_SHIFT_MIC2_GAIN, 0x1F, 0,
+			   sunxi_codec_get_gain_volsw, sunxi_codec_put_gain_volsw,
 			   mic_gain_tlv),
 	/* LINEIN_L Gain */
-	SOC_SINGLE_TLV("LINEINL gain volume", SUNXI_ADC1_REG,
-		       LINEINLG, 0x1, 0, linein_gain_tlv),
+	SOC_SINGLE_EXT_TLV("LINEINL gain volume", SND_SOC_NOPM,
+			   KCONTROL_SHIFT_LINEINL_GAIN, 0x1F, 0,
+			   sunxi_codec_get_gain_volsw, sunxi_codec_put_gain_volsw,
+			   linein_gain_tlv),
 	/* LINEIN_R Gain */
-	SOC_SINGLE_TLV("LINEINR gain volume", SUNXI_ADC2_REG,
-		       LINEINRG, 0x1, 0, linein_gain_tlv),
+	SOC_SINGLE_EXT_TLV("LINEINR gain volume", SND_SOC_NOPM,
+			   KCONTROL_SHIFT_LINEINR_GAIN, 0x1F, 0,
+			   sunxi_codec_get_gain_volsw, sunxi_codec_put_gain_volsw,
+			   linein_gain_tlv),
 	/* LINEOUT Volume */
 	SOC_SINGLE_TLV("LINEOUT volume", SUNXI_DAC_REG,
 		       LINEOUT_VOL, 0x1F, 0, lineout_tlv),
 };
 
 /* dapm setting */
-static const char *differ_select_text[] = {"single", "differ"};
-static const char *differ_select_text_i[] = {"differ", "single"};
+static int sunxi_codec_get_dapm_vol(struct snd_kcontrol *kcontrol,
+				    struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_dapm_context *dapm = snd_soc_dapm_kcontrol_dapm(kcontrol);
+	struct snd_soc_dapm_widget *w = snd_soc_dapm_kcontrol_widget(kcontrol);
+	struct snd_soc_codec *snd_codec = snd_soc_dapm_to_codec(dapm);
+	struct sunxi_codec *codec = snd_soc_codec_get_drvdata(snd_codec);
+	struct sunxi_codec_runtime *runtime = &codec->runtime;
 
-static SOC_ENUM_SINGLE_DECL(lineoutl_output_enum,
-			    SUNXI_DAC_REG, LINEOUTLDIFFEN, differ_select_text);
-static SOC_ENUM_SINGLE_DECL(mic1_input_enum,
-			    SUNXI_ADC1_REG, MIC1_SIN_EN, differ_select_text_i);
-static SOC_ENUM_SINGLE_DECL(mic2_input_enum,
-			    SUNXI_ADC2_REG, MIC2_SIN_EN, differ_select_text_i);
+	switch (w->shift) {
+	case WIDGET_SHIFT_MIC1_INPUT_SELECT:
+		ucontrol->value.enumerated.item[0] = w->off_val ^ runtime->mic1_single;
+		break;
+	case WIDGET_SHIFT_MIC2_INPUT_SELECT:
+		ucontrol->value.enumerated.item[0] = w->off_val ^ runtime->mic2_single;
+		break;
+	default:
+		SND_LOG_ERR(HLOG, "unsupport control shift %u\n", w->shift);
+		break;
+	}
+
+	return 0;
+}
+
+static int sunxi_codec_put_dapm_vol(struct snd_kcontrol *kcontrol,
+				    struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_dapm_context *dapm = snd_soc_dapm_kcontrol_dapm(kcontrol);
+	struct snd_soc_dapm_widget *w = snd_soc_dapm_kcontrol_widget(kcontrol);
+	struct snd_soc_codec *snd_codec = snd_soc_dapm_to_codec(dapm);
+	struct sunxi_codec *codec = snd_soc_codec_get_drvdata(snd_codec);
+	struct sunxi_codec_runtime *runtime = &codec->runtime;
+
+	switch (w->shift) {
+	case WIDGET_SHIFT_MIC1_INPUT_SELECT:
+		runtime->mic1_single = ucontrol->value.enumerated.item[0] ^ w->off_val;
+		break;
+	case WIDGET_SHIFT_MIC2_INPUT_SELECT:
+		runtime->mic2_single = ucontrol->value.enumerated.item[0] ^ w->off_val;
+		break;
+	default:
+		SND_LOG_ERR(HLOG, "unsupport control shift %u\n", w->shift);
+		break;
+	}
+
+	return 0;
+}
+
+static const char *differ_select_text[] = {"single", "differ"};
+
+static SOC_ENUM_SINGLE_DECL(lineoutl_output_enum, SUNXI_DAC_REG, LINEOUTLDIFFEN,
+			    differ_select_text);
+static SOC_ENUM_SINGLE_EXT_DECL(mic1_input_enum, differ_select_text);
+static SOC_ENUM_SINGLE_EXT_DECL(mic2_input_enum, differ_select_text);
 
 static const struct snd_kcontrol_new lineoutl_output_mux =
 	SOC_DAPM_ENUM("LINEOUT Output Select", lineoutl_output_enum);
 static const struct snd_kcontrol_new mic1_input_mux =
-	SOC_DAPM_ENUM("MIC1 Input Select", mic1_input_enum);
+	SOC_DAPM_ENUM_EXT("MIC1 Input Select", mic1_input_enum,
+			  sunxi_codec_get_dapm_vol, sunxi_codec_put_dapm_vol);
 static const struct snd_kcontrol_new mic2_input_mux =
-	SOC_DAPM_ENUM("MIC2 Input Select", mic2_input_enum);
+	SOC_DAPM_ENUM_EXT("MIC2 Input Select", mic2_input_enum,
+			  sunxi_codec_get_dapm_vol, sunxi_codec_put_dapm_vol);
 
-static int sunxi_codec_dacl_event(struct snd_soc_dapm_widget *w,
-				  struct snd_kcontrol *k, int event)
+static int sunxi_codec_dacl_event(struct snd_soc_dapm_widget *w, struct snd_kcontrol *k, int event)
 {
 	struct snd_soc_codec *snd_codec = snd_soc_dapm_to_codec(w->dapm);
 	struct sunxi_codec *codec = snd_soc_codec_get_drvdata(snd_codec);
@@ -937,20 +1004,14 @@ static int sunxi_codec_dacl_event(struct snd_soc_dapm_widget *w,
 
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMU:
-		regmap_update_bits(regmap, SUNXI_DAC_REG,
-				   0x1 << DACLEN, 0x1 << DACLEN);
-		regmap_update_bits(regmap, SUNXI_DAC_REG,
-				   0x1 << DACLMUTE, 0x1 << DACLMUTE);
-		regmap_update_bits(regmap, SUNXI_DAC_DPC,
-				   0x1<<EN_DAC, 0x1<<EN_DAC);
+		regmap_update_bits(regmap, SUNXI_DAC_REG, 0x1 << DACLEN, 0x1 << DACLEN);
+		regmap_update_bits(regmap, SUNXI_DAC_REG, 0x1 << DACLMUTE, 0x1 << DACLMUTE);
+		regmap_update_bits(regmap, SUNXI_DAC_DPC, 0x1<<EN_DAC, 0x1<<EN_DAC);
 		break;
 	case SND_SOC_DAPM_POST_PMD:
-		regmap_update_bits(regmap, SUNXI_DAC_DPC,
-				   0x1<<EN_DAC, 0x0<<EN_DAC);
-		regmap_update_bits(regmap, SUNXI_DAC_REG,
-				   0x1 << DACLMUTE, 0x0 << DACLMUTE);
-		regmap_update_bits(regmap, SUNXI_DAC_REG,
-				   0x1 << DACLEN, 0x0 << DACLEN);
+		regmap_update_bits(regmap, SUNXI_DAC_DPC, 0x1<<EN_DAC, 0x0<<EN_DAC);
+		regmap_update_bits(regmap, SUNXI_DAC_REG, 0x1 << DACLMUTE, 0x0 << DACLMUTE);
+		regmap_update_bits(regmap, SUNXI_DAC_REG, 0x1 << DACLEN, 0x0 << DACLEN);
 		break;
 	default:
 		break;
@@ -959,8 +1020,7 @@ static int sunxi_codec_dacl_event(struct snd_soc_dapm_widget *w,
 	return 0;
 }
 
-static int sunxi_codec_adc1_event(struct snd_soc_dapm_widget *w,
-				  struct snd_kcontrol *k, int event)
+static int sunxi_codec_adc1_event(struct snd_soc_dapm_widget *w, struct snd_kcontrol *k, int event)
 {
 	struct snd_soc_codec *snd_codec = snd_soc_dapm_to_codec(w->dapm);
 	struct sunxi_codec *codec = snd_soc_codec_get_drvdata(snd_codec);
@@ -970,7 +1030,6 @@ static int sunxi_codec_adc1_event(struct snd_soc_dapm_widget *w,
 
 	switch (event) {
 	case SND_SOC_DAPM_POST_PMU:
-		codec->mic1gain_run = 1;
 		regmap_update_bits(regmap, SUNXI_ADC_DIG_CTRL,
 				   0x1 << ADC1_CHANNEL_EN,
 				   0x1 << ADC1_CHANNEL_EN);
@@ -980,7 +1039,6 @@ static int sunxi_codec_adc1_event(struct snd_soc_dapm_widget *w,
 				   0x1 << EN_AD, 0x1 << EN_AD);
 		break;
 	case SND_SOC_DAPM_POST_PMD:
-		codec->mic1gain_run = 0;
 		regmap_update_bits(regmap, SUNXI_ADC_FIFOC,
 				   0x1 << EN_AD, 0x0 << EN_AD);
 		regmap_update_bits(regmap, SUNXI_ADC1_REG,
@@ -996,8 +1054,7 @@ static int sunxi_codec_adc1_event(struct snd_soc_dapm_widget *w,
 	return 0;
 }
 
-static int sunxi_codec_adc2_event(struct snd_soc_dapm_widget *w,
-				  struct snd_kcontrol *k, int event)
+static int sunxi_codec_adc2_event(struct snd_soc_dapm_widget *w, struct snd_kcontrol *k, int event)
 {
 	struct snd_soc_codec *snd_codec = snd_soc_dapm_to_codec(w->dapm);
 	struct sunxi_codec *codec = snd_soc_codec_get_drvdata(snd_codec);
@@ -1007,7 +1064,6 @@ static int sunxi_codec_adc2_event(struct snd_soc_dapm_widget *w,
 
 	switch (event) {
 	case SND_SOC_DAPM_POST_PMU:
-		codec->mic2gain_run = 1;
 		regmap_update_bits(regmap, SUNXI_ADC_DIG_CTRL,
 				   0x1 << ADC2_CHANNEL_EN,
 				   0x1 << ADC2_CHANNEL_EN);
@@ -1017,7 +1073,6 @@ static int sunxi_codec_adc2_event(struct snd_soc_dapm_widget *w,
 				   0x1 << EN_AD, 0x1 << EN_AD);
 		break;
 	case SND_SOC_DAPM_POST_PMD:
-		codec->mic2gain_run = 0;
 		regmap_update_bits(regmap, SUNXI_ADC_FIFOC,
 				   0x1 << EN_AD, 0x0 << EN_AD);
 		regmap_update_bits(regmap, SUNXI_ADC2_REG,
@@ -1033,24 +1088,135 @@ static int sunxi_codec_adc2_event(struct snd_soc_dapm_widget *w,
 	return 0;
 }
 
-static int sunxi_mic1_gain_event(struct snd_soc_dapm_widget *w,
-				 struct snd_kcontrol *k, int event)
+static int sunxi_codec_mic_input_select_event(struct snd_soc_dapm_widget *w,
+					      struct snd_kcontrol *k, int event)
 {
 	struct snd_soc_codec *snd_codec = snd_soc_dapm_to_codec(w->dapm);
 	struct sunxi_codec *codec = snd_soc_codec_get_drvdata(snd_codec);
-	struct sunxi_dts *dts = &codec->dts;
+	struct sunxi_codec_runtime *runtime = &codec->runtime;
+	struct regmap *regmap = codec->mem.regmap;
+
+	SND_LOG_DEBUG(HLOG, "event -> 0x%x\n", event);
+
+	switch (w->shift) {
+	case WIDGET_SHIFT_MIC1_INPUT_SELECT:
+		regmap_update_bits(regmap, SUNXI_ADC1_REG, 0x1 << MIC1_SIN_EN,
+				   runtime->mic1_single << MIC1_SIN_EN);
+		break;
+	case WIDGET_SHIFT_MIC2_INPUT_SELECT:
+		regmap_update_bits(regmap, SUNXI_ADC2_REG, 0x1 << MIC2_SIN_EN,
+				   runtime->mic2_single << MIC2_SIN_EN);
+		break;
+	default:
+		SND_LOG_ERR(HLOG, "unsupport widget shift %u\n", w->shift);
+		break;
+	}
+
+	return 0;
+}
+
+static int sunxi_codec_adc_gain_event(struct snd_soc_dapm_widget *w,
+				      struct snd_kcontrol *k, int event)
+{
+	struct snd_soc_codec *snd_codec = snd_soc_dapm_to_codec(w->dapm);
+	struct sunxi_codec *codec = snd_soc_codec_get_drvdata(snd_codec);
+	struct sunxi_codec_runtime *runtime = &codec->runtime;
+	struct regmap *regmap = codec->mem.regmap;
+
+	SND_LOG_DEBUG(HLOG, "event -> 0x%x\n", event);
+
+	switch (w->shift) {
+	case WIDGET_SHIFT_MIC1_GAIN:
+		switch (event) {
+		case SND_SOC_DAPM_PRE_PMU:
+			regmap_update_bits(regmap, SUNXI_ADC1_REG, 0x1F << ADC1_PGA_GAIN_CTRL,
+					   runtime->mic1gain << ADC1_PGA_GAIN_CTRL);
+			break;
+		case SND_SOC_DAPM_POST_PMD:
+			regmap_update_bits(regmap, SUNXI_ADC1_REG, 0x1F << ADC1_PGA_GAIN_CTRL,
+					   0x0 << ADC1_PGA_GAIN_CTRL);
+			break;
+		default:
+			SND_LOG_ERR(HLOG, "unsupport control flag %d\n", event);
+			break;
+		}
+		break;
+	case WIDGET_SHIFT_MIC2_GAIN:
+		switch (event) {
+		case SND_SOC_DAPM_PRE_PMU:
+			regmap_update_bits(regmap, SUNXI_ADC2_REG, 0x1F << ADC2_PGA_GAIN_CTRL,
+					   runtime->mic2gain << ADC2_PGA_GAIN_CTRL);
+			break;
+		case SND_SOC_DAPM_POST_PMD:
+			regmap_update_bits(regmap, SUNXI_ADC2_REG, 0x1F << ADC2_PGA_GAIN_CTRL,
+					   0x0 << ADC2_PGA_GAIN_CTRL);
+			break;
+		default:
+			SND_LOG_ERR(HLOG, "unsupport control flag %d\n", event);
+			break;
+		}
+		break;
+	case WIDGET_SHIFT_LINEINL_GAIN:
+		switch (event) {
+		case SND_SOC_DAPM_PRE_PMU:
+			regmap_update_bits(regmap, SUNXI_ADC1_REG, 0x1F << ADC1_PGA_GAIN_CTRL,
+					   runtime->lineinlgain << ADC1_PGA_GAIN_CTRL);
+			break;
+		case SND_SOC_DAPM_POST_PMD:
+			regmap_update_bits(regmap, SUNXI_ADC1_REG, 0x1F << ADC1_PGA_GAIN_CTRL,
+					   0x0 << ADC1_PGA_GAIN_CTRL);
+			break;
+		default:
+			SND_LOG_ERR(HLOG, "unsupport control flag %d\n", event);
+			break;
+		}
+		break;
+	case WIDGET_SHIFT_LINEINR_GAIN:
+		switch (event) {
+		case SND_SOC_DAPM_PRE_PMU:
+			regmap_update_bits(regmap, SUNXI_ADC2_REG, 0x1F << ADC2_PGA_GAIN_CTRL,
+					   runtime->lineinrgain << ADC2_PGA_GAIN_CTRL);
+			break;
+		case SND_SOC_DAPM_POST_PMD:
+			regmap_update_bits(regmap, SUNXI_ADC2_REG, 0x1F << ADC2_PGA_GAIN_CTRL,
+					   0x0 << ADC2_PGA_GAIN_CTRL);
+			break;
+		default:
+			SND_LOG_ERR(HLOG, "unsupport control flag %d\n", event);
+			break;
+		}
+		break;
+	default:
+		SND_LOG_ERR(HLOG, "unsupport control shift %u\n", w->shift);
+		break;
+	}
+
+	return 0;
+}
+
+static int sunxi_codec_mic1_event(struct snd_soc_dapm_widget *w, struct snd_kcontrol *k, int event)
+{
+	struct snd_soc_codec *snd_codec = snd_soc_dapm_to_codec(w->dapm);
+	struct sunxi_codec *codec = snd_soc_codec_get_drvdata(snd_codec);
+	struct sunxi_codec_runtime *runtime = &codec->runtime;
 	struct regmap *regmap = codec->mem.regmap;
 
 	SND_LOG_DEBUG(HLOG, "event -> 0x%x\n", event);
 
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMU:
-		regmap_update_bits(regmap, SUNXI_ADC1_REG, 0x1F << ADC1_PGA_GAIN_CTRL,
-				   dts->mic1gain << ADC1_PGA_GAIN_CTRL);
+		mutex_lock(&runtime->input_mutex);
+		runtime->mic1_run = true;
+		if (runtime->linein_run)
+			SND_LOG_WARN(HLOG, "Only one of mic and linein allow to be On\n");
+		mutex_unlock(&runtime->input_mutex);
+		regmap_update_bits(regmap, SUNXI_ADC1_REG, 0x1 << MIC1_PGA_EN, 0x1 << MIC1_PGA_EN);
 		break;
 	case SND_SOC_DAPM_POST_PMD:
-		regmap_update_bits(regmap, SUNXI_ADC1_REG, 0x1F << ADC1_PGA_GAIN_CTRL,
-				   0x0 << ADC1_PGA_GAIN_CTRL);
+		mutex_lock(&runtime->input_mutex);
+		runtime->mic1_run = false;
+		mutex_unlock(&runtime->input_mutex);
+		regmap_update_bits(regmap, SUNXI_ADC1_REG, 0x1 << MIC1_PGA_EN, 0x0 << MIC1_PGA_EN);
 		break;
 	default:
 		break;
@@ -1059,74 +1225,29 @@ static int sunxi_mic1_gain_event(struct snd_soc_dapm_widget *w,
 	return 0;
 }
 
-static int sunxi_mic2_gain_event(struct snd_soc_dapm_widget *w,
-				 struct snd_kcontrol *k, int event)
+static int sunxi_codec_mic2_event(struct snd_soc_dapm_widget *w, struct snd_kcontrol *k, int event)
 {
 	struct snd_soc_codec *snd_codec = snd_soc_dapm_to_codec(w->dapm);
 	struct sunxi_codec *codec = snd_soc_codec_get_drvdata(snd_codec);
-	struct sunxi_dts *dts = &codec->dts;
+	struct sunxi_codec_runtime *runtime = &codec->runtime;
 	struct regmap *regmap = codec->mem.regmap;
 
 	SND_LOG_DEBUG(HLOG, "event -> 0x%x\n", event);
 
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMU:
-		regmap_update_bits(regmap, SUNXI_ADC2_REG, 0x1F << ADC2_PGA_GAIN_CTRL,
-				   dts->mic2gain << ADC2_PGA_GAIN_CTRL);
+		mutex_lock(&runtime->input_mutex);
+		runtime->mic2_run = true;
+		if (runtime->linein_run)
+			SND_LOG_WARN(HLOG, "Only one of mic and linein allow to be On\n");
+		mutex_unlock(&runtime->input_mutex);
+		regmap_update_bits(regmap, SUNXI_ADC2_REG, 0x1 << MIC2_PGA_EN, 0x1 << MIC2_PGA_EN);
 		break;
 	case SND_SOC_DAPM_POST_PMD:
-		regmap_update_bits(regmap, SUNXI_ADC2_REG, 0x1F << ADC2_PGA_GAIN_CTRL,
-				   0x0 << ADC2_PGA_GAIN_CTRL);
-		break;
-	default:
-		break;
-	}
-
-	return 0;
-}
-
-static int sunxi_codec_mic1_event(struct snd_soc_dapm_widget *w,
-				  struct snd_kcontrol *k, int event)
-{
-	struct snd_soc_codec *snd_codec = snd_soc_dapm_to_codec(w->dapm);
-	struct sunxi_codec *codec = snd_soc_codec_get_drvdata(snd_codec);
-	struct regmap *regmap = codec->mem.regmap;
-
-	SND_LOG_DEBUG(HLOG, "event -> 0x%x\n", event);
-
-	switch (event) {
-	case SND_SOC_DAPM_PRE_PMU:
-		regmap_update_bits(regmap, SUNXI_ADC1_REG,
-				   0x1 << MIC1_PGA_EN, 0x1 << MIC1_PGA_EN);
-		break;
-	case SND_SOC_DAPM_POST_PMD:
-		regmap_update_bits(regmap, SUNXI_ADC1_REG,
-				   0x1 << MIC1_PGA_EN, 0x0 << MIC1_PGA_EN);
-		break;
-	default:
-		break;
-	}
-
-	return 0;
-}
-
-static int sunxi_codec_mic2_event(struct snd_soc_dapm_widget *w,
-				  struct snd_kcontrol *k, int event)
-{
-	struct snd_soc_codec *snd_codec = snd_soc_dapm_to_codec(w->dapm);
-	struct sunxi_codec *codec = snd_soc_codec_get_drvdata(snd_codec);
-	struct regmap *regmap = codec->mem.regmap;
-
-	SND_LOG_DEBUG(HLOG, "event -> 0x%x\n", event);
-
-	switch (event) {
-	case SND_SOC_DAPM_PRE_PMU:
-		regmap_update_bits(regmap, SUNXI_ADC2_REG,
-				   0x1 << MIC2_PGA_EN, 0x1 << MIC2_PGA_EN);
-		break;
-	case SND_SOC_DAPM_POST_PMD:
-		regmap_update_bits(regmap, SUNXI_ADC2_REG,
-				   0x1 << MIC2_PGA_EN, 0x0 << MIC2_PGA_EN);
+		mutex_lock(&runtime->input_mutex);
+		runtime->mic2_run = false;
+		mutex_unlock(&runtime->input_mutex);
+		regmap_update_bits(regmap, SUNXI_ADC2_REG, 0x1 << MIC2_PGA_EN, 0x0 << MIC2_PGA_EN);
 		break;
 	default:
 		break;
@@ -1140,22 +1261,35 @@ static int sunxi_codec_linein_event(struct snd_soc_dapm_widget *w,
 {
 	struct snd_soc_codec *snd_codec = snd_soc_dapm_to_codec(w->dapm);
 	struct sunxi_codec *codec = snd_soc_codec_get_drvdata(snd_codec);
+	struct sunxi_codec_runtime *runtime = &codec->runtime;
 	struct regmap *regmap = codec->mem.regmap;
 
 	SND_LOG_DEBUG(HLOG, "event -> 0x%x\n", event);
 
+	/* note: use micin single mode instead of linein */
 	switch (event) {
 	case SND_SOC_DAPM_POST_PMU:
-		regmap_update_bits(regmap, SUNXI_ADC1_REG,
-				   0x1 << LINEINLEN, 0x1 << LINEINLEN);
-		regmap_update_bits(regmap, SUNXI_ADC2_REG,
-				   0x1 << LINEINREN, 0x1 << LINEINREN);
+		mutex_lock(&runtime->input_mutex);
+		runtime->linein_run = true;
+		if (runtime->mic1_run || runtime->mic2_run)
+			SND_LOG_WARN(HLOG, "Only one of mic and linein allow to be On\n");
+		mutex_unlock(&runtime->input_mutex);
+
+		/* set single mode */
+		regmap_update_bits(regmap, SUNXI_ADC1_REG, 0x1 << MIC1_SIN_EN, 0x1 << MIC1_SIN_EN);
+		regmap_update_bits(regmap, SUNXI_ADC2_REG, 0x1 << MIC2_SIN_EN, 0x1 << MIC2_SIN_EN);
+		/* enable */
+		regmap_update_bits(regmap, SUNXI_ADC1_REG, 0x1 << MIC1_PGA_EN, 0x1 << MIC1_PGA_EN);
+		regmap_update_bits(regmap, SUNXI_ADC2_REG, 0x1 << MIC2_PGA_EN, 0x1 << MIC2_PGA_EN);
 		break;
 	case SND_SOC_DAPM_PRE_PMD:
-		regmap_update_bits(regmap, SUNXI_ADC1_REG,
-				   0x1 << LINEINLEN, 0x0 << LINEINLEN);
-		regmap_update_bits(regmap, SUNXI_ADC2_REG,
-				   0x1 << LINEINREN, 0x0 << LINEINREN);
+		mutex_lock(&runtime->input_mutex);
+		runtime->linein_run = false;
+		mutex_unlock(&runtime->input_mutex);
+
+		/* disable */
+		regmap_update_bits(regmap, SUNXI_ADC1_REG, 0x1 << MIC1_PGA_EN, 0x0 << MIC1_PGA_EN);
+		regmap_update_bits(regmap, SUNXI_ADC2_REG, 0x1 << MIC2_PGA_EN, 0x0 << MIC2_PGA_EN);
 		break;
 	default:
 		break;
@@ -1175,12 +1309,10 @@ static int sunxi_codec_lineout_event(struct snd_soc_dapm_widget *w,
 
 	switch (event) {
 	case SND_SOC_DAPM_POST_PMU:
-		regmap_update_bits(regmap, SUNXI_DAC_REG,
-				   0x1 << LINEOUTLEN, 0x1 << LINEOUTLEN);
+		regmap_update_bits(regmap, SUNXI_DAC_REG, 0x1 << LINEOUTLEN, 0x1 << LINEOUTLEN);
 		break;
 	case SND_SOC_DAPM_PRE_PMD:
-		regmap_update_bits(regmap, SUNXI_DAC_REG,
-				   0x1 << LINEOUTLEN, 0x0 << LINEOUTLEN);
+		regmap_update_bits(regmap, SUNXI_DAC_REG, 0x1 << LINEOUTLEN, 0x0 << LINEOUTLEN);
 		break;
 	default:
 		break;
@@ -1223,19 +1355,26 @@ static const struct snd_soc_dapm_widget sunxi_codec_dapm_widgets[] = {
 			       sunxi_codec_adc2_event,
 			       SND_SOC_DAPM_POST_PMU | SND_SOC_DAPM_POST_PMD),
 
-	SND_SOC_DAPM_MUX("LINEOUT Output Select", SND_SOC_NOPM, 0, 0,
-			 &lineoutl_output_mux),
+	SND_SOC_DAPM_MUX("LINEOUT Output Select", SND_SOC_NOPM, 0, 0, &lineoutl_output_mux),
 
-	SND_SOC_DAPM_MUX("MIC1 Input Select", SND_SOC_NOPM, 0, 0,
-			 &mic1_input_mux),
-	SND_SOC_DAPM_MUX("MIC2 Input Select", SND_SOC_NOPM, 0, 0,
-			 &mic2_input_mux),
-
-	SND_SOC_DAPM_PGA_E("MIC1 PGA", SND_SOC_NOPM, 0, 0, NULL, 0,
-			   sunxi_mic1_gain_event,
+	SND_SOC_DAPM_MUX_E("MIC1 Input Select", SND_SOC_NOPM, WIDGET_SHIFT_MIC1_INPUT_SELECT, 1,
+			   &mic1_input_mux, sunxi_codec_mic_input_select_event,
 			   SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
-	SND_SOC_DAPM_PGA_E("MIC2 PGA", SND_SOC_NOPM, 0, 0, NULL, 0,
-			   sunxi_mic2_gain_event,
+	SND_SOC_DAPM_MUX_E("MIC2 Input Select", SND_SOC_NOPM, WIDGET_SHIFT_MIC2_INPUT_SELECT, 1,
+			   &mic2_input_mux, sunxi_codec_mic_input_select_event,
+			   SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
+
+	SND_SOC_DAPM_PGA_E("MIC1 PGA", SND_SOC_NOPM, WIDGET_SHIFT_MIC1_GAIN, 0, NULL, 0,
+			   sunxi_codec_adc_gain_event,
+			   SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
+	SND_SOC_DAPM_PGA_E("MIC2 PGA", SND_SOC_NOPM, WIDGET_SHIFT_MIC2_GAIN, 0, NULL, 0,
+			   sunxi_codec_adc_gain_event,
+			   SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
+	SND_SOC_DAPM_PGA_E("LINEINL PGA", SND_SOC_NOPM, WIDGET_SHIFT_LINEINL_GAIN, 0, NULL, 0,
+			   sunxi_codec_adc_gain_event,
+			   SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
+	SND_SOC_DAPM_PGA_E("LINEINR PGA", SND_SOC_NOPM, WIDGET_SHIFT_LINEINR_GAIN, 0, NULL, 0,
+			   sunxi_codec_adc_gain_event,
 			   SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
 
 	SND_SOC_DAPM_MICBIAS("MIC1 Bias", SUNXI_MICBIAS_REG, MMICBIASEN, 0),
@@ -1277,8 +1416,11 @@ static const struct snd_soc_dapm_route sunxi_codec_dapm_routes[] = {
 	{"LINEINL_PIN", NULL, "LINEIN"},
 	{"LINEINR_PIN", NULL, "LINEIN"},
 
-	{"ADC1", NULL, "LINEINL_PIN"},
-	{"ADC2", NULL, "LINEINR_PIN"},
+	{"LINEINL PGA", NULL, "LINEINL_PIN"},
+	{"LINEINR PGA", NULL, "LINEINR_PIN"},
+
+	{"ADC1", NULL, "LINEINL PGA"},
+	{"ADC2", NULL, "LINEINR PGA"},
 
 	/* output route -> LINEOUT */
 	{"LINEOUT Output Select", "single", "DACL"},
@@ -1289,9 +1431,38 @@ static const struct snd_soc_dapm_route sunxi_codec_dapm_routes[] = {
 	{"SPK", NULL, "LINEOUTL_PIN"},
 };
 
+static void sunxi_codec_runtime_params_init(struct snd_soc_codec *snd_codec)
+{
+	struct sunxi_codec *codec = snd_soc_codec_get_drvdata(snd_codec);
+	struct sunxi_codec_runtime *runtime = &codec->runtime;
+	struct sunxi_dts *dts = &codec->dts;
+
+	mutex_init(&runtime->input_mutex);
+
+	runtime->mic1gain = dts->mic1gain;
+	runtime->mic2gain = dts->mic2gain;
+	runtime->mic1_single = dts->mic1_single;
+	runtime->mic2_single = dts->mic2_single;
+	runtime->lineinlgain = 1;	/* default 6dB (reg val 1) when in mic single mode */
+	runtime->lineinrgain = 1;
+
+	runtime->mic1_run = false;
+	runtime->mic2_run = false;
+	runtime->linein_run = false;
+}
+
+static void sunxi_codec_runtime_params_exit(struct snd_soc_codec *snd_codec)
+{
+	struct sunxi_codec *codec = snd_soc_codec_get_drvdata(snd_codec);
+	struct sunxi_codec_runtime *runtime = &codec->runtime;
+
+	mutex_destroy(&runtime->input_mutex);
+}
+
 static void sunxi_codec_init(struct snd_soc_codec *snd_codec)
 {
 	struct sunxi_codec *codec = snd_soc_codec_get_drvdata(snd_codec);
+	struct sunxi_codec_runtime *runtime = &codec->runtime;
 	struct sunxi_regulator *rglt = &codec->rglt;
 	struct sunxi_dts *dts = &codec->dts;
 	struct regmap *regmap = codec->mem.regmap;
@@ -1373,10 +1544,10 @@ static void sunxi_codec_init(struct snd_soc_codec *snd_codec)
 
 	/* ADCL MIC1 gain defeult setting */
 	regmap_update_bits(regmap, SUNXI_ADC1_REG, 0x1F << ADC1_PGA_GAIN_CTRL,
-			   dts->mic1gain << ADC1_PGA_GAIN_CTRL);
+			   runtime->mic1gain << ADC1_PGA_GAIN_CTRL);
 	/* ADCR MIC2 gain defeult setting */
 	regmap_update_bits(regmap, SUNXI_ADC2_REG, 0x1F << ADC2_PGA_GAIN_CTRL,
-			   dts->mic2gain << ADC2_PGA_GAIN_CTRL);
+			   runtime->mic2gain << ADC2_PGA_GAIN_CTRL);
 
 	/* ADC IOP params default setting */
 	regmap_update_bits(regmap, SUNXI_ADC1_REG, 0xFF << ADC1_IOPMIC, 0x55 << ADC1_IOPMIC);
@@ -1389,13 +1560,13 @@ static void sunxi_codec_init(struct snd_soc_codec *snd_codec)
 	else
 		regmap_update_bits(regmap, SUNXI_DAC_REG,
 				   0x1 << LINEOUTLDIFFEN, 0x1 << LINEOUTLDIFFEN);
-	if (dts->mic1_single)
+	if (runtime->mic1_single)
 		regmap_update_bits(regmap, SUNXI_ADC1_REG,
 				   0x1 << MIC1_SIN_EN, 0x1 << MIC1_SIN_EN);
 	else
 		regmap_update_bits(regmap, SUNXI_ADC1_REG,
 				   0x1 << MIC1_SIN_EN, 0x0 << MIC1_SIN_EN);
-	if (dts->mic2_single)
+	if (runtime->mic2_single)
 		regmap_update_bits(regmap, SUNXI_ADC2_REG,
 				   0x1 << MIC2_SIN_EN, 0x1 << MIC2_SIN_EN);
 	else
@@ -1415,8 +1586,7 @@ static int sunxi_internal_codec_probe(struct snd_soc_codec *snd_codec)
 
 	SND_LOG_DEBUG(HLOG, "\n");
 
-	codec->mic1gain_run = 0;
-	codec->mic2gain_run = 0;
+	sunxi_codec_runtime_params_init(snd_codec);
 
 	mutex_init(&codec->dac_dap.mutex);
 	mutex_init(&codec->adc_dap.mutex);
@@ -1457,6 +1627,8 @@ static int sunxi_internal_codec_remove(struct snd_soc_codec *snd_codec)
 	struct sunxi_codec *codec = snd_soc_codec_get_drvdata(snd_codec);
 
 	SND_LOG_DEBUG(HLOG, "\n");
+
+	sunxi_codec_runtime_params_exit(snd_codec);
 
 	mutex_destroy(&codec->dac_dap.mutex);
 	mutex_destroy(&codec->adc_dap.mutex);

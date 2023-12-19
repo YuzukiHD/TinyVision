@@ -176,6 +176,10 @@ int de_ccsc_init(struct disp_bsp_init_para *para)
 				__inf("sel %d, Icsc_base[%d]=0x%p\n", screen_id, ch_id, (void *)base);
 
 				memory = (void *)kmalloc(sizeof(__icsc_reg_t), GFP_KERNEL | __GFP_ZERO);
+				if (memory == NULL) {
+					__wrn("malloc ICcsc[%d][%d] memory fail! size=0x%x\n", screen_id, ch_id, (unsigned int)sizeof(__icsc_reg_t));
+					return -1;
+				}
 
 				icsc_block[screen_id][ch_id].off		= base;
 				icsc_block[screen_id][ch_id].val		= memory;

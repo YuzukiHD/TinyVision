@@ -489,6 +489,7 @@ ieee80211_authenticate(struct ieee80211_work *wk)
 	struct ieee80211_local *local = sdata->local;
 	struct cfg80211_bss *bss;
 	struct cfg80211_bss *prev_bss = NULL;
+	u16 trans = 1;
 
 	if (!wk->probe_auth.synced) {
 		int ret = drv_tx_sync(local, sdata, wk->filter_ta,
@@ -574,9 +575,19 @@ ieee80211_authenticate(struct ieee80211_work *wk)
 	printk(KERN_DEBUG "%s: authenticate with %pM (try %d)\n",
 	       sdata->name, wk->filter_ta, wk->probe_auth.tries);
 
-	mac80211_send_auth(sdata, 1, wk->probe_auth.algorithm, wk->ie,
+	if (wk->probe_auth.algorithm == WLAN_AUTH_SAE) {
+		if (wk->probe_auth.transaction == 1)
+			wk->probe_auth.transaction = 1;
+		else if (wk->probe_auth.transaction == 2) {
+			trans = 2;
+			wk->probe_auth.transaction = 2;
+		}
+	}
+	else {
+		wk->probe_auth.transaction = 2;
+	}
+	mac80211_send_auth(sdata, trans, wk->probe_auth.algorithm, wk->ie,
 			    wk->ie_len, wk->filter_ta, NULL, 0, 0);
-	wk->probe_auth.transaction = 2;
 
 	wk->timeout = jiffies + IEEE80211_AUTH_TIMEOUT;
 	run_again(local, wk->timeout);
@@ -739,6 +750,7 @@ ieee80211_rx_mgmt_auth(struct ieee80211_work *wk,
 	case WLAN_AUTH_OPEN:
 	case WLAN_AUTH_LEAP:
 	case WLAN_AUTH_FT:
+	case WLAN_AUTH_SAE:
 		break;
 	case WLAN_AUTH_SHARED_KEY:
 		if (wk->probe_auth.transaction != 4) {

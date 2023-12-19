@@ -7,17 +7,16 @@
 #include <linux/module.h>
 #include <linux/g2d_driver.h>
 #include <linux/fs.h>
-
+#include "vin_video_api.h"
 #define LOG_TAG "rt_venc_comp"
 
 #include "rt_common.h"
 #include "rt_venc_component.h"
 #include "rt_message.h"
-#include "vencoder.h"
-#include "../_uapi_rt_media.h"
+#include <uapi_rt_media.h>
 
 #define TEST_ENCODER_BY_SELF (0)
-
+#define DEBUG_VBV_CACHE_TIME           (4)  // unit:seconds, exp:1,2,3,4...
 #define ENABLE_SAVE_NATIVE_OVERLAY_DATA (0)
 
 DEFINE_MUTEX(venc_mutex);
@@ -56,9 +55,11 @@ typedef struct venc_comp_ctx {
 	comp_tunnel_info out_port_tunnel_info;
 	venc_comp_base_config base_config;
 	venc_comp_normal_config normal_config;
+	int actual_en_encpp_sharp; ///< indicate if actually enable encpp sharp on venc.
 	unsigned char *vbvStartAddr;
 	catch_jpeg_cxt jpeg_cxt;
 	int is_first_frame;
+	VencCbType vencCallBack;
 } venc_comp_ctx;
 
 #define GLOBAL_OSD_MAX_NUM (3)
@@ -75,21 +76,19 @@ typedef struct native_osd_info {
 	unsigned int g2d_in_buf_size[GLOBAL_OSD_MAX_NUM];
 } native_osd_info;
 
-static native_osd_info *global_osd_info;
+//static native_osd_info *global_osd_info;
 
 static int thread_process_venc(void *param);
-static int adjust_native_overlay_info(venc_comp_ctx *venc_comp);
+int adjust_native_overlay_info(venc_comp_ctx *venc_comp);
 
 static int config_VencOutputBuffer_by_videostream(venc_comp_ctx *venc_comp,
 						  VencOutputBuffer *output_buffer,
 						  video_stream_s *video_stream)
 {
-#if (COPY_STREAM_DATA_FROM_KERNEL == 0)
 	if (venc_comp->vbvStartAddr == NULL) {
 		RT_LOGE("venc_comp->vbvStartAddr is null");
 		return -1;
 	}
-#endif
 
 	output_buffer->nID    = video_stream->id;
 	output_buffer->nPts   = video_stream->pts;
@@ -114,12 +113,10 @@ static int config_videostream_by_VencOutputBuffer(venc_comp_ctx *venc_comp,
 						  VencOutputBuffer *output_buffer,
 						  video_stream_s *video_stream)
 {
-#if (COPY_STREAM_DATA_FROM_KERNEL == 0)
 	if (venc_comp->vbvStartAddr == NULL) {
 		RT_LOGE("venc_comp->vbvStartAddr is null");
 		return -1;
 	}
-#endif
 
 	video_stream->id      = output_buffer->nID;
 	video_stream->pts     = output_buffer->nPts;
@@ -150,39 +147,306 @@ static int config_videostream_by_VencOutputBuffer(venc_comp_ctx *venc_comp,
 	return 0;
 }
 
-static int setup_vbv_buffer_size(venc_comp_ctx *venc_comp)
-{
-	int bit_rate_kb;
-	int cache_size;
-	int vbv_size;
-	int min_size;
-	int thresh_size;
-	unsigned int bit_rate = venc_comp->base_config.bit_rate;
-	int buffer_seconds    = 4; /* unit:s. */
-
-	min_size    = venc_comp->base_config.dst_width * venc_comp->base_config.dst_height * 3 / 2;
-	thresh_size = venc_comp->base_config.dst_width * venc_comp->base_config.dst_height;
-
-	if (thresh_size > 7 * 1024 * 1024) {
-		RT_LOGW("Be careful! threshSize[%d]bytes too large, reduce to 7MB", thresh_size);
-		thresh_size = 7 * 1024 * 1024;
-	}
-
-	if (bit_rate > 0) {
-		bit_rate_kb = bit_rate >> 10;
-		cache_size  = (bit_rate_kb * buffer_seconds) * (1024 / 8);
-		vbv_size    = cache_size + thresh_size;
-	} else {
-		RT_LOGW("the bitrate error: %d", bit_rate);
-		vbv_size = min_size;
-	}
-
 #if 0
-	if (vbv_size < min_size) {
-		vbv_size = min_size;
-	}
+static int init_default_encpp_param(sEncppSharpParamDynamic *pSharpParamDynamic,
+	sEncppSharpParamStatic *pSharpParamStatic, s3DfilterParam *p3DfilterParam, s2DfilterParam *p2DfilterParam)
+{
+    p3DfilterParam->enable_3d_filter = 1;
+    p3DfilterParam->adjust_pix_level_enable = 0;
+    p3DfilterParam->smooth_filter_enable = 1;
+    p3DfilterParam->max_pix_diff_th = 6;
+    p3DfilterParam->max_mad_th = 8;
+    p3DfilterParam->max_mv_th = 8;
+    p3DfilterParam->min_coef = 15;
+    p3DfilterParam->max_coef = 16;
+
+    p2DfilterParam->enable_2d_filter = 1;
+    p2DfilterParam->filter_strength_uv = 46;
+    p2DfilterParam->filter_strength_y = 46;
+    p2DfilterParam->filter_th_uv = 3;
+    p2DfilterParam->filter_th_y = 2;
+
+    pSharpParamDynamic->ss_ns_lw  = 0;           //[0,255];
+    pSharpParamDynamic->ss_ns_hi  = 0;           //[0,255];
+    pSharpParamDynamic->ls_ns_lw  = 0;           //[0,255];
+    pSharpParamDynamic->ls_ns_hi  = 0;           //[0,255];
+    pSharpParamDynamic->ss_lw_cor = 180;           //[0,255];
+    pSharpParamDynamic->ss_hi_cor = 255;           //[0,255];
+    pSharpParamDynamic->ls_lw_cor = 120;           //[0,255];
+    pSharpParamDynamic->ls_hi_cor = 255;           //[0,255];
+    pSharpParamDynamic->ss_blk_stren = 552;      //[0,4095];
+    pSharpParamDynamic->ss_wht_stren = 423;      //[0,4095];
+    pSharpParamDynamic->ls_blk_stren = 1408;      //[0,4095];
+    pSharpParamDynamic->ls_wht_stren = 952;      //[0,4095];
+    pSharpParamDynamic->ss_avg_smth  = 0;         //[0,255];
+    pSharpParamDynamic->ss_dir_smth  = 0;       //[0,16];
+    pSharpParamDynamic->dir_smth[0] = 0;         //[0,16];
+    pSharpParamDynamic->dir_smth[1] = 0;         //[0,16];
+    pSharpParamDynamic->dir_smth[2] = 0;         //[0,16];
+    pSharpParamDynamic->dir_smth[3] = 0;         //[0,16];
+    pSharpParamDynamic->hfr_smth_ratio  = 0;      //[0,32];
+    pSharpParamDynamic->hfr_hf_wht_stren = 0;    //[0,4095];
+    pSharpParamDynamic->hfr_hf_blk_stren  = 0;    //[0,4095];
+    pSharpParamDynamic->hfr_mf_wht_stren = 0;    //[0,4095];
+    pSharpParamDynamic->hfr_mf_blk_stren  = 0;    //[0,4095];
+    pSharpParamDynamic->hfr_hf_cor_ratio  = 0;    //[0,255];
+    pSharpParamDynamic->hfr_mf_cor_ratio = 0;    //[0,255];
+    pSharpParamDynamic->hfr_hf_mix_ratio = 390;  //[0,1023];
+    pSharpParamDynamic->hfr_mf_mix_ratio  = 390;  //[0,1023];
+    pSharpParamDynamic->hfr_hf_mix_min_ratio = 0;   //[0,255];
+    pSharpParamDynamic->hfr_mf_mix_min_ratio = 0;   //[0,255];
+    pSharpParamDynamic->hfr_hf_wht_clp  = 32;     //[0,255];
+    pSharpParamDynamic->hfr_hf_blk_clp  = 32;     //[0,255];
+    pSharpParamDynamic->hfr_mf_wht_clp  = 32;     //[0,255];
+    pSharpParamDynamic->hfr_mf_blk_clp  = 32;     //[0,255];
+    pSharpParamDynamic->wht_clp_para = 256;       //[0,1023];
+    pSharpParamDynamic->blk_clp_para = 256;       //[0,1023];
+    pSharpParamDynamic->wht_clp_slp  = 16;        //[0,63];
+    pSharpParamDynamic->blk_clp_slp  = 8;         //[0,63];
+    pSharpParamDynamic->max_clp_ratio  = 64;        //[0,255];
+
+    pSharpParamDynamic->sharp_edge_lum[0] = 0;
+    pSharpParamDynamic->sharp_edge_lum[1] = 14;
+    pSharpParamDynamic->sharp_edge_lum[2] = 25;
+    pSharpParamDynamic->sharp_edge_lum[3] = 32;
+    pSharpParamDynamic->sharp_edge_lum[4] = 39;
+    pSharpParamDynamic->sharp_edge_lum[5] = 51;
+    pSharpParamDynamic->sharp_edge_lum[6] = 65;
+    pSharpParamDynamic->sharp_edge_lum[7] = 80;
+    pSharpParamDynamic->sharp_edge_lum[8] = 99;
+    pSharpParamDynamic->sharp_edge_lum[9] = 124;
+    pSharpParamDynamic->sharp_edge_lum[10] = 152;
+    pSharpParamDynamic->sharp_edge_lum[11] = 179;
+    pSharpParamDynamic->sharp_edge_lum[12] = 203;
+    pSharpParamDynamic->sharp_edge_lum[13] = 224;
+    pSharpParamDynamic->sharp_edge_lum[14] = 237;
+    pSharpParamDynamic->sharp_edge_lum[15] = 245;
+    pSharpParamDynamic->sharp_edge_lum[16] = 271;
+    pSharpParamDynamic->sharp_edge_lum[17] = 336;
+    pSharpParamDynamic->sharp_edge_lum[18] = 428;
+    pSharpParamDynamic->sharp_edge_lum[19] = 526;
+    pSharpParamDynamic->sharp_edge_lum[20] = 623;
+    pSharpParamDynamic->sharp_edge_lum[21] = 709;
+    pSharpParamDynamic->sharp_edge_lum[22] = 767;
+    pSharpParamDynamic->sharp_edge_lum[23] = 782;
+    pSharpParamDynamic->sharp_edge_lum[24] = 772;
+    pSharpParamDynamic->sharp_edge_lum[25] = 761;
+    pSharpParamDynamic->sharp_edge_lum[26] = 783;
+    pSharpParamDynamic->sharp_edge_lum[27] = 858;
+    pSharpParamDynamic->sharp_edge_lum[28] = 941;
+    pSharpParamDynamic->sharp_edge_lum[29] = 988;
+    pSharpParamDynamic->sharp_edge_lum[30] = 1006;
+    pSharpParamDynamic->sharp_edge_lum[31] = 1016;
+    pSharpParamDynamic->sharp_edge_lum[32] = 1023;
+
+    pSharpParamStatic->ss_shp_ratio = 0;         //[0,255];
+    pSharpParamStatic->ls_shp_ratio = 0;         //[0,255];
+    pSharpParamStatic->ss_dir_ratio = 64;         //[0,1023];
+    pSharpParamStatic->ls_dir_ratio = 255;         //[0,1023];
+    pSharpParamStatic->ss_crc_stren = 0;        //[0,1023];
+    pSharpParamStatic->ss_crc_min = 16;        //[0,255];
+    pSharpParamStatic->wht_sat_ratio = 64;
+    pSharpParamStatic->blk_sat_ratio = 64;
+    pSharpParamStatic->wht_slp_bt = 1;
+    pSharpParamStatic->blk_slp_bt = 1;
+
+    pSharpParamStatic->sharp_ss_value[0] = 262;
+    pSharpParamStatic->sharp_ss_value[1] = 375;
+    pSharpParamStatic->sharp_ss_value[2] = 431;
+    pSharpParamStatic->sharp_ss_value[3] = 395;
+    pSharpParamStatic->sharp_ss_value[4] = 316;
+    pSharpParamStatic->sharp_ss_value[5] = 250;
+    pSharpParamStatic->sharp_ss_value[6] = 206;
+    pSharpParamStatic->sharp_ss_value[7] = 179;
+    pSharpParamStatic->sharp_ss_value[8] = 158;
+    pSharpParamStatic->sharp_ss_value[9] = 132;
+    pSharpParamStatic->sharp_ss_value[10] = 107;
+    pSharpParamStatic->sharp_ss_value[11] = 91;
+    pSharpParamStatic->sharp_ss_value[12] = 79;
+    pSharpParamStatic->sharp_ss_value[13] = 67;
+    pSharpParamStatic->sharp_ss_value[14] = 56;
+    pSharpParamStatic->sharp_ss_value[15] = 50;
+    pSharpParamStatic->sharp_ss_value[16] = 39;
+    pSharpParamStatic->sharp_ss_value[17] = 19;
+    pSharpParamStatic->sharp_ss_value[18] = 0;
+    pSharpParamStatic->sharp_ss_value[19] = 0;
+    pSharpParamStatic->sharp_ss_value[20] = 0;
+    pSharpParamStatic->sharp_ss_value[21] = 1;
+    pSharpParamStatic->sharp_ss_value[22] = 0;
+    pSharpParamStatic->sharp_ss_value[23] = 0;
+    pSharpParamStatic->sharp_ss_value[24] = 0;
+    pSharpParamStatic->sharp_ss_value[25] = 0;
+    pSharpParamStatic->sharp_ss_value[26] = 0;
+    pSharpParamStatic->sharp_ss_value[27] = 0;
+    pSharpParamStatic->sharp_ss_value[28] = 0;
+    pSharpParamStatic->sharp_ss_value[29] = 0;
+    pSharpParamStatic->sharp_ss_value[30] = 0;
+    pSharpParamStatic->sharp_ss_value[31] = 0;
+    pSharpParamStatic->sharp_ss_value[32] = 0;
+
+    pSharpParamStatic->sharp_ls_value[0] = 341;
+    pSharpParamStatic->sharp_ls_value[1] = 489;
+    pSharpParamStatic->sharp_ls_value[2] = 564;
+    pSharpParamStatic->sharp_ls_value[3] = 515;
+    pSharpParamStatic->sharp_ls_value[4] = 395;
+    pSharpParamStatic->sharp_ls_value[5] = 254;
+    pSharpParamStatic->sharp_ls_value[6] = 90;
+    pSharpParamStatic->sharp_ls_value[7] = 56;
+    pSharpParamStatic->sharp_ls_value[8] = 54;
+    pSharpParamStatic->sharp_ls_value[9] = 52;
+    pSharpParamStatic->sharp_ls_value[10] = 51;
+    pSharpParamStatic->sharp_ls_value[11] = 48;
+    pSharpParamStatic->sharp_ls_value[12] = 42;
+    pSharpParamStatic->sharp_ls_value[13] = 36;
+    pSharpParamStatic->sharp_ls_value[14] = 31;
+    pSharpParamStatic->sharp_ls_value[15] = 28;
+    pSharpParamStatic->sharp_ls_value[16] = 23;
+    pSharpParamStatic->sharp_ls_value[17] = 11;
+    pSharpParamStatic->sharp_ls_value[18] = 0;
+    pSharpParamStatic->sharp_ls_value[19] = 0;
+    pSharpParamStatic->sharp_ls_value[20] = 0;
+    pSharpParamStatic->sharp_ls_value[21] = 1;
+    pSharpParamStatic->sharp_ls_value[22] = 0;
+    pSharpParamStatic->sharp_ls_value[23] = 0;
+    pSharpParamStatic->sharp_ls_value[24] = 0;
+    pSharpParamStatic->sharp_ls_value[25] = 0;
+    pSharpParamStatic->sharp_ls_value[26] = 0;
+    pSharpParamStatic->sharp_ls_value[27] = 0;
+    pSharpParamStatic->sharp_ls_value[28] = 0;
+    pSharpParamStatic->sharp_ls_value[29] = 0;
+    pSharpParamStatic->sharp_ls_value[30] = 0;
+    pSharpParamStatic->sharp_ls_value[31] = 0;
+    pSharpParamStatic->sharp_ls_value[32] = 0;
+
+    pSharpParamStatic->sharp_hsv[0] = 287;
+    pSharpParamStatic->sharp_hsv[1] = 286;
+    pSharpParamStatic->sharp_hsv[2] = 283;
+    pSharpParamStatic->sharp_hsv[3] = 276;
+    pSharpParamStatic->sharp_hsv[4] = 265;
+    pSharpParamStatic->sharp_hsv[5] = 256;
+    pSharpParamStatic->sharp_hsv[6] = 256;
+    pSharpParamStatic->sharp_hsv[7] = 269;
+    pSharpParamStatic->sharp_hsv[8] = 290;
+    pSharpParamStatic->sharp_hsv[9] = 314;
+    pSharpParamStatic->sharp_hsv[10] = 336;
+    pSharpParamStatic->sharp_hsv[11] = 361;
+    pSharpParamStatic->sharp_hsv[12] = 397;
+    pSharpParamStatic->sharp_hsv[13] = 446;
+    pSharpParamStatic->sharp_hsv[14] = 492;
+    pSharpParamStatic->sharp_hsv[15] = 514;
+    pSharpParamStatic->sharp_hsv[16] = 498;
+    pSharpParamStatic->sharp_hsv[17] = 457;
+    pSharpParamStatic->sharp_hsv[18] = 411;
+    pSharpParamStatic->sharp_hsv[19] = 376;
+    pSharpParamStatic->sharp_hsv[20] = 352;
+    pSharpParamStatic->sharp_hsv[21] = 336;
+    pSharpParamStatic->sharp_hsv[22] = 324;
+    pSharpParamStatic->sharp_hsv[23] = 315;
+    pSharpParamStatic->sharp_hsv[24] = 307;
+    pSharpParamStatic->sharp_hsv[25] = 299;
+    pSharpParamStatic->sharp_hsv[26] = 290;
+    pSharpParamStatic->sharp_hsv[27] = 281;
+    pSharpParamStatic->sharp_hsv[28] = 272;
+    pSharpParamStatic->sharp_hsv[29] = 261;
+    pSharpParamStatic->sharp_hsv[30] = 247;
+    pSharpParamStatic->sharp_hsv[31] = 230;
+    pSharpParamStatic->sharp_hsv[32] = 215;
+    pSharpParamStatic->sharp_hsv[33] = 209;
+    pSharpParamStatic->sharp_hsv[34] = 215;
+    pSharpParamStatic->sharp_hsv[35] = 229;
+    pSharpParamStatic->sharp_hsv[36] = 243;
+    pSharpParamStatic->sharp_hsv[37] = 252;
+    pSharpParamStatic->sharp_hsv[38] = 257;
+    pSharpParamStatic->sharp_hsv[39] = 258;
+    pSharpParamStatic->sharp_hsv[40] = 257;
+    pSharpParamStatic->sharp_hsv[41] = 256;
+    pSharpParamStatic->sharp_hsv[42] = 256;
+    pSharpParamStatic->sharp_hsv[43] = 260;
+    pSharpParamStatic->sharp_hsv[44] = 266;
+    pSharpParamStatic->sharp_hsv[45] = 289;
+
+    return 0;
+}
 #endif
 
+static int venc_comp_event_handler(VideoEncoder *pEncoder, void *pAppData, VencEventType eEvent,
+		unsigned int nData1, unsigned int nData2, void *pEventData)
+{
+	venc_comp_ctx *venc_comp = (venc_comp_ctx *)pAppData;
+
+	if (VencEvent_UpdateIspToVeParam == eEvent) {
+		int vipp_id = venc_comp->base_config.channel_id;
+		int en_encpp = 0;
+		int final_en_encpp_sharp = 0;
+		sEncppSharpParam mSharpParam;
+		sEncppSharpParamDynamic dynamic_sharp;
+		sEncppSharpParamStatic static_sharp;
+
+		vin_get_encpp_cfg(vipp_id, RT_CTRL_ENCPP_EN, &en_encpp);
+		RT_LOGI("vencoder:%p, codec_type:%d, en_encpp %d %d", venc_comp->vencoder, venc_comp->base_config.codec_type, en_encpp, venc_comp->base_config.en_encpp_sharp);
+		final_en_encpp_sharp = en_encpp && venc_comp->base_config.en_encpp_sharp;
+		if (venc_comp->actual_en_encpp_sharp != final_en_encpp_sharp) {
+			RT_LOGW("Be careful! vencoder:%p, codec_type:%d, en_encpp change:%d->%d(%d,%d)",
+				venc_comp->vencoder, venc_comp->base_config.codec_type,
+				venc_comp->actual_en_encpp_sharp, final_en_encpp_sharp, en_encpp, venc_comp->base_config.en_encpp_sharp);
+			venc_comp->actual_en_encpp_sharp = final_en_encpp_sharp;
+			VencSetParameter(venc_comp->vencoder, VENC_IndexParamEnableEncppSharp, (void *)&venc_comp->actual_en_encpp_sharp);
+		}
+		if (venc_comp->actual_en_encpp_sharp) {
+			vin_get_encpp_cfg(vipp_id, RT_CTRL_ENCPP_DYNAMIC_CFG, &dynamic_sharp);
+			vin_get_encpp_cfg(vipp_id, RT_CTRL_ENCPP_STATIC_CFG, &static_sharp);
+
+			RT_LOGI("hfr_hf_wht_clp %d max_clp_ratio %d", dynamic_sharp.hfr_hf_wht_clp, dynamic_sharp.max_clp_ratio);
+			RT_LOGI("ls_dir_ratio %d ss_dir_ratio %d", static_sharp.ls_dir_ratio, static_sharp.ss_dir_ratio);
+			mSharpParam.pDynamicParam = &dynamic_sharp;
+			mSharpParam.pStaticParam = &static_sharp;
+			VencSetParameter(venc_comp->vencoder, VENC_IndexParamSharpConfig, &mSharpParam);
+		}
+	} else if (VencEvent_UpdateVeToIspParam == eEvent) {
+		VencVe2IspParam *s_ve2isp_param = (VencVe2IspParam *)pEventData;
+		RTIspCfgAttrData rt_isp_cfg;
+
+		RT_LOGI("d2d_level %d %d", s_ve2isp_param->d2d_level, s_ve2isp_param->d3d_level);
+		memset(&rt_isp_cfg, 0, sizeof(RTIspCfgAttrData));
+		//set 2d param
+		rt_isp_cfg.cfg_id = RT_ISP_CTRL_DN_STR;
+		rt_isp_cfg.denoise_level = s_ve2isp_param->d2d_level;
+		vin_set_isp_attr_cfg_special(venc_comp->base_config.channel_id, &rt_isp_cfg);
+
+		//set 3d param
+		rt_isp_cfg.cfg_id = RT_ISP_CTRL_3DN_STR;
+		rt_isp_cfg.tdf_level = s_ve2isp_param->d3d_level;
+		vin_set_isp_attr_cfg_special(venc_comp->base_config.channel_id, &rt_isp_cfg);
+	}
+	return 0;
+}
+static int setup_vbv_buffer_size(venc_comp_ctx *venc_comp)
+{
+	unsigned int vbv_size = venc_comp->base_config.vbv_buf_size;
+	int min_size;
+	unsigned int thresh_size = venc_comp->base_config.vbv_thresh_size;
+	unsigned int bit_rate = venc_comp->base_config.bit_rate;
+
+	min_size    = venc_comp->base_config.dst_width * venc_comp->base_config.dst_height * 3 / 2;
+	RT_LOGD("vbv_size %d %d", vbv_size, thresh_size);
+	if (!vbv_size || !thresh_size) {
+		if (bit_rate) {
+			thresh_size = bit_rate / 8 / venc_comp->base_config.frame_rate * 15;
+		} else {
+			thresh_size = venc_comp->base_config.dst_width * venc_comp->base_config.dst_height;
+		}
+		if (thresh_size > 7 * 1024 * 1024) {
+			RT_LOGW("Be careful! threshSize[%d]bytes too large, reduce to 7MB", thresh_size);
+			thresh_size = 7 * 1024 * 1024;
+		}
+
+		if (bit_rate > 0) {
+			vbv_size    = bit_rate / 8 * DEBUG_VBV_CACHE_TIME + thresh_size;
+		} else {
+			RT_LOGW("the bitrate error: %d", bit_rate);
+			vbv_size = min_size;
+		}
+	}
 	vbv_size = RT_ALIGN(vbv_size, 1024);
 
 	if (vbv_size <= thresh_size) {
@@ -194,8 +458,8 @@ static int setup_vbv_buffer_size(venc_comp_ctx *venc_comp)
 		vbv_size = 12 * 1024 * 1024;
 	}
 
-	RT_LOGD("bit rate is %dKb, set encode vbv size %d, frame length threshold %d, minSize = %d",
-		bit_rate_kb, vbv_size, thresh_size, min_size);
+	RT_LOGD("bit rate is %d bytes, set encode vbv size %d, frame length threshold %d, minSize = %d",
+		bit_rate, vbv_size, thresh_size, min_size);
 
 	if (venc_comp->base_config.dst_width >= 3840) {
 		vbv_size    = 2 * 1024 * 1024;
@@ -219,15 +483,15 @@ static int vencoder_create(venc_comp_ctx *venc_comp)
 
 	/* map codec type */
 	switch (venc_comp->base_config.codec_type) {
-	case VENC_COMP_CODEC_H264: {
+	case RT_VENC_CODEC_H264: {
 		type = VENC_CODEC_H264;
 		break;
 	}
-	case VENC_COMP_CODEC_H265: {
+	case RT_VENC_CODEC_H265: {
 		type = VENC_CODEC_H265;
 		break;
 	}
-	case VENC_COMP_CODEC_JPEG: {
+	case RT_VENC_CODEC_JPEG: {
 		type = VENC_CODEC_JPEG;
 		break;
 	}
@@ -246,11 +510,14 @@ static int vencoder_create(venc_comp_ctx *venc_comp)
 static int vencoder_init(venc_comp_ctx *venc_comp)
 {
 	VencBaseConfig base_config;
+	int en_encpp = 0;
+	int vipp_id = venc_comp->base_config.channel_id;
 
 	memset(&base_config, 0, sizeof(VencBaseConfig));
 
 	base_config.bOnlineMode		   = 1; //venc_comp->base_config.bOnlineMode;
-	base_config.bOnlineChannel	 = 0; //venc_comp->base_config.bOnlineChannel;
+	base_config.bOnlineChannel	 = venc_comp->base_config.bOnlineChannel;
+	base_config.nOnlineShareBufNum = venc_comp->base_config.share_buf_num;
 	base_config.bEncH264Nalu	   = 0;
 	base_config.nInputWidth		   = venc_comp->base_config.src_width;
 	base_config.nInputHeight	   = venc_comp->base_config.src_height;
@@ -263,6 +530,8 @@ static int vencoder_init(venc_comp_ctx *venc_comp)
 	base_config.veOpsS		   = NULL;
 	base_config.bLbcLossyComEnFlag2x   = 0;
 	base_config.bLbcLossyComEnFlag2_5x = 0;
+	base_config.bIsVbvNoCache = 1;
+	base_config.channel_id = venc_comp->base_config.channel_id;
 
 	if (venc_comp->base_config.pixelformat == RT_PIXEL_LBC_25X) {
 		base_config.eInputFormat	   = VENC_PIXEL_LBC_AW;
@@ -272,13 +541,25 @@ static int vencoder_init(venc_comp_ctx *venc_comp)
 		base_config.bLbcLossyComEnFlag2x = 1;
 	}
 
-	RT_LOGW("input format = %d, 2_5x_flag = %d", base_config.eInputFormat,
+	RT_LOGW("channel_id %d bOnlineChannel %d input format = %d, 2_5x_flag = %d", venc_comp->base_config.channel_id, base_config.bOnlineChannel, base_config.eInputFormat,
 		base_config.bLbcLossyComEnFlag2_5x);
 
+	vin_get_encpp_cfg(vipp_id, RT_CTRL_ENCPP_EN, &en_encpp);
+	RT_LOGW("vencoder:%p, codec_type:%d, en_encpp %d %d, ipc_case:%d", venc_comp->vencoder, venc_comp->base_config.codec_type, en_encpp, venc_comp->base_config.en_encpp_sharp, venc_comp->base_config.is_ipc_case);
+	venc_comp->actual_en_encpp_sharp = en_encpp && venc_comp->base_config.en_encpp_sharp;
+	VencSetParameter(venc_comp->vencoder, VENC_IndexParamEnableEncppSharp, (void *)&venc_comp->actual_en_encpp_sharp);
+	VencSetParameter(venc_comp->vencoder, VENC_IndexParamProductCase, (void *)&venc_comp->base_config.is_ipc_case);
 	/*int64_t time_start = get_cur_time();*/
 	LOCK_MUTEX(&venc_mutex);
 	VencInit(venc_comp->vencoder, &base_config);
 	UNLOCK_MUTEX(&venc_mutex);
+
+	if (venc_comp->base_config.s_wbyuv_param.bEnableWbYuv) {
+		LOCK_MUTEX(&venc_mutex);
+		VencSetParameter(venc_comp->vencoder, VENC_IndexParamEnableWbYuv, &venc_comp->base_config.s_wbyuv_param);
+		UNLOCK_MUTEX(&venc_mutex);
+	}
+
 	/*
 	int64_t time_end = get_cur_time();
 	RT_LOGD("time of VideoEncInit: %lld",(time_end - time_start));
@@ -303,9 +584,9 @@ static VENC_H264PROFILETYPE match_h264_profile(int src_profile)
 	VENC_H264PROFILETYPE h264_profile = VENC_H264ProfileHigh;
 
 	switch (src_profile) {
-	case XM_Video_H264ProfileBaseline:
-	case XM_Video_H264ProfileMain:
-	case XM_Video_H264ProfileHigh:
+	case AW_Video_H264ProfileBaseline:
+	case AW_Video_H264ProfileMain:
+	case AW_Video_H264ProfileHigh:
 		h264_profile = src_profile;
 		break;
 	default: {
@@ -322,21 +603,21 @@ static VENC_H264LEVELTYPE match_h264_level(int src_level)
 	VENC_H264LEVELTYPE h264_level = VENC_H264Level51;
 
 	switch (src_level) {
-	case XM_Video_H264Level1:
-	case XM_Video_H264Level11:
-	case XM_Video_H264Level12:
-	case XM_Video_H264Level13:
-	case XM_Video_H264Level2:
-	case XM_Video_H264Level21:
-	case XM_Video_H264Level22:
-	case XM_Video_H264Level3:
-	case XM_Video_H264Level31:
-	case XM_Video_H264Level32:
-	case XM_Video_H264Level4:
-	case XM_Video_H264Level41:
-	case XM_Video_H264Level42:
-	case XM_Video_H264Level5:
-	case XM_Video_H264Level51:
+	case AW_Video_H264Level1:
+	case AW_Video_H264Level11:
+	case AW_Video_H264Level12:
+	case AW_Video_H264Level13:
+	case AW_Video_H264Level2:
+	case AW_Video_H264Level21:
+	case AW_Video_H264Level22:
+	case AW_Video_H264Level3:
+	case AW_Video_H264Level31:
+	case AW_Video_H264Level32:
+	case AW_Video_H264Level4:
+	case AW_Video_H264Level41:
+	case AW_Video_H264Level42:
+	case AW_Video_H264Level5:
+	case AW_Video_H264Level51:
 		h264_level = src_level;
 		break;
 	default: {
@@ -353,9 +634,9 @@ static VENC_H265PROFILETYPE match_h265_profile(int src_profile)
 	VENC_H265PROFILETYPE h265_profile = VENC_H265ProfileMain;
 
 	switch (src_profile) {
-	case XM_Video_H265ProfileMain:
-	case XM_Video_H265ProfileMain10:
-	case XM_Video_H265ProfileMainStill:
+	case AW_Video_H265ProfileMain:
+	case AW_Video_H265ProfileMain10:
+	case AW_Video_H265ProfileMainStill:
 		h265_profile = src_profile;
 		break;
 	default: {
@@ -372,18 +653,18 @@ static VENC_H265LEVELTYPE match_h265_level(int src_level)
 	VENC_H265LEVELTYPE h265_level = VENC_H265Level51;
 
 	switch (src_level) {
-	case XM_Video_H265Level1:
-	case XM_Video_H265Level2:
-	case XM_Video_H265Level21:
-	case XM_Video_H265Level3:
-	case XM_Video_H265Level31:
-	case XM_Video_H265Level41:
-	case XM_Video_H265Level5:
-	case XM_Video_H265Level51:
-	case XM_Video_H265Level52:
-	case XM_Video_H265Level6:
-	case XM_Video_H265Level61:
-	case XM_Video_H265Level62:
+	case AW_Video_H265Level1:
+	case AW_Video_H265Level2:
+	case AW_Video_H265Level21:
+	case AW_Video_H265Level3:
+	case AW_Video_H265Level31:
+	case AW_Video_H265Level41:
+	case AW_Video_H265Level5:
+	case AW_Video_H265Level51:
+	case AW_Video_H265Level52:
+	case AW_Video_H265Level6:
+	case AW_Video_H265Level61:
+	case AW_Video_H265Level62:
 		h265_level = src_level;
 		break;
 	default: {
@@ -417,6 +698,7 @@ static int set_param_h264(venc_comp_ctx *venc_comp)
 	param_h264.nCodingMode		   = VENC_FRAME_CODING;
 	param_h264.sGopParam.bUseGopCtrlEn = 1;
 	param_h264.sGopParam.eGopMode      = AW_NORMALP;
+	param_h264.breduce_refrecmem = venc_comp->base_config.breduce_refrecmem;
 
 	if (venc_comp->base_config.rc_mode == VENC_COMP_RC_MODE_H264CBR)
 		param_h264.sRcParam.eRcMode = AW_CBR;
@@ -444,6 +726,7 @@ static int set_param_h264(venc_comp_ctx *venc_comp)
 	LOCK_MUTEX(&venc_mutex);
 	VencSetParameter(venc_comp->vencoder, VENC_IndexParamH264Param, &param_h264);
 	//VideoEncSetParameter(venc_comp->vencoder, VENC_IndexParamH264VideoTiming, &video_time);
+	VencSetParameter(venc_comp->vencoder, VENC_IndexParamH264VideoSignal, &venc_comp->base_config.venc_video_signal);
 	UNLOCK_MUTEX(&venc_mutex);
 
 	return 0;
@@ -471,6 +754,7 @@ static int set_param_h265(venc_comp_ctx *venc_comp)
 	h265Param.sQPRange.nMinPqp = venc_comp->base_config.qp_range.p_min_qp;
 	h265Param.sQPRange.nMaxPqp = venc_comp->base_config.qp_range.p_max_qp;
 	h265Param.sQPRange.nQpInit = venc_comp->base_config.qp_range.i_init_qp;
+	h265Param.breduce_refrecmem = venc_comp->base_config.breduce_refrecmem;
 
 	if (venc_comp->base_config.rc_mode == VENC_COMP_RC_MODE_H264CBR)
 		h265Param.sRcParam.eRcMode = AW_CBR;
@@ -485,16 +769,37 @@ static int set_param_h265(venc_comp_ctx *venc_comp)
 
 	LOCK_MUTEX(&venc_mutex);
 	VencSetParameter(venc_comp->vencoder, VENC_IndexParamH265Param, &h265Param);
-	UNLOCK_MUTEX(&venc_mutex);
 
+	VencSetParameter(venc_comp->vencoder, VENC_IndexParamVUIVideoSignal, &venc_comp->base_config.venc_video_signal);
+	UNLOCK_MUTEX(&venc_mutex);
 	return 0;
 }
 
 static int set_param_jpeg(venc_comp_ctx *venc_comp)
 {
+	VencJpegVideoSignal sVideoSignal;
+	int rotate_angle = venc_comp->base_config.rotate_angle;
 	LOCK_MUTEX(&venc_mutex);
+	VencSetParameter(venc_comp->vencoder, VENC_IndexParamJpegEncMode, &venc_comp->base_config.jpg_mode);
 	VencSetParameter(venc_comp->vencoder, VENC_IndexParamJpegQuality,
 			 &venc_comp->base_config.quality);
+	if (venc_comp->base_config.jpg_mode) {//mjpg
+		VencSetParameter(venc_comp->vencoder, VENC_IndexParamBitrate, &venc_comp->base_config.bit_rate);
+		VencSetParameter(venc_comp->vencoder, VENC_IndexParamFramerate, &venc_comp->base_config.frame_rate);
+		VencSetParameter(venc_comp->vencoder, VENC_IndexParamSetBitRateRange, &venc_comp->base_config.bit_rate_range);
+	}
+
+	memset(&sVideoSignal, 0, sizeof(VencJpegVideoSignal));
+	sVideoSignal.src_colour_primaries = venc_comp->base_config.venc_video_signal.src_colour_primaries;
+	sVideoSignal.dst_colour_primaries = venc_comp->base_config.venc_video_signal.dst_colour_primaries;
+	RT_LOGD("src_colour_primaries %d %d", sVideoSignal.src_colour_primaries, sVideoSignal.dst_colour_primaries);
+	VencSetParameter(venc_comp->vencoder, VENC_IndexParamJpegVideoSignal, &sVideoSignal);
+	if (rotate_angle == 90 || rotate_angle == 180 || rotate_angle == 270) {
+		VencSetParameter(venc_comp->vencoder, VENC_IndexParamRotation, &rotate_angle);
+	}
+	RT_LOGI("jpg param %d %d %d %d %d %d", venc_comp->base_config.jpg_mode, venc_comp->base_config.quality, venc_comp->base_config.frame_rate,
+	venc_comp->base_config.bit_rate, venc_comp->base_config.bit_rate_range.bitRateMin,
+	venc_comp->base_config.bit_rate_range.bitRateMax);
 	UNLOCK_MUTEX(&venc_mutex);
 	return 0;
 }
@@ -534,34 +839,66 @@ static void check_qp_value(video_qp_range *qp_range)
 		qp_range->i_init_qp = 35;
 }
 
+static void init_2d_3d_param(s2DfilterParam *p2DfilterParam, s3DfilterParam *p3DfilterParam)
+{
+    //init 2dfilter(2dnr) is open
+    p2DfilterParam->enable_2d_filter = 1;
+    p2DfilterParam->filter_strength_y = 127;
+    p2DfilterParam->filter_strength_uv = 127;
+    p2DfilterParam->filter_th_y = 11;
+    p2DfilterParam->filter_th_uv = 7;
+
+    //init 3dfilter(3dnr) is open
+    p3DfilterParam->enable_3d_filter = 1;
+    p3DfilterParam->adjust_pix_level_enable = 0;
+    p3DfilterParam->smooth_filter_enable = 1;
+    p3DfilterParam->max_pix_diff_th = 6;
+    p3DfilterParam->max_mv_th = 8;
+    p3DfilterParam->max_mad_th = 14;
+    p3DfilterParam->min_coef = 13;
+    p3DfilterParam->max_coef = 16;
+	return ;
+}
+
 static int vencoder_set_param(venc_comp_ctx *venc_comp)
 {
-#if 0
-	int rc_policy = BITRATE_PRI;
-#endif
-	struct file g2d_file;
-
+	s3DfilterParam m3DfilterParam;
+	s2DfilterParam m2DfilterParam;
+	// file g2d_file;
 	check_qp_value(&venc_comp->base_config.qp_range);
 
 	RT_LOGI("i_qp = %d~%d, p_qp = %d~%d",
 		venc_comp->base_config.qp_range.i_min_qp, venc_comp->base_config.qp_range.i_max_qp,
 		venc_comp->base_config.qp_range.p_min_qp, venc_comp->base_config.qp_range.p_max_qp);
 
-	if (venc_comp->base_config.codec_type == VENC_COMP_CODEC_H264)
+	if (venc_comp->base_config.codec_type == RT_VENC_CODEC_H264)
 		set_param_h264(venc_comp);
-	else if (venc_comp->base_config.codec_type == VENC_COMP_CODEC_H265)
+	else if (venc_comp->base_config.codec_type == RT_VENC_CODEC_H265)
 		set_param_h265(venc_comp);
-	else if (venc_comp->base_config.codec_type == VENC_COMP_CODEC_JPEG)
+	else if (venc_comp->base_config.codec_type == RT_VENC_CODEC_JPEG)
 		set_param_jpeg(venc_comp);
-#if 0 //need to update
-	if (venc_comp->base_config.codec_type == VENC_COMP_CODEC_H264
-		|| venc_comp->base_config.codec_type == VENC_COMP_CODEC_H265) {
-		LOCK_MUTEX(&venc_mutex);
-		VencSetParameter(venc_comp->vencoder, VENC_IndexParamSetRCPriority, &rc_policy);
-		VencSetParameter(venc_comp->vencoder, VENC_IndexParamMotionSearch, &venc_comp->base_config.motion_search_param);
-		UNLOCK_MUTEX(&venc_mutex);
-	}
+
+#if defined(CONFIG_DEBUG_FS)
+    VeProcSet sVeProcInfo;
+	int channel_id = 0;
+
+	memset(&sVeProcInfo, 0, sizeof(VeProcSet));
+    sVeProcInfo.bProcEnable = 1;
+    sVeProcInfo.nProcFreq = 10;
+	channel_id = venc_comp->base_config.channel_id;
+	LOCK_MUTEX(&venc_mutex);
+	VencSetParameter(venc_comp->vencoder, VENC_IndexParamChannelNum, &channel_id);
+	VencSetParameter(venc_comp->vencoder, VENC_IndexParamProcSet, &sVeProcInfo);
+	UNLOCK_MUTEX(&venc_mutex);
 #endif
+
+	//init 2d/3d param
+	init_2d_3d_param(&m2DfilterParam, &m3DfilterParam);
+	if (venc_comp->base_config.codec_type != RT_VENC_CODEC_JPEG) {
+		VencSetParameter(venc_comp->vencoder, VENC_IndexParam3DFilterNew, &m3DfilterParam);
+		VencSetParameter(venc_comp->vencoder, VENC_IndexParam2DFilter, &m2DfilterParam);
+	}
+
 	setup_vbv_buffer_size(venc_comp);
 
 	if (venc_comp->vencoder_init_flag == 0) {
@@ -592,7 +929,7 @@ static int commond_process(struct venc_comp_ctx *venc_comp, message_t *msg)
 	wait_queue_head_t *wait_reply = (wait_queue_head_t *)msg->wait_queue;
 	unsigned int *wait_condition  = (unsigned int *)msg->wait_condition;
 
-	RT_LOGD("cmd process: cmd = %d, state = %d, wait_reply = %p, wait_condition = %p",
+	RT_LOGI("cmd process: cmd = %d, state = %d, wait_reply = %p, wait_condition = %p",
 		cmd, venc_comp->state, wait_reply, wait_condition);
 
 	if (cmd == COMP_COMMAND_INIT) {
@@ -667,7 +1004,7 @@ static int venc_empty_in_buffer_done(void *venc_comp,
 		comp_fill_this_out_buffer(pvenc_comp->in_port_tunnel_info.tunnel_comp, &buffer_header);
 	}
 
-	RT_LOGD("release input FrameId[%d]", pframe_info->id);
+	RT_LOGI("venc_comp %p channel id %d release input FrameId[%d]", venc_comp, pvenc_comp->base_config.channel_id, pframe_info->id);
 	return ERROR_TYPE_OK;
 }
 
@@ -944,6 +1281,7 @@ typedef struct osd_convert_src_info {
 	unsigned int height;
 } osd_convert_src_info;
 
+#if 0
 static int convert_osd_pos_info(venc_comp_ctx *venc_comp, osd_convert_dst_info *dst_info, osd_convert_src_info *src_info)
 {
 	/* 1X: 100 */
@@ -1026,7 +1364,7 @@ static int convert_osd_pos_info(venc_comp_ctx *venc_comp, osd_convert_dst_info *
 
 	return 0;
 }
-
+#endif
 #if ENABLE_SAVE_NATIVE_OVERLAY_DATA
 int convert_overlay_info_native(venc_comp_ctx *venc_comp, VencOverlayInfoS *pvenc_osd, VideoInputOSD *user_osd_info)
 {
@@ -1208,6 +1546,8 @@ static int convert_overlay_info(VencOverlayInfoS *pvenc_osd, VideoInputOSD *user
 	pvenc_osd->blk_num	  = user_osd_info->osd_num;
 	pvenc_osd->argb_type	= user_osd_info->argb_type;
 	pvenc_osd->is_user_buf_flag = 1;
+	pvenc_osd->invert_mode = user_osd_info->invert_mode;
+	pvenc_osd->invert_threshold = user_osd_info->invert_threshold;
 
 	for (i = 0; i < pvenc_osd->blk_num; i++) {
 		dst_item = &pvenc_osd->overlayHeaderList[i];
@@ -1225,7 +1565,10 @@ static int convert_overlay_info(VencOverlayInfoS *pvenc_osd, VideoInputOSD *user
 		dst_item->end_mb_x	 = align_end_x / 16 - 1;
 		dst_item->end_mb_y	 = align_end_y / 16 - 1;
 
-		dst_item->overlay_type	= NORMAL_OVERLAY;
+		dst_item->overlay_type	= src_item->osd_type;
+		if (dst_item->overlay_type == COVER_OVERLAY)
+			memcpy(&dst_item->cover_yuv, &src_item->cover_yuv, sizeof(VencOverlayCoverYuvS));
+
 		dst_item->extra_alpha_flag    = 0;
 		dst_item->bforce_reverse_flag = 0;
 		RT_LOGI("osd item[%d]: s_x = %d, s_y = %d, e_x = %d, e_y = %d, size = %d, buf = %p",
@@ -1321,10 +1664,11 @@ static error_type config_dynamic_param(
 		g2d_release(0, &g2d_file);
 		UNLOCK_MUTEX(&venc_mutex);
 #else
-		VencOverlayInfoS sOverlayInfo;
+		VencOverlayInfoS *pOverlayInfo;
 		VideoInputOSD inputOsd;
 
-		memset(&sOverlayInfo, 0, sizeof(VencOverlayInfoS));
+		pOverlayInfo = kmalloc(sizeof(VencOverlayInfoS), GFP_KERNEL);
+		memset(pOverlayInfo, 0, sizeof(VencOverlayInfoS));
 		memset(&inputOsd, 0, sizeof(VideoInputOSD));
 
 		if (copy_from_user(&inputOsd, (void __user *)param_data, sizeof(VideoInputOSD))) {
@@ -1332,33 +1676,32 @@ static error_type config_dynamic_param(
 			return -EFAULT;
 		}
 
-		convert_overlay_info(&sOverlayInfo, &inputOsd);
+		convert_overlay_info(pOverlayInfo, &inputOsd);
 
 		LOCK_MUTEX(&venc_mutex);
-		VencSetParameter(venc_comp->vencoder, VENC_IndexParamSetOverlay, &sOverlayInfo);
+		VencSetParameter(venc_comp->vencoder, VENC_IndexParamSetOverlay, pOverlayInfo);
 		UNLOCK_MUTEX(&venc_mutex);
+		kfree(pOverlayInfo);
 #endif
 		RT_LOGI("ENABLE_SAVE_NATIVE_OVERLAY_DATA = %d", ENABLE_SAVE_NATIVE_OVERLAY_DATA);
 		break;
 	}
-	case COMP_INDEX_VENC_CONFIG_ENABLE_BIN_IMAGE: {
-#if 0
-		rt_venc_bin_image_param *bin_param = (rt_venc_bin_image_param *)param_data;
-		VencBinImageParam venc_bin_param;
-
-		venc_bin_param.enable = bin_param->enable;
-		venc_bin_param.moving_th = bin_param->moving_th;
-
-		RT_LOGI("COMP_INDEX_VENC_CONFIG_ENABLE_BIN_IMAGE: enable = %d, th = %d",
-				venc_bin_param.enable, venc_bin_param.moving_th);
-		VencSetParameter(venc_comp->vencoder, VENC_IndexParamEnableGetBinImage, &venc_bin_param);
-#endif
-		break;
-	}
-	case COMP_INDEX_VENC_CONFIG_ENABLE_MV_INFO: {
-		//VencSetParameter(venc_comp->vencoder, VENC_IndexParamEnableMvInfo, param_data);
-		break;
-	}
+//	case COMP_INDEX_VENC_CONFIG_ENABLE_BIN_IMAGE: {
+//		rt_venc_bin_image_param *bin_param = (rt_venc_bin_image_param *)param_data;
+//		VencBinImageParam venc_bin_param;
+//
+//		venc_bin_param.enable = bin_param->enable;
+//		venc_bin_param.moving_th = bin_param->moving_th;
+//
+//		RT_LOGI("COMP_INDEX_VENC_CONFIG_ENABLE_BIN_IMAGE: enable = %d, th = %d",
+//				venc_bin_param.enable, venc_bin_param.moving_th);
+//		VencSetParameter(venc_comp->vencoder, VENC_IndexParamEnableGetBinImage, &venc_bin_param);
+//		break;
+//	}
+//	case COMP_INDEX_VENC_CONFIG_ENABLE_MV_INFO: {
+//		VencSetParameter(venc_comp->vencoder, VENC_IndexParamEnableMvInfo, param_data);
+//		break;
+//	}
 	case COMP_INDEX_VENC_CONFIG_Dynamic_Flush_buffer: {
 		flush_buffer(venc_comp);
 		break;
@@ -1427,7 +1770,7 @@ static error_type config_dynamic_param(
 		break;
 	}
 	case COMP_INDEX_VENC_CONFIG_Dynamic_GET_SUM_MB_INFO: {
-		RTVencMBSumInfo *prt_mb_sum = (RTVencMBSumInfo *)param_data;
+		//RTVencMBSumInfo *prt_mb_sum = (RTVencMBSumInfo *)param_data;
 		VencMBSumInfo venc_mb_sum;
 
 		memset(&venc_mb_sum, 0, sizeof(VencMBSumInfo));
@@ -1440,9 +1783,9 @@ static error_type config_dynamic_param(
 		prt_mb_sum->sum_qp  = venc_mb_sum.sum_qp;
 		prt_mb_sum->sum_sse = venc_mb_sum.sum_sse;
 		prt_mb_sum->avg_sse = venc_mb_sum.avg_sse;
-#endif
 		RT_LOGI("GET_SUM_MB_INFO: sum_mad = %d, sum_qp = %d, sum_sse = %lld, avg_sse = %d",
 			prt_mb_sum->sum_mad, prt_mb_sum->sum_qp, prt_mb_sum->sum_sse, prt_mb_sum->avg_sse);
+#endif
 		break;
 	}
 	case COMP_INDEX_VENC_CONFIG_Dynamic_SET_IS_NIGHT_CASE: {
@@ -1461,27 +1804,52 @@ static error_type config_dynamic_param(
 		break;
 	}
 	case COMP_INDEX_VENC_CONFIG_Dynamic_SET_SUPER_FRAME_PARAM: {
-		RTVencSuperFrameConfig *pconfig = (RTVencSuperFrameConfig *)param_data;
-		VencSuperFrameConfig mvenc_config;
-
-		memset(&mvenc_config, 0, sizeof(VencSuperFrameConfig));
-
-		if (pconfig->bDropSuperFrame == 1)
-			mvenc_config.eSuperFrameMode = VENC_SUPERFRAME_DISCARD;
-		else
-			mvenc_config.eSuperFrameMode = VENC_SUPERFRAME_NONE;
-
-		mvenc_config.nMaxIFrameBits = pconfig->nMaxIFrameBits;
-		mvenc_config.nMaxPFrameBits = pconfig->nMaxPFrameBits;
+		VencSuperFrameConfig *pconfig = (VencSuperFrameConfig *)param_data;
 
 		if (venc_comp->vencoder) {
 			LOCK_MUTEX(&venc_mutex);
-			ret = VencSetParameter(venc_comp->vencoder, VENC_IndexParamSuperFrameConfig, &mvenc_config);
+			ret = VencSetParameter(venc_comp->vencoder, VENC_IndexParamSuperFrameConfig, pconfig);
 			if (ret != 0)
 				error = ERROR_TYPE_ERROR;
 			UNLOCK_MUTEX(&venc_mutex);
 		}
 
+		break;
+	}
+	case COMP_INDEX_VENC_CONFIG_SET_SHARP: {
+//		RTsEncppSharp mSharp;
+//		RTsEncppSharpParamDynamic dynamic_sharp;
+//		RTsEncppSharpParamStatic static_sharp;
+//
+//		if (copy_from_user(&mSharp, (void __user *)param_data, sizeof(RTsEncppSharp))) {
+//			RT_LOGE("COMP_INDEX_VENC_CONFIG_SET_SHARP copy_from_user fail\n");
+//			return -EFAULT;
+//		}
+//
+//		if (copy_from_user(&dynamic_sharp, (void __user *)mSharp.sEncppSharpParam.pDynamicParam, sizeof(sEncppSharpParamDynamic))) {
+//			RT_LOGE("pDynamicParam copy_from_user fail\n");
+//			return -EFAULT;
+//		}
+//		if (copy_from_user(&static_sharp, (void __user *)mSharp.sEncppSharpParam.pStaticParam, sizeof(sEncppSharpParamStatic))) {
+//			RT_LOGE("pStaticParam copy_from_user fail\n");
+//			return -EFAULT;
+//		}
+//
+//		mSharp.sEncppSharpParam.pDynamicParam = &dynamic_sharp;
+//		mSharp.sEncppSharpParam.pStaticParam = &static_sharp;
+//
+//		RT_LOGD("hfr_hf_wht_clp %d max_clp_ratio %d", mSharp.sEncppSharpParam.pDynamicParam->hfr_hf_wht_clp, mSharp.sEncppSharpParam.pDynamicParam->max_clp_ratio);
+//		RT_LOGD("ls_dir_ratio %d ss_dir_ratio %d", mSharp.sEncppSharpParam.pStaticParam->ls_dir_ratio, mSharp.sEncppSharpParam.pStaticParam->ss_dir_ratio);
+//
+//		VencSetParameter(venc_comp->vencoder, VENC_IndexParamSharpConfig, &mSharp.sEncppSharpParam);
+
+		int bSharp = *(int *)param_data;
+		if (venc_comp->base_config.en_encpp_sharp != bSharp) {
+			int vipp_id = venc_comp->base_config.channel_id;
+			RT_LOGW("vipp:%d,venc_type:%d: en_encpp_sharp base config change:%d->%d", vipp_id, venc_comp->base_config.codec_type, venc_comp->base_config.en_encpp_sharp, bSharp);
+			venc_comp->base_config.en_encpp_sharp = bSharp;
+			VencSetParameter(venc_comp->vencoder, VENC_IndexParamEnableEncppSharp, (void *)&venc_comp->base_config.en_encpp_sharp);
+		}
 		break;
 	}
 	default: {
@@ -1552,6 +1920,8 @@ error_type venc_comp_start(
 	 */
 	vencoder_set_param(venc_comp);
 
+	venc_comp->vencCallBack.EventHandler = venc_comp_event_handler;
+	VencSetCallbacks(venc_comp->vencoder, &venc_comp->vencCallBack, venc_comp, NULL);
 	VencStart(venc_comp->vencoder);
 	post_msg_and_wait(venc_comp, COMP_COMMAND_START);
 	return error;
@@ -1690,6 +2060,20 @@ error_type venc_comp_get_config(
 	}
 	RT_LOGD("venc_comp_get_config : %d, start", index);
 	switch (index) {
+	case COMP_INDEX_VENC_CONFIG_GET_WBYUV: {
+		RTVencThumbInfo *p_wb_info = (RTVencThumbInfo *)param_data;
+		VencThumbInfo s_venc_thumb_info;
+		memset(&s_venc_thumb_info, 0, sizeof(VencThumbInfo));
+
+		s_venc_thumb_info.nThumbSize = p_wb_info->nThumbSize;
+		s_venc_thumb_info.pThumbBuf = p_wb_info->pThumbBuf;
+
+		LOCK_MUTEX(&venc_mutex);
+		VencGetParameter(venc_comp->vencoder, VENC_IndexParamGetThumbYUV, &s_venc_thumb_info);
+		UNLOCK_MUTEX(&venc_mutex);
+		RT_LOGD("nThumbSize %d %p", p_wb_info->nThumbSize, p_wb_info->pThumbBuf);
+		break;
+	}
 	case COMP_INDEX_VENC_CONFIG_GET_VBV_BUF_INFO: {
 		KERNEL_VBV_BUFFER_INFO *param_vbv = (KERNEL_VBV_BUFFER_INFO *)param_data;
 		VbvInfo vbv_info;
@@ -1716,9 +2100,9 @@ error_type venc_comp_get_config(
 		VencHeaderData sps_pps_data;
 		memset(&sps_pps_data, 0, sizeof(VencHeaderData));
 
-		if (venc_comp->base_config.codec_type == VENC_COMP_CODEC_H264) {
+		if (venc_comp->base_config.codec_type == RT_VENC_CODEC_H264) {
 			VencGetParameter(venc_comp->vencoder, VENC_IndexParamH264SPSPPS, &sps_pps_data);
-		} else if (venc_comp->base_config.codec_type == VENC_COMP_CODEC_H265) {
+		} else if (venc_comp->base_config.codec_type == RT_VENC_CODEC_H265) {
 			VencGetParameter(venc_comp->vencoder, VENC_IndexParamH265Header, &sps_pps_data);
 		} else {
 			RT_LOGW("not support COMP_INDEX_VENC_CONFIG_GET_VBV_BUF_INFO yet");
@@ -1797,11 +2181,16 @@ error_type venc_comp_get_config(
 	}
 #endif
 	case COMP_INDEX_VENC_CONFIG_Dynamic_GET_MOTION_SEARCH_RESULT: {
-		RTVencMotionSearchRegion *motion_result = (RTVencMotionSearchRegion *)param_data;
+		VencMotionSearchResult *motion_result = (VencMotionSearchResult *)param_data;
 
 		RT_LOGI("COMP_INDEX_VENC_CONFIG_Dynamic_GET_MOTION_SEARCH_RESULT");
 
 		return VencGetParameter(venc_comp->vencoder, VENC_IndexParamMotionSearchResult, motion_result);
+	}
+	case COMP_INDEX_VENC_CONFIG_Dynamic_GET_REGION_D3D_RESULT: {
+		VencRegionD3DResult *pRegionD3DResult = (VencRegionD3DResult *)param_data;
+		error = VencGetParameter(venc_comp->vencoder, VENC_IndexParamRegionD3DResult, pRegionD3DResult);
+		break;
 	}
 	default: {
 		RT_LOGW("get config: not support the index = 0x%x", index);
@@ -1835,6 +2224,120 @@ error_type venc_comp_set_config(
 	case COMP_INDEX_VENC_CONFIG_Normal: {
 		venc_comp_normal_config *normal_config = (venc_comp_normal_config *)param_data;
 		memcpy(&venc_comp->normal_config, normal_config, sizeof(venc_comp_normal_config));
+		break;
+	}
+	case COMP_INDEX_VENC_CONFIG_SET_MOTION_SEARCH_PARAM: {
+		if (venc_comp->base_config.codec_type == RT_VENC_CODEC_H264
+			|| venc_comp->base_config.codec_type == RT_VENC_CODEC_H265) {
+			LOCK_MUTEX(&venc_mutex);
+			VencSetParameter(venc_comp->vencoder, VENC_IndexParamMotionSearchParam, (VencMotionSearchParam *)param_data);
+			UNLOCK_MUTEX(&venc_mutex);
+		}
+		break;
+	}
+	case COMP_INDEX_VENC_CONFIG_SET_IPC_CASE: {
+		LOCK_MUTEX(&venc_mutex);
+		VencSetParameter(venc_comp->vencoder, VENC_IndexParamProductCase, (int *)param_data);
+		UNLOCK_MUTEX(&venc_mutex);
+		break;
+	}
+	case COMP_INDEX_VENC_CONFIG_SET_ROI: {
+		LOCK_MUTEX(&venc_mutex);
+		VencSetParameter(venc_comp->vencoder, VENC_IndexParamROIConfig, (VencROIConfig *)param_data);
+		UNLOCK_MUTEX(&venc_mutex);
+		break;
+	}
+	case COMP_INDEX_VENC_CONFIG_SET_GDC: {
+		LOCK_MUTEX(&venc_mutex);
+		VencSetParameter(venc_comp->vencoder, VENC_IndexParamGdcConfig, (sGdcParam *)param_data);
+		UNLOCK_MUTEX(&venc_mutex);
+		break;
+	}
+	case COMP_INDEX_VENC_CONFIG_SET_ROTATE: {
+		if (venc_comp->base_config.pixelformat == RT_PIXEL_LBC_25X || venc_comp->base_config.pixelformat == RT_PIXEL_LBC_2X) {
+			RT_LOGW("lbc format not support rotate!");
+			break;
+		}
+		LOCK_MUTEX(&venc_mutex);
+		VencSetParameter(venc_comp->vencoder, VENC_IndexParamRotation, (unsigned int *)param_data);
+		UNLOCK_MUTEX(&venc_mutex);
+		break;
+	}
+	case COMP_INDEX_VENC_CONFIG_SET_REC_REF_LBC_MODE: {
+		LOCK_MUTEX(&venc_mutex);
+		VencSetParameter(venc_comp->vencoder, VENC_IndexParamSetRecRefLbcMode, (eVeLbcMode *)param_data);
+		UNLOCK_MUTEX(&venc_mutex);
+		break;
+	}
+	case COMP_INDEX_VENC_CONFIG_SET_WEAK_TEXT_TH: {
+		LOCK_MUTEX(&venc_mutex);
+		VencSetParameter(venc_comp->vencoder, VENC_IndexParamWeakTextTh, (float *)param_data);
+		UNLOCK_MUTEX(&venc_mutex);
+		break;
+	}
+	case COMP_INDEX_VENC_CONFIG_SET_REGION_D3D_PARAM: {
+		LOCK_MUTEX(&venc_mutex);
+		VencSetParameter(venc_comp->vencoder, VENC_IndexParamRegionD3DParam, (VencRegionD3DParam *)param_data);
+		UNLOCK_MUTEX(&venc_mutex);
+		break;
+	}
+	case COMP_INDEX_VENC_CONFIG_SET_CHROMA_QP_OFFSET: {
+		LOCK_MUTEX(&venc_mutex);
+		VencSetParameter(venc_comp->vencoder, VENC_IndexParamChromaQPOffset, (int *)param_data);
+		UNLOCK_MUTEX(&venc_mutex);
+		break;
+	}
+	case COMP_INDEX_VENC_CONFIG_SET_H264_CONSTRAINT_FLAG: {
+		LOCK_MUTEX(&venc_mutex);
+		VencSetParameter(venc_comp->vencoder, VENC_IndexParamH264ConstraintFlag, (VencH264ConstraintFlag *)param_data);
+		UNLOCK_MUTEX(&venc_mutex);
+		break;
+	}
+	case COMP_INDEX_VENC_CONFIG_SET_VE2ISP_D2D_LIMIT: {
+		LOCK_MUTEX(&venc_mutex);
+		VencSetParameter(venc_comp->vencoder, VENC_IndexParamVe2IspD2DLimit, (VencVe2IspD2DLimit *)param_data);
+		UNLOCK_MUTEX(&venc_mutex);
+		break;
+	}
+	case COMP_INDEX_VENC_CONFIG_SET_GRAY: {
+		LOCK_MUTEX(&venc_mutex);
+		VencSetParameter(venc_comp->vencoder, VENC_IndexParamChmoraGray, (unsigned int *)param_data);
+		UNLOCK_MUTEX(&venc_mutex);
+		break;
+	}
+	case COMP_INDEX_VENC_CONFIG_SET_WBYUV: {
+		RTsWbYuvParam *p_wbyuv_param = (RTsWbYuvParam *)param_data;
+		if (p_wbyuv_param->bEnableWbYuv) {//en wbyuv will set int venc_init.
+			memcpy(&venc_comp->base_config.s_wbyuv_param, p_wbyuv_param, sizeof(RTsWbYuvParam));
+		} else {
+			LOCK_MUTEX(&venc_mutex);
+			VencSetParameter(venc_comp->vencoder, VENC_IndexParamEnableWbYuv, (RTsWbYuvParam *)param_data);
+			UNLOCK_MUTEX(&venc_mutex);
+		}
+		break;
+	}
+	case COMP_INDEX_VENC_CONFIG_SET_2DNR: {
+		LOCK_MUTEX(&venc_mutex);
+		VencSetParameter(venc_comp->vencoder, VENC_IndexParam2DFilter, (s2DfilterParam *)param_data);
+		UNLOCK_MUTEX(&venc_mutex);
+		break;
+	}
+	case COMP_INDEX_VENC_CONFIG_SET_3DNR: {
+		LOCK_MUTEX(&venc_mutex);
+		VencSetParameter(venc_comp->vencoder, VENC_IndexParam3DFilterNew, (s3DfilterParam *)param_data);
+		UNLOCK_MUTEX(&venc_mutex);
+		break;
+	}
+	case COMP_INDEX_VENC_CONFIG_SET_CYCLE_INTRA_REFRESH: {
+		LOCK_MUTEX(&venc_mutex);
+		VencSetParameter(venc_comp->vencoder, VENC_IndexParamH264CyclicIntraRefresh, (VencCyclicIntraRefresh *)param_data);
+		UNLOCK_MUTEX(&venc_mutex);
+		break;
+	}
+	case COMP_INDEX_VENC_CONFIG_SET_P_FRAME_INTRA: {
+		LOCK_MUTEX(&venc_mutex);
+		VencSetParameter(venc_comp->vencoder, VENC_IndexParamPFrameIntraEn, (unsigned int *)param_data);
+		UNLOCK_MUTEX(&venc_mutex);
 		break;
 	}
 	default: {
@@ -1875,6 +2378,7 @@ error_type venc_comp_empty_this_in_buffer(
 	rt_component_type *rt_component = (rt_component_type *)component;
 	struct venc_comp_ctx *venc_comp = (struct venc_comp_ctx *)rt_component->component_private;
 	message_t msg;
+	static int cnt_1 = 1;
 
 	memset(&msg, 0, sizeof(message_t));
 
@@ -1882,9 +2386,9 @@ error_type venc_comp_empty_this_in_buffer(
 		RT_LOGE("venc_comp_empty_this_in_buffer: param error");
 		return ERROR_TYPE_ILLEGAL_PARAM;
 	}
-
 	if (venc_comp->state != COMP_STATE_EXECUTING) {
-		RT_LOGW("submit inbuf when venc state[0x%x] isn not executing", venc_comp->state);
+		RT_LOGW("channel %d submit inbuf when venc state[0x%x] isn not executing",
+			venc_comp->base_config.channel_id, venc_comp->state);
 	}
 
 	src_frame = (video_frame_s *)buffer_header->private;
@@ -1920,11 +2424,16 @@ error_type venc_comp_empty_this_in_buffer(
 	first_node = list_first_entry(&venc_comp->in_buf_manager.empty_frame_list, video_frame_node, mList);
 
 	memcpy(&first_node->video_frame, src_frame, sizeof(video_frame_s));
-	RT_LOGD("add valid_frame_list ");
 	venc_comp->in_buf_manager.empty_num--;
 
 	list_move_tail(&first_node->mList, &venc_comp->in_buf_manager.valid_frame_list);
-
+#if 1
+	if (cnt_1) {
+		cnt_1 = 0;
+		RT_LOGW("channel %d first time add buffer_node to valid_frame_list, time: %lld",
+			venc_comp->base_config.channel_id, get_cur_time());
+	}
+#endif
 	if (venc_comp->in_buf_manager.no_frame_flag) {
 		venc_comp->in_buf_manager.no_frame_flag = 0;
 		msg.command				      = COMP_COMMAND_VENC_INPUT_FRAME_VALID;
@@ -2102,7 +2611,7 @@ setup_tunnel_exit:
 	return error;
 }
 
-error_type venc_comp_component_init(PARAM_IN comp_handle component)
+error_type venc_comp_component_init(PARAM_IN comp_handle component, const rt_media_config_s *pmedia_config)
 {
 	int i				= 0;
 	int ret				= 0;
@@ -2156,6 +2665,7 @@ error_type venc_comp_component_init(PARAM_IN comp_handle component)
 	rt_component->set_callbacks	= venc_comp_set_callbacks;
 	rt_component->setup_tunnel	 = venc_comp_setup_tunnel;
 
+	venc_comp->base_config.channel_id = pmedia_config->channelId;
 	venc_comp->self_comp = rt_component;
 	venc_comp->state     = COMP_STATE_IDLE;
 
@@ -2196,7 +2706,7 @@ error_type venc_comp_component_init(PARAM_IN comp_handle component)
 		memset(pNode, 0, sizeof(video_stream_node));
 		list_add_tail(&pNode->mList, &venc_comp->out_buf_manager.empty_stream_list);
 	}
-
+	RT_LOGS("channel_id %d venc_comp %p create thread_process_venc", venc_comp->base_config.channel_id, venc_comp);
 	venc_comp->venc_thread = kthread_create(thread_process_venc,
 						venc_comp, "venc comp thread");
 	wake_up_process(venc_comp->venc_thread);
@@ -2263,6 +2773,41 @@ static void loop_encode_one_frame(struct venc_comp_ctx *venc_comp)
 }
 #endif
 
+
+static int venc_comp_stream_buffer_to_valid_list(struct venc_comp_ctx *venc_comp, VencOutputBuffer *p_out_buffer)
+{
+	int result = 0;
+
+	mutex_lock(&venc_comp->out_buf_manager.mutex);
+	if (list_empty(&venc_comp->out_buf_manager.empty_stream_list)) {
+		if (list_empty(&venc_comp->out_buf_manager.empty_stream_list))
+			RT_LOGI("venc_comp %p channel_id %d empty list is null", venc_comp, venc_comp->base_config.channel_id);
+		mutex_unlock(&venc_comp->out_buf_manager.mutex);
+		return -1;
+	}
+	mutex_unlock(&venc_comp->out_buf_manager.mutex);
+
+	LOCK_MUTEX(&venc_mutex);
+	result = VencDequeueOutputBuf(venc_comp->vencoder, p_out_buffer);
+	UNLOCK_MUTEX(&venc_mutex);
+	if (result != 0) {
+		RT_LOGD(" have no bitstream, result = %d", result);
+		return -1;
+	}
+	RT_LOGI(" get bitstream , result = %d, pts = %lld", result, p_out_buffer->nPts);
+
+	if (venc_comp->vbvStartAddr == NULL) {
+		VbvInfo vbv_info;
+
+		memset(&vbv_info, 0, sizeof(VbvInfo));
+		VencGetParameter(venc_comp->vencoder, VENC_IndexParamVbvInfo, &vbv_info);
+		venc_comp->vbvStartAddr = vbv_info.start_addr;
+	}
+
+	venc_fill_out_buffer_done(venc_comp, p_out_buffer);
+	return 0;
+}
+
 static int thread_process_venc(void *param)
 {
 	struct venc_comp_ctx *venc_comp = (struct venc_comp_ctx *)param;
@@ -2271,14 +2816,14 @@ static int thread_process_venc(void *param)
 	video_frame_node *frame_node = NULL;
 	VencOutputBuffer out_buffer;
 	VencInputBuffer in_buf;
-	int encode_count    = 0;
-	int64_t time_start  = 0;
-	int64_t time_finish = 0;
+	//int64_t time_start  = 0;
+	//int64_t time_finish = 0;
 	video_frame_s cur_video_frame;
 
 	memset(&cur_video_frame, 0, sizeof(video_frame_s));
+	memset(&out_buffer, 0, sizeof(VencOutputBuffer));
 
-	RT_LOGD("thread_process_venc start !");
+	RT_LOGS("channel_id %d thread_process_venc start !", venc_comp->base_config.channel_id);
 	while (1) {
 	process_message:
 		if (kthread_should_stop())
@@ -2296,117 +2841,101 @@ static int thread_process_venc(void *param)
 			loop_encode_one_frame(venc_comp);
 #else
 
-#if DEBUG_SHOW_ENCODE_TIME
+		#if DEBUG_SHOW_ENCODE_TIME
 			static int cnt_0 = 1;
-			if (cnt_0) {
+			if (cnt_0 && venc_comp->base_config.channel_id == 0) {
 			    cnt_0 = 0;
-			    RT_LOGW("first time in execution state, time: %lld", get_cur_time());
+			    RT_LOGW("channel %d first time in execution state, time: %lld", venc_comp->base_config.channel_id, get_cur_time());
 			}
-#endif
+			static int cnt_01 = 1;
+			if (cnt_01 && venc_comp->base_config.channel_id == 1) {
+			    cnt_01 = 0;
+			    RT_LOGW("channel %d first time in execution state, time: %lld", venc_comp->base_config.channel_id, get_cur_time());
+			}
+		#endif
+
+			if (venc_comp->base_config.codec_type == RT_VENC_CODEC_JPEG
+				&& VencGetValidOutputBufNum(venc_comp->vencoder)) {
+				result = venc_comp_stream_buffer_to_valid_list(venc_comp, &out_buffer);
+				RT_LOGD("ValidOutputBufNum %d result %d", VencGetValidOutputBufNum(venc_comp->vencoder), result);
+			}
 			/* get frame from valid_list */
-			mutex_lock(&venc_comp->in_buf_manager.mutex);
-			if (list_empty(&venc_comp->in_buf_manager.valid_frame_list)) {
-				static int count = 0;
-				if (count % 100 == 0)
-					RT_LOGD("valid frame list is null, wait for it  start");
-				venc_comp->in_buf_manager.no_frame_flag = 1;
-				mutex_unlock(&venc_comp->in_buf_manager.mutex);
-				TMessage_WaitQueueNotEmpty(&venc_comp->msg_queue, 10);
-				if (count % 100 == 0) {
-					RT_LOGD("valid frame list is null, wait for it finish");
+			if (venc_comp->base_config.bOnlineChannel == 0) {
+				mutex_lock(&venc_comp->in_buf_manager.mutex);
+				if (list_empty(&venc_comp->in_buf_manager.valid_frame_list)) {
+					static int count;
+					if (count % 100 == 0)
+						RT_LOGD("valid frame list is null, wait for it  start");
+					venc_comp->in_buf_manager.no_frame_flag = 1;
+					mutex_unlock(&venc_comp->in_buf_manager.mutex);
+					TMessage_WaitQueueNotEmpty(&venc_comp->msg_queue, 10);
+					if (count % 100 == 0) {
+						RT_LOGD("valid frame list is null, wait for it finish");
+					}
+					count++;
+					goto process_message;
 				}
-				count++;
-				goto process_message;
-			}
-#if DEBUG_SHOW_ENCODE_TIME
-			static int cnt_1 = 1;
-			if (cnt_1) {
-			    cnt_1 = 0;
-			    RT_LOGW("first time found valid frame buffer, time: %lld", get_cur_time());
-			}
-#endif
-			frame_node = list_first_entry(&venc_comp->in_buf_manager.valid_frame_list, video_frame_node, mList);
-			memcpy(&cur_video_frame, &frame_node->video_frame, sizeof(video_frame_s));
+			#if DEBUG_SHOW_ENCODE_TIME
+				static int cnt_1 = 1;
+				if (cnt_1 && venc_comp->base_config.channel_id == 0) {
+					cnt_1 = 0;
+					RT_LOGW("channel %d first time found valid frame buffer, time: %lld",
+						venc_comp->base_config.channel_id, get_cur_time());
+				}
+				static int cnt_11 = 1;
+				if (cnt_11 && venc_comp->base_config.channel_id == 1) {
+					cnt_11 = 0;
+					RT_LOGW("channel %d first time found valid frame buffer, time: %lld",
+						venc_comp->base_config.channel_id, get_cur_time());
+				}
+			#endif
+				frame_node = list_first_entry(&venc_comp->in_buf_manager.valid_frame_list, video_frame_node, mList);
+				memcpy(&cur_video_frame, &frame_node->video_frame, sizeof(video_frame_s));
 
-			list_move_tail(&frame_node->mList, &venc_comp->in_buf_manager.empty_frame_list);
-			venc_comp->in_buf_manager.empty_num++;
-			mutex_unlock(&venc_comp->in_buf_manager.mutex);
+				list_move_tail(&frame_node->mList, &venc_comp->in_buf_manager.empty_frame_list);
+				venc_comp->in_buf_manager.empty_num++;
+				mutex_unlock(&venc_comp->in_buf_manager.mutex);
 
-			/*process frame start*/
-			memset(&in_buf, 0, sizeof(VencInputBuffer));
-			in_buf.nID       = cur_video_frame.id;
-			in_buf.nPts      = cur_video_frame.pts;
-			in_buf.nFlag     = 0;
-			in_buf.pAddrPhyY = (unsigned char *)cur_video_frame.phy_addr[0];
-			in_buf.pAddrPhyC = (unsigned char *)cur_video_frame.phy_addr[1];
-			in_buf.pAddrVirY = (unsigned char *)cur_video_frame.vir_addr[0];
-			in_buf.pAddrVirC = (unsigned char *)cur_video_frame.vir_addr[1];
+				/*process frame start*/
+				memset(&in_buf, 0, sizeof(VencInputBuffer));
+				in_buf.nID       = cur_video_frame.id;
+				in_buf.nPts      = cur_video_frame.pts;
+				in_buf.nFlag     = 0;
+				in_buf.pAddrPhyY = (unsigned char *)cur_video_frame.phy_addr[0];
+				in_buf.pAddrPhyC = (unsigned char *)cur_video_frame.phy_addr[1];
+				in_buf.pAddrVirY = (unsigned char *)cur_video_frame.vir_addr[0];
+				in_buf.pAddrVirC = (unsigned char *)cur_video_frame.vir_addr[1];
+				if (venc_comp->base_config.enable_crop) {
+					in_buf.bEnableCorp = venc_comp->base_config.enable_crop;
+					in_buf.sCropInfo.nLeft = venc_comp->base_config.s_crop_rect.nLeft;
+					in_buf.sCropInfo.nTop = venc_comp->base_config.s_crop_rect.nTop;
+					in_buf.sCropInfo.nWidth = venc_comp->base_config.s_crop_rect.nWidth;
+					in_buf.sCropInfo.nHeight = venc_comp->base_config.s_crop_rect.nHeight;
+				}
+				RT_LOGI("phyY = %p, phyC = %p, %p, %p", in_buf.pAddrPhyY, in_buf.pAddrPhyC,
+					in_buf.pAddrVirY, in_buf.pAddrVirC);
+				if (venc_comp->jpeg_cxt.enable == 1 && venc_comp->jpeg_cxt.encoder_finish_flag == 0) {
+					catch_jpeg_encoder(venc_comp, &in_buf);
+				}
 
-			RT_LOGD("phyY = %p, phyC = %p, %p, %p", in_buf.pAddrPhyY, in_buf.pAddrPhyC,
-				in_buf.pAddrVirY, in_buf.pAddrVirC);
-			if (venc_comp->jpeg_cxt.enable == 1 && venc_comp->jpeg_cxt.encoder_finish_flag == 0) {
-				catch_jpeg_encoder(venc_comp, &in_buf);
-			}
+				venc_comp->vencCallBack.empty_in_buffer_done = venc_empty_in_buffer_done;
+				VencSetCallbacks(venc_comp->vencoder, &venc_comp->vencCallBack, venc_comp, &cur_video_frame);
 
-			VencCbType vencCallBack;
-			vencCallBack.empty_in_buffer_done = venc_empty_in_buffer_done;
-
-			VencSetCallbacks(venc_comp->vencoder, &vencCallBack, venc_comp, &cur_video_frame);
-
-			result = VencQueueInputBuf(venc_comp->vencoder, &in_buf);
-			if (result != 0) {
-				RT_LOGE("fatal error! VencQueueInputBuf fail[%d]", result);
-			}
-
-			LOCK_MUTEX(&venc_mutex);
-			time_start = get_cur_time();
-			//result = encodeOneFrame(venc_comp->vencoder);
-			time_finish = get_cur_time();
-			UNLOCK_MUTEX(&venc_mutex);
-			encode_count++;
-
-			if (encode_count == 1) {
-				RT_LOGW(" first encoder, result = %d, pts = %lld, time = %lld, widht = %d",
-					result, in_buf.nPts, time_finish - time_start,
-					venc_comp->base_config.dst_width);
-			}
-
-//venc_empty_in_buffer_done(venc_comp, &cur_video_frame);
+				result = VencQueueInputBuf(venc_comp->vencoder, &in_buf);
+				if (result != 0) {
+					RT_LOGE("fatal error! VencQueueInputBuf fail[%d]", result);
+				}
 /* process frame end */
 #endif
-
+			}
 			/* get bitstream */
-			memset(&out_buffer, 0, sizeof(VencOutputBuffer));
-
 			while (1) {
-				mutex_lock(&venc_comp->out_buf_manager.mutex);
-				if (list_empty(&venc_comp->out_buf_manager.empty_stream_list)) {
-					if (list_empty(&venc_comp->out_buf_manager.empty_stream_list))
-						RT_LOGD("empty list is null");
-					mutex_unlock(&venc_comp->out_buf_manager.mutex);
-					break;
-				}
-				mutex_unlock(&venc_comp->out_buf_manager.mutex);
-
-				LOCK_MUTEX(&venc_mutex);
-				result = VencDequeueOutputBuf(venc_comp->vencoder, &out_buffer);
-				UNLOCK_MUTEX(&venc_mutex);
-				RT_LOGD(" get bitstream , result = %d", result);
+				result = -1;
+				if (VencGetValidOutputBufNum(venc_comp->vencoder))
+					result = venc_comp_stream_buffer_to_valid_list(venc_comp, &out_buffer);
 				if (result != 0) {
-					RT_LOGD(" have no bitstream, result = %d", result);
 					break;
 				}
-				RT_LOGI(" get bitstream , result = %d, pts = %lld", result, out_buffer.nPts);
-
-				if (venc_comp->vbvStartAddr == NULL) {
-					VbvInfo vbv_info;
-
-					memset(&vbv_info, 0, sizeof(VbvInfo));
-					VencGetParameter(venc_comp->vencoder, VENC_IndexParamVbvInfo, &vbv_info);
-					venc_comp->vbvStartAddr = vbv_info.start_addr;
-				}
-
-				venc_fill_out_buffer_done(venc_comp, &out_buffer);
 			}
 
 		} else {

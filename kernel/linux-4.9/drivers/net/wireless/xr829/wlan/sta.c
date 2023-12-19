@@ -135,6 +135,7 @@ int xradio_start(struct ieee80211_hw *dev)
 {
 	struct xradio_common *hw_priv = dev->priv;
 	int ret = 0;
+	int suspend_lock_state;
 	sta_printk(XRADIO_DBG_TRC, "%s\n", __func__);
 
 	if (wait_event_interruptible_timeout(hw_priv->wsm_startup_done,
@@ -150,7 +151,16 @@ int xradio_start(struct ieee80211_hw *dev)
 				   "%s:driver is suspending \n", __func__);
 		return -ETIMEDOUT;
 	}
+
+	suspend_lock_state = atomic_cmpxchg(&hw_priv->suspend_lock_state,
+								XRADIO_SUSPEND_LOCK_IDEL, XRADIO_SUSPEND_LOCK_OTHERS);
+	if (suspend_lock_state == XRADIO_SUSPEND_LOCK_SUSPEND) {
+		sta_printk(XRADIO_DBG_WARN,
+			   "%s:refuse because of suspend\n", __func__);
+		return -EBUSY;
+	}
 	down(&hw_priv->conf_lock);
+	atomic_set(&hw_priv->suspend_lock_state, XRADIO_SUSPEND_LOCK_IDEL);
 
 #ifdef CONFIG_XRADIO_TESTMODE
 	spin_lock_bh(&hw_priv->tsm_lock);
@@ -158,8 +168,8 @@ int xradio_start(struct ieee80211_hw *dev)
 	memset(&hw_priv->tsm_info, 0, sizeof(struct xradio_tsm_info));
 	spin_unlock_bh(&hw_priv->tsm_lock);
 #endif /*CONFIG_XRADIO_TESTMODE */
-	memcpy(hw_priv->mac_addr, dev->wiphy->perm_addr, ETH_ALEN);
 	hw_priv->softled_state = 0;
+	memcpy(hw_priv->mac_addr, dev->wiphy->perm_addr, ETH_ALEN);
 
 	ret = xradio_setup_mac(hw_priv);
 	if (SYS_WARN(ret)) {
@@ -194,6 +204,11 @@ void xradio_stop(struct ieee80211_hw *dev)
 #ifdef CONFIG_XRADIO_TESTMODE
 	cancel_delayed_work_sync(&hw_priv->advance_scan_timeout);
 #endif
+
+#ifdef SCAN_SUBDIVIDE
+	cancel_delayed_work_sync(&hw_priv->scan.work);
+#endif
+
 	flush_workqueue(hw_priv->workqueue);
 	flush_workqueue(hw_priv->spare_workqueue);
 	del_timer_sync(&hw_priv->ba_timer);
@@ -240,12 +255,14 @@ int xradio_add_interface(struct ieee80211_hw *dev, struct ieee80211_vif *vif)
 	int ret;
 	struct xradio_common *hw_priv = dev->priv;
 	struct xradio_vif *priv;
+	int suspend_lock_state;
 
 #ifndef P2P_MULTIVIF
 	int i;
 #endif
 
 	if (atomic_read(&hw_priv->num_vifs) >= XRWL_MAX_VIFS) {
+		WARN_ON(1);
 		sta_printk(XRADIO_DBG_ERROR, "%s:Too many interfaces=%d\n",
 			__func__, atomic_read(&hw_priv->num_vifs));
 		return -EOPNOTSUPP;
@@ -277,7 +294,16 @@ int xradio_add_interface(struct ieee80211_hw *dev, struct ieee80211_vif *vif)
 		   __func__, vif->type, vif->p2p,
 		   vif->bss_conf.chan_conf->channel->hw_value, vif->addr);
 
+	suspend_lock_state = atomic_cmpxchg(&hw_priv->suspend_lock_state,
+								XRADIO_SUSPEND_LOCK_IDEL, XRADIO_SUSPEND_LOCK_OTHERS);
+	if (suspend_lock_state == XRADIO_SUSPEND_LOCK_SUSPEND) {
+		sta_printk(XRADIO_DBG_WARN,
+			   "%s:refuse because of suspend\n", __func__);
+		return -EBUSY;
+	}
 	down(&hw_priv->conf_lock);
+	atomic_set(&hw_priv->suspend_lock_state, XRADIO_SUSPEND_LOCK_IDEL);
+
 	priv = xrwl_get_vif_from_ieee80211(vif);
 	if (atomic_read(&priv->enabled)) {
 		sta_printk(XRADIO_DBG_ERROR,
@@ -384,11 +410,22 @@ void xradio_remove_interface(struct ieee80211_hw *dev,
 		.power_mode = wsm_power_mode_quiescent,
 		.disableMoreFlagUsage = true,
 	};
+	int suspend_lock_state;
 
 	sta_printk(XRADIO_DBG_WARN, "!!! %s: vif_id=%d\n",
 		   __func__, priv->if_id);
 
+	suspend_lock_state = atomic_cmpxchg(&hw_priv->suspend_lock_state,
+								XRADIO_SUSPEND_LOCK_IDEL, XRADIO_SUSPEND_LOCK_OTHERS);
+	if (suspend_lock_state == XRADIO_SUSPEND_LOCK_SUSPEND) {
+		sta_printk(XRADIO_DBG_WARN,
+			   "%s:refuse because of suspend\n", __func__);
+		return;
+	}
+
 	down(&hw_priv->conf_lock);
+	atomic_set(&hw_priv->suspend_lock_state, XRADIO_SUSPEND_LOCK_IDEL);
+
 	if (atomic_read(&priv->enabled) == 0) {
 		sta_printk(XRADIO_DBG_WARN, "%s:vif is not enable!\n", __func__);
 		up(&hw_priv->conf_lock);
@@ -398,11 +435,27 @@ void xradio_remove_interface(struct ieee80211_hw *dev,
 
 	cancel_delayed_work_sync(&priv->bss_loss_work);
 	cancel_delayed_work_sync(&priv->connection_loss_work);
-	cancel_delayed_work_sync(&priv->link_id_gc_work);
 	cancel_delayed_work_sync(&priv->join_timeout);
 	cancel_delayed_work_sync(&priv->set_cts_work);
 	cancel_delayed_work_sync(&priv->pending_offchanneltx_work);
 	del_timer_sync(&priv->mcast_timeout);
+
+	cancel_delayed_work_sync(&priv->unjoin_delayed_work);
+	cancel_work_sync(&priv->update_filtering_work);
+	cancel_work_sync(&priv->set_beacon_wakeup_period_work);
+	cancel_work_sync(&priv->join_work);
+	cancel_work_sync(&priv->unjoin_work);
+	cancel_work_sync(&priv->offchannel_work);
+	cancel_work_sync(&priv->wep_key_work);
+	cancel_work_sync(&priv->set_tim_work);
+	cancel_work_sync(&priv->multicast_start_work);
+	cancel_work_sync(&priv->tx_failure_work);
+#if defined(CONFIG_XRADIO_USE_EXTENSIONS)
+	cancel_work_sync(&priv->linkid_reset_work);
+#endif
+#ifdef AP_HT_CAP_UPDATE
+	cancel_work_sync(&priv->ht_info_update_work);
+#endif
 
 	down(&hw_priv->scan.lock);
 	if (atomic_xchg(&priv->delayed_unjoin, 0)) {
@@ -418,6 +471,11 @@ void xradio_remove_interface(struct ieee80211_hw *dev,
 
 	down(&hw_priv->conf_lock);
 	atomic_set(&priv->enabled, 0);
+
+	cancel_work_sync(&priv->link_id_work);
+	cancel_delayed_work_sync(&priv->link_id_gc_work);
+	cancel_delayed_work_sync(&priv->link_id_gc_work);
+
 	xradio_tx_queues_lock(hw_priv);
 	wsm_lock_tx(hw_priv);
 	switch (priv->join_status) {
@@ -543,6 +601,8 @@ int xradio_config(struct ieee80211_hw *dev, u32 changed)
 	/* TODO:COMBO: adjust to multi vif interface
 	 * IEEE80211_CONF_CHANGE_IDLE is still handled per xradio_vif*/
 	int if_id = 0;
+	int suspend_lock_state;
+
 	/*
 	struct xradio_vif *priv;
 	*/
@@ -562,8 +622,17 @@ int xradio_config(struct ieee80211_hw *dev, u32 changed)
 		return ret;
 	}
 
+	suspend_lock_state = atomic_cmpxchg(&hw_priv->suspend_lock_state,
+								XRADIO_SUSPEND_LOCK_IDEL, XRADIO_SUSPEND_LOCK_OTHERS);
+	if (suspend_lock_state == XRADIO_SUSPEND_LOCK_SUSPEND) {
+		sta_printk(XRADIO_DBG_WARN,
+			   "%s:refuse because of suspend\n", __func__);
+		return -EBUSY;
+	}
+
 	down(&hw_priv->scan.lock);
 	down(&hw_priv->conf_lock);
+	atomic_set(&hw_priv->suspend_lock_state, XRADIO_SUSPEND_LOCK_IDEL);
 	/*
 	priv = __xrwl_hwpriv_to_vifpriv(hw_priv, hw_priv->scan.if_id);
 	*/
@@ -824,6 +893,7 @@ void xradio_configure_filter(struct ieee80211_hw *hw,
 {
 	struct xradio_common *hw_priv = hw->priv;
 	struct xradio_vif *priv = xrwl_get_vif_from_ieee80211(vif);
+	int suspend_lock_state;
 	sta_printk(XRADIO_DBG_TRC, "%s\n", __func__);
 
 #ifdef P2P_MULTIVIF
@@ -832,6 +902,15 @@ void xradio_configure_filter(struct ieee80211_hw *hw,
 		return;
 	}
 #endif
+
+	suspend_lock_state = atomic_cmpxchg(&hw_priv->suspend_lock_state,
+								XRADIO_SUSPEND_LOCK_IDEL, XRADIO_SUSPEND_LOCK_OTHERS);
+	if (suspend_lock_state == XRADIO_SUSPEND_LOCK_SUSPEND) {
+		sta_printk(XRADIO_DBG_WARN,
+			   "%s:refuse because of suspend\n", __func__);
+		*total_flags &= ~(1 << 31);
+		return;
+	}
 
 #if 0
 	bool listening = !!(*total_flags &
@@ -849,6 +928,7 @@ void xradio_configure_filter(struct ieee80211_hw *hw,
 
 	down(&hw_priv->scan.lock);
 	down(&hw_priv->conf_lock);
+	atomic_set(&hw_priv->suspend_lock_state, XRADIO_SUSPEND_LOCK_IDEL);
 	if (!atomic_read(&priv->enabled)) {
 		sta_printk(XRADIO_DBG_NIY, "%s vif(type=%d) is not enable!\n",
 				__func__, vif->type);
@@ -886,6 +966,7 @@ int xradio_conf_tx(struct ieee80211_hw *dev, struct ieee80211_vif *vif,
 	struct xradio_common *hw_priv = dev->priv;
 	struct xradio_vif *priv = xrwl_get_vif_from_ieee80211(vif);
 	int ret = 0;
+	int suspend_lock_state;
 	/* To prevent re-applying PM request OID again and again */
 	bool old_uapsdFlags;
 	sta_printk(XRADIO_DBG_TRC, "%s\n", __func__);
@@ -898,7 +979,16 @@ int xradio_conf_tx(struct ieee80211_hw *dev, struct ieee80211_vif *vif,
 		return 0;
 #endif
 
+	suspend_lock_state = atomic_cmpxchg(&hw_priv->suspend_lock_state,
+								XRADIO_SUSPEND_LOCK_IDEL, XRADIO_SUSPEND_LOCK_OTHERS);
+	if (suspend_lock_state == XRADIO_SUSPEND_LOCK_SUSPEND) {
+		sta_printk(XRADIO_DBG_WARN,
+			   "%s:refuse because of suspend\n", __func__);
+		return 0;
+	}
+
 	down(&hw_priv->conf_lock);
+	atomic_set(&hw_priv->suspend_lock_state, XRADIO_SUSPEND_LOCK_IDEL);
 	if (!atomic_read(&priv->enabled)) {
 		sta_printk(XRADIO_DBG_NIY, "%s vif(type=%d) is not enable!\n",
 				__func__, vif->type);
@@ -1014,12 +1104,23 @@ int xradio_set_key(struct ieee80211_hw *dev, enum set_key_cmd cmd,
 	int ret = -EOPNOTSUPP;
 	struct xradio_common *hw_priv = dev->priv;
 	struct xradio_vif *priv = xrwl_get_vif_from_ieee80211(vif);
+	struct wsm_protected_mgmt_policy mgmt_policy;
+	int suspend_lock_state;
 	sta_printk(XRADIO_DBG_TRC, "%s\n", __func__);
 
 #ifdef P2P_MULTIVIF
 	SYS_WARN(priv->if_id == XRWL_GENERIC_IF_ID);
 #endif
+	suspend_lock_state = atomic_cmpxchg(&hw_priv->suspend_lock_state,
+								XRADIO_SUSPEND_LOCK_IDEL, XRADIO_SUSPEND_LOCK_OTHERS);
+	if (suspend_lock_state == XRADIO_SUSPEND_LOCK_SUSPEND) {
+		sta_printk(XRADIO_DBG_WARN,
+			   "%s:refuse because of suspend\n", __func__);
+		return -EBUSY;
+	}
+
 	down(&hw_priv->conf_lock);
+	atomic_set(&hw_priv->suspend_lock_state, XRADIO_SUSPEND_LOCK_IDEL);
 	if (!atomic_read(&priv->enabled)) {
 		sta_printk(XRADIO_DBG_NIY, "%s vif(type=%d) is not enable!\n",
 				__func__, vif->type);
@@ -1046,7 +1147,6 @@ int xradio_set_key(struct ieee80211_hw *dev, enum set_key_cmd cmd,
 
 		key->flags |= IEEE80211_KEY_FLAG_ALLOC_IV;
 
-		priv->cipherType = key->cipher;
 		switch (key->cipher) {
 		case WLAN_CIPHER_SUITE_WEP40:
 		case WLAN_CIPHER_SUITE_WEP104:
@@ -1144,6 +1244,31 @@ int xradio_set_key(struct ieee80211_hw *dev, enum set_key_cmd cmd,
 			}
 			break;
 #endif /* CONFIG_XRADIO_WAPI_SUPPORT */
+		case WLAN_CIPHER_SUITE_AES_CMAC:
+			if (pairwise){
+				sta_printk(XRADIO_DBG_ERROR, "%s: WLAN_CIPHER_SUITE_AES_CMAC but pairwise %d\n",
+					__func__, pairwise);
+				ret = -EINVAL;
+				goto finally;
+			} else {
+				wsm_key->type = WSM_KEY_TYPE_IGTK_GROUP;
+				memcpy(wsm_key->igtkGroupKey.igtkKeyData, &key->key[0], 16);
+				wsm_key->igtkGroupKey.keyId = key->keyidx;
+				memset(wsm_key->igtkGroupKey.ipn, 0, 8);
+				memcpy(wsm_key->igtkGroupKey.ipn, &key->tx_pn, 6);
+				sta_printk(XRADIO_DBG_NIY, "%s: IGTK_GROUP keylen=%d!\n",
+				       __func__, key->keylen);
+
+				mgmt_policy.protectedMgmtEnable = 1;
+				mgmt_policy.unprotectedMgmtFramesAllowed = 1;
+				mgmt_policy.encryptionForAuthFrame = 1;
+				wsm_set_protected_mgmt_policy(hw_priv, &mgmt_policy, priv->if_id);
+
+				if (priv->join_status == XRADIO_JOIN_STATUS_STA) {
+					priv->is_mfp_connect = true;
+				}
+			}
+			break;
 		default:
 			sta_printk(XRADIO_DBG_ERROR, "%s: key->cipher unknown(%d)!\n",
 				   __func__, key->cipher);
@@ -1156,6 +1281,10 @@ int xradio_set_key(struct ieee80211_hw *dev, enum set_key_cmd cmd,
 			key->hw_key_idx = idx;
 		else
 			xradio_free_key(hw_priv, idx);
+
+		if (!ret && (pairwise || wsm_key->type == WSM_KEY_TYPE_WEP_DEFAULT)) {
+				priv->unicast_cipher_type = key->cipher;
+		}
 
 		if (!ret && (pairwise || wsm_key->type == WSM_KEY_TYPE_WEP_DEFAULT)
 		    && (priv->filter4.enable & 0x2))
@@ -1306,9 +1435,19 @@ void xradio_flush(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 {
 	struct xradio_common *hw_priv = hw->priv;
 	struct xradio_vif *priv = xrwl_get_vif_from_ieee80211(vif);
+	int suspend_lock_state;
 	sta_printk(XRADIO_DBG_TRC, "%s\n", __func__);
 
+	suspend_lock_state = atomic_cmpxchg(&hw_priv->suspend_lock_state,
+								XRADIO_SUSPEND_LOCK_IDEL, XRADIO_SUSPEND_LOCK_OTHERS);
+	if (suspend_lock_state == XRADIO_SUSPEND_LOCK_SUSPEND) {
+		sta_printk(XRADIO_DBG_WARN,
+			   "%s:refuse because of suspend\n", __func__);
+		return;
+	}
+
 	down(&hw_priv->conf_lock);
+	atomic_set(&hw_priv->suspend_lock_state, XRADIO_SUSPEND_LOCK_IDEL);
 	/*TODO:COMBO: reenable this part of code when flush callback
 	 * is implemented per vif */
 	/*switch (hw_priv->mode) {
@@ -1416,10 +1555,14 @@ int xradio_remain_on_channel(struct ieee80211_hw *hw,
 	struct xradio_common *hw_priv = hw->priv;
 	struct xradio_vif *priv = xrwl_get_vif_from_ieee80211(vif);
 	int if_id = priv->if_id;
+	int suspend_lock_state;
 #ifdef	TES_P2P_0002_ROC_RESTART
 	struct timeval TES_P2P_0002_tmval;
 #endif
 	sta_printk(XRADIO_DBG_TRC, "%s\n", __func__);
+
+	if (if_id == 0)
+		return 0;
 
 #ifdef	TES_P2P_0002_ROC_RESTART
 	do_gettimeofday(&TES_P2P_0002_tmval);
@@ -1428,7 +1571,16 @@ int xradio_remain_on_channel(struct ieee80211_hw *hw,
 	TES_P2P_0002_roc_usec = (s32) TES_P2P_0002_tmval.tv_usec;
 #endif
 
+	suspend_lock_state = atomic_cmpxchg(&hw_priv->suspend_lock_state,
+								XRADIO_SUSPEND_LOCK_IDEL, XRADIO_SUSPEND_LOCK_OTHERS);
+	if (suspend_lock_state == XRADIO_SUSPEND_LOCK_SUSPEND) {
+		sta_printk(XRADIO_DBG_WARN,
+			   "%s:refuse because of suspend\n", __func__);
+		return -EBUSY;
+	}
+
 	down(&hw_priv->scan.lock);
+	atomic_set(&hw_priv->suspend_lock_state, XRADIO_SUSPEND_LOCK_IDEL);
 	if (!atomic_read(&priv->enabled)) {
 		sta_printk(XRADIO_DBG_NIY, "%s vif(type=%d) is not enable!\n",
 				__func__, vif->type);
@@ -1926,8 +2078,8 @@ int xradio_setup_mac(struct xradio_common *hw_priv)
 	 * Cause only mac_address of if0 will be changed, we reset it only.
 	 */
 	if (compare_ether_addr(hw_priv->mac_addr, hw_priv->addresses[0].addr) != 0)
-			wsm_write_mib(hw_priv, WSM_MIB_ID_CHANGE_MAC,
-					hw_priv->addresses[0].addr, ETH_ALEN, 0);
+		wsm_write_mib(hw_priv, WSM_MIB_ID_CHANGE_MAC,
+			hw_priv->addresses[0].addr, ETH_ALEN, 0);
 
 	/* BUG:TX output power is not set untill config_xradio is called.
 	 * This would lead to 0 power set in fw and would effect scan & p2p-find
@@ -2381,6 +2533,10 @@ void xradio_join_work(struct work_struct *work)
 	cfg80211_put_bss(bss);
 #endif
 	wsm_unlock_tx(hw_priv);
+#ifdef AP_ARP_COMPAT_FIX
+	priv->arp_compat_cnt = 0;
+#endif
+
 }
 
 void xradio_join_timeout(struct work_struct *work)
@@ -2448,7 +2604,7 @@ void xradio_unjoin_work(struct work_struct *work)
 		SYS_WARN(wsm_set_output_power(hw_priv,
 			hw_priv->output_power * 10, priv->if_id));
 		priv->join_dtim_period = 0;
-		priv->cipherType = 0;
+		priv->unicast_cipher_type = 0;
 		SYS_WARN(xradio_setup_mac_pvif(priv));
 		xradio_free_event_queue(hw_priv);
 		cancel_work_sync(&hw_priv->event_handler);
@@ -2465,6 +2621,7 @@ void xradio_unjoin_work(struct work_struct *work)
 			sizeof(priv->firmware_ps_mode));
 		priv->powersave_mode.pmMode = WSM_PSM_ACTIVE; /*reset driver pm mode too.*/
 		priv->htcap = false;
+		priv->is_mfp_connect = false;
 		xradio_for_each_vif(hw_priv, tmp_priv, i) {
 #ifdef P2P_MULTIVIF
 			if ((i == (XRWL_MAX_VIFS - 1)) || !tmp_priv)
@@ -2492,6 +2649,7 @@ void xradio_unjoin_work(struct work_struct *work)
 	}
 	up(&hw_priv->conf_lock);
 	wsm_unlock_tx(hw_priv);
+	xradio_arp_clean();
 }
 
 void xradio_unjoin_delayed_work(struct work_struct *work)
@@ -2842,7 +3000,7 @@ int xradio_vif_setup(struct xradio_vif *priv)
 
 		memset(priv->bssid, ~0, ETH_ALEN);
 		priv->wep_default_key_id = -1;
-		priv->cipherType = 0;
+		priv->unicast_cipher_type = 0;
 		priv->cqm_link_loss_count   = XRADIO_LINK_LOSS_THOLD_DEF;
 		priv->cqm_beacon_loss_count = XRADIO_BSS_LOSS_THOLD_DEF;
 
@@ -3020,7 +3178,8 @@ int xradio_change_mac(struct ieee80211_hw *hw,
 		return -EBUSY;
 	}
 
-	if (priv->if_id == 1) {
+	if (priv->if_id == 1 &&
+		((vif->type == NL80211_IFTYPE_P2P_CLIENT) || (vif->type == NL80211_IFTYPE_P2P_GO))) {
 		sta_printk(XRADIO_DBG_ERROR, "%s:Can not change p2p interface mac address\n",
 					__func__);
 		return -EINVAL;
@@ -3044,11 +3203,21 @@ int xradio_change_mac(struct ieee80211_hw *hw,
 	sta_printk(XRADIO_DBG_MSG, "old mac_address:%pM, new mac_address:%pM\n",
 				hw_priv->addresses[address_id].addr, sa->sa_data);
 
+#ifdef SUPPORT_STA_AP_COEX
+	if (vif->type == NL80211_IFTYPE_AP)
+		address_id = 1;
+#endif
+
 	/*Change mac in fw*/
 	ret = wsm_write_mib(hw_priv, WSM_MIB_ID_CHANGE_MAC,
 			sa->sa_data, ETH_ALEN, address_id);
 	if (ret)
 		return ret;
+
+#ifdef SUPPORT_STA_AP_COEX
+	if (vif->type == NL80211_IFTYPE_AP)
+		address_id = 2;
+#endif
 
 	memcpy(hw_priv->addresses[address_id].addr, sa->sa_data, ETH_ALEN);
 
@@ -3254,8 +3423,8 @@ int xradio_set_arpreply(struct ieee80211_hw *hw, struct ieee80211_vif *vif)
 
 	framehdrlen = sizeof(*dot11hdr);
 	if ((priv->vif->type == NL80211_IFTYPE_AP) && priv->vif->p2p)
-		priv->cipherType = WLAN_CIPHER_SUITE_CCMP;
-	switch (priv->cipherType) {
+		priv->unicast_cipher_type = WLAN_CIPHER_SUITE_CCMP;
+	switch (priv->unicast_cipher_type) {
 
 	case WLAN_CIPHER_SUITE_WEP40:
 	case WLAN_CIPHER_SUITE_WEP104:
@@ -3467,8 +3636,8 @@ int xradio_set_na(struct ieee80211_hw *hw, struct ieee80211_vif *vif)
 
 	framehdrlen = sizeof(*dot11hdr);
 	if ((priv->vif->type == NL80211_IFTYPE_AP) && priv->vif->p2p)
-		priv->cipherType = WLAN_CIPHER_SUITE_CCMP;
-	switch (priv->cipherType) {
+		priv->unicast_cipher_type = WLAN_CIPHER_SUITE_CCMP;
+	switch (priv->unicast_cipher_type) {
 
 	case WLAN_CIPHER_SUITE_WEP40:
 	case WLAN_CIPHER_SUITE_WEP104:
@@ -3608,6 +3777,110 @@ exit_p:
 	return ret;
 }
 #endif /*IPV6_FILTERING*/
+
+struct arp_node{
+	u8 mac_addr[ETH_ALEN];
+	u8 ip_addr[4];
+	struct sk_buff *skb;
+};
+
+#define ARP_NODE_NUM	16
+static struct arp_node arp_list[ARP_NODE_NUM];
+static struct semaphore	arp_lock;
+
+void xradio_arp_init(void)
+{
+	sta_printk(XRADIO_DBG_TRC, "%s,%d\n", __func__, __LINE__);
+	sema_init(&arp_lock, 1);
+	xradio_arp_clean();
+}
+
+int xradio_arp_updata(u8 *mac_addr, u8 *ip_addr, struct sk_buff *skb)
+{
+	bool found = 0;
+	int i = 0;
+
+	sta_printk(XRADIO_DBG_TRC, "%s,%d, %pM\n", __func__, __LINE__, mac_addr);
+
+	down(&arp_lock);
+	for (i = 0; i < ARP_NODE_NUM; i++) {
+		if ((arp_list[i].skb == NULL) ||
+			(compare_ether_addr(arp_list[i].mac_addr, mac_addr) == 0)) {
+
+			if (arp_list[i].skb) {
+				kfree_skb(arp_list[i].skb);
+				arp_list[i].skb = NULL;
+			}
+
+			memcpy(arp_list[i].mac_addr, mac_addr, ETH_ALEN);
+			memcpy(arp_list[i].ip_addr, ip_addr, 4);
+			arp_list[i].skb = skb_copy(skb, GFP_ATOMIC);
+
+			found = 1;
+			sta_printk(XRADIO_DBG_MSG, "add %pM %pI4\n",
+				arp_list[i].mac_addr, arp_list[i].ip_addr);
+			break;
+		}
+	}
+	up(&arp_lock);
+	return !found;
+}
+
+void xradio_arp_clean(void)
+{
+	int i = 0;
+
+	sta_printk(XRADIO_DBG_TRC, "%s\n", __func__);
+
+	down(&arp_lock);
+	for (i = 0; i < ARP_NODE_NUM; i++) {
+		memset(arp_list[i].mac_addr, 0, ETH_ALEN);
+		memset(arp_list[i].ip_addr, 0, 4);
+		if (arp_list[i].skb) {
+			kfree_skb(arp_list[i].skb);
+			arp_list[i].skb = NULL;
+		}
+	}
+	up(&arp_lock);
+}
+
+int xradio_arp_send_to_self(struct xradio_vif *priv, u8 *ip_addr)
+{
+	bool found = 0;
+	int i = 0;
+	struct sk_buff *skb;
+
+	sta_printk(XRADIO_DBG_TRC, "%s,%d, %pI4\n", __func__, __LINE__, ip_addr);
+
+	down(&arp_lock);
+	for (i = 0; i < ARP_NODE_NUM; i++) {
+		sta_printk(XRADIO_DBG_MSG, "%s,%d, [%d]%pM %pI4\n",
+			__func__, __LINE__, i, arp_list[i].mac_addr,
+			arp_list[i].ip_addr);
+		if (memcmp(arp_list[i].ip_addr, ip_addr, 4) == 0) {
+			skb = skb_copy(arp_list[i].skb, GFP_ATOMIC);
+			sta_printk(XRADIO_DBG_MSG, "found %pM %pI4\n",
+				    arp_list[i].mac_addr, arp_list[i].ip_addr);
+			found = 1;
+			break;
+		}
+	}
+	up(&arp_lock);
+
+	if (found) {
+		u8 *arp_hdr = (u8 *)skb->data;
+		u8 *arp_sha = (u8 *)(arp_hdr + 6 + 2);
+		u8 *arp_spa = (u8 *)(arp_hdr + 6 + 2 + 6);
+		u8 *arp_tha = (u8 *)(arp_hdr + 6 + 2 + 6 + 4);
+		u8 *arp_tpa = (u8 *)(arp_hdr + 6 + 2 + 6 + 4 + 6);
+		sta_printk(XRADIO_DBG_MSG, "[%s]:%pM %pI4 %pM %pI4--call netif_receive_skb\n",
+			    __func__, arp_sha, arp_spa, arp_tha, arp_tpa);
+		memset(skb->cb, 0, sizeof(skb->cb));
+		netif_receive_skb(skb);
+	}
+
+	return !found;
+}
 
 #ifdef CONFIG_XRADIO_TESTMODE
 /**

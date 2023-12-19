@@ -707,7 +707,7 @@ void tcon0_cpu_wr_16b_multi(u32 sel, u8 cmd, u8 *para, u32 para_num)
 {
 	u8 index = cmd;
 	u8 *data_p = para;
-	u16 i;
+	u32 i;
 
 	tcon0_cpu_wr_16b_index(sel, index);
 	for (i = 0; i < para_num; i++)
@@ -725,7 +725,7 @@ void tcon0_cpu_wr_24b_multi(u32 sel, u8 cmd, u8 *para, u32 para_num)
 {
 	u8 index = cmd;
 	u8 *data_p = para;
-	u16 i;
+	u32 i;
 
 	tcon0_cpu_wr_24b_index(sel, index);
 	for (i = 0; i < para_num; i++)

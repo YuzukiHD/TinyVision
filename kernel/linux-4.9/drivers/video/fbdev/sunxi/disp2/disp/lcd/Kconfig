@@ -227,6 +227,12 @@ config LCD_SUPPORT_ICN6202
        ---help---
                If you want to support icn6202 panel for display driver, select it.
 
+config LCD_SUPPORT_ICN6202_2LANE
+       bool "LCD support icn6202 2 lane panel"
+       default n
+       ---help---
+               If you want to support icn6202 2 lane panel for display driver, select it.
+
 config LCD_SUPPORT_NT35510_MIPI
 	bool "LCD support nt35510_mipi panel"
 	default n

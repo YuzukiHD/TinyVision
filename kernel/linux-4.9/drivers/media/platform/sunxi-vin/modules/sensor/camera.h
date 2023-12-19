@@ -63,6 +63,12 @@
 #define CCI_BITS_16         16
 #define SENSOR_MAGIC_NUMBER 0x156977
 
+enum ir_state_t {
+	IDLE_STATE = 0,
+	DAY_STATE,
+	NIGHT_STATE,
+};
+
 struct sensor_format_struct {
 	__u8 *desc;
 	u32 mbus_code;
@@ -111,12 +117,20 @@ struct sensor_info {
 	unsigned int sensor_field;
 	unsigned int combo_mode;
 	unsigned int time_hs;
+	unsigned int deskew;
 	unsigned int wdr_time_hs;
 	unsigned int isp_wdr_mode;
 	unsigned int magic_num;
 	unsigned int lane_num;
 	unsigned int bit_width;
 	struct v4l2_ctrl_handler handler;
+	bool first_power_flag;
+	enum ir_state_t ir_state;
+	struct timer_list timer_for_ir;
+	bool init_timer;
+
+	unsigned int act_fps;
+	void (*sensor_fps_chenge_callback)(int act_fps);
 };
 
 #endif /*__CAMERA__H__*/

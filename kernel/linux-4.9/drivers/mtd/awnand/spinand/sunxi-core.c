@@ -1056,6 +1056,9 @@ static struct mtd_partition aw_spinand_parts[] = {
 #if IS_ENABLED(CONFIG_AW_SPINAND_PSTORE_MTD_PART)
 	{ .name = "pstore", .offset = MTDPART_OFS_APPEND },
 #endif
+#if IS_ENABLED(CONFIG_RAW_KERNEL)
+	{ .name = "kernel", .offset = MTDPART_OFS_APPEND },
+#endif
 	{ .name = "sys", .offset = MTDPART_OFS_APPEND},
 };
 
@@ -1075,9 +1078,20 @@ static void aw_spinand_mtd_update_mtd_parts(struct aw_spinand *spinand,
 	mtdparts[index++].size = (uboot_end - uboot_start) * blk_bytes;
 	/* secure storage */
 	mtdparts[index++].size = PHY_BLKS_FOR_SECURE_STORAGE * blk_bytes;
+
 #if IS_ENABLED(CONFIG_AW_SPINAND_PSTORE_MTD_PART)
 	/* pstore */
 	mtdparts[index++].size = PSTORE_SIZE_KB * SZ_1K;
+#endif
+
+#if IS_ENABLED(CONFIG_RAW_KERNEL)
+	/* kernel */
+	printk("kernel size:%d\n", CONFIG_KERNEL_SIZE_BYTE);
+	if (CONFIG_KERNEL_SIZE_BYTE)
+		mtdparts[index++].size =
+			ALIGN(CONFIG_KERNEL_SIZE_BYTE, info->block_size(chip));
+	else
+		mtdparts[index++].size = info->block_size(chip);
 #endif
 	/* user data */
 	mtdparts[index++].size = MTDPART_SIZ_FULL;

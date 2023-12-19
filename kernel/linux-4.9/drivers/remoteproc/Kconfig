@@ -51,6 +51,13 @@ menuconfig SUNXI_RPROC
 	  shared memory driver.
 	  This can be either built-in or a loadable module.
 	  If unsure say N.
+	config SUNXI_RPROC_SHARE_IRQ
+		bool "SUNXI remote share irq support"
+		depends on SUNXI_RPROC
+		default n
+		help
+		  Say y or m here to support SUNXI remote share irq
+		  driver.
 	config SUNXI_RPROC_FASTBOOT
 		bool "SUNXI remote processor fastboot support"
 		depends on SUNXI_RPROC
@@ -59,6 +66,59 @@ menuconfig SUNXI_RPROC
 		  Say y or m here to support SUNXI remote processor
 		  fastboot driver.
 		  This can be speed up init time.
+	config SUNXI_RPROC_BOOT_PACKAGE
+		bool "SUNXI remote processor boot from boot_package"
+		depends on SUNXI_RPROC
+		default n if !SUNXI_RPROC_FASTBOOT
+		default y if SUNXI_RPROC_FASTBOOT
+		help
+		  Say y or m here to support SUNXI remote processor
+		  boot from boot_package.fex.
+		  This can be speed up init time.
+	config SUNXI_RPROC_TRACE_DEV
+		bool "SUNXI remote processor trace drivers support"
+		depends on SUNXI_RPROC
+		default y
+		help
+		  Say y or m here to support SUNXI remote processor
+		  trace drivers support.
+	config SUNXI_RPROC_RT_THREAD_PRIO
+		int "sunxi remoteproc thread priority"
+		range 0 99
+		default 90
+		depends on SUNXI_REMOTEPROC_RT_THREAD
+		help
+		  change the rt-thread priority for rproc.
+		  99 is higiest priority.
+		  trace drivers support.
+
+choice
+	prompt "Allwinner remoteproc boot select"
+config SUNXI_REMOTEPROC_E907_BOOT
+	bool "Allwinner remoteproc e907 boot"
+	depends on SUNXI_RPROC
+	help
+	  Say y here to support Allwinner SOC processors e906 via
+	  remote processor framework.
+
+config SUNXI_REMOTEPROC_HIFI4_BOOT
+	bool "Allwinner remoteproc hifi4 boot"
+	depends on SUNXI_RPROC
+	help
+	  Say y here to support Allwinner SOC processors hifi4 via
+	  remote processor framework.
+endchoice
+
+choice
+	prompt "Allwinner remoteproc callback implementation"
+	default SUNXI_REMOTEPROC_WQ
+config SUNXI_REMOTEPROC_WQ
+	bool "workqueue implementation"
+	depends on SUNXI_RPROC
+config SUNXI_REMOTEPROC_RT_THREAD
+	bool "real-time thread implementation"
+	depends on SUNXI_RPROC
+endchoice
 
 config WKUP_M3_RPROC
 	tristate "AMx3xx Wakeup M3 remoteproc support"

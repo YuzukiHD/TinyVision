@@ -17,6 +17,7 @@
 #include <crypto/internal/rng.h>
 #include <crypto/internal/aead.h>
 #include <crypto/hash.h>
+#include <crypto/des.h>
 
 #include <linux/dmaengine.h>
 #include <linux/dma-mapping.h>
@@ -95,9 +96,10 @@ irqreturn_t sunxi_ce_irq_handler(int irq, void *dev_id)
 
 static int check_aes_ctx_vaild(crypto_aes_req_ctx_t *req)
 {
+	unsigned char alg_method  = (req->aes_mode & APP_AES_METHON_MASK) >> 8;
 	if (!req->src_buffer || !req->dst_buffer || !req->key_buffer) {
 		SS_ERR("Invalid para: src = 0x%px, dst = 0x%px key = 0x%p\n",
-				req->src_buffer, req->dst_buffer, req->key_buffer);
+		       req->src_buffer, req->dst_buffer, req->key_buffer);
 		return -EINVAL;
 	}
 
@@ -109,12 +111,30 @@ static int check_aes_ctx_vaild(crypto_aes_req_ctx_t *req)
 	}
 
 	SS_DBG("key_length = %d\n", req->key_length);
-	if (req->key_length > AES_MAX_KEY_SIZE) {
-		SS_ERR("Invalid para: key_length = %d\n", req->key_length);
-		return -EINVAL;
-	} else if (req->key_length < AES_MIN_KEY_SIZE) {
-		SS_ERR("Invalid para: key_length = %d\n", req->key_length);
-		return -EINVAL;
+	if (alg_method == SS_METHOD_AES) {
+		if (req->key_length > AES_MAX_KEY_SIZE) {
+			SS_ERR("Invalid para: key_length = %d\n",
+			       req->key_length);
+			return -EINVAL;
+		} else if (req->key_length < AES_MIN_KEY_SIZE) {
+			SS_ERR("Invalid para: key_length = %d\n",
+			       req->key_length);
+			return -EINVAL;
+		}
+	} else if (alg_method == SS_METHOD_DES) {
+		if (req->key_length != DES_KEY_SIZE) {
+			SS_ERR("Invalid para: key_length = %d\n",
+			       req->key_length);
+			return -EINVAL;
+		}
+	} else if (alg_method == SS_METHOD_3DES) {
+		if (req->key_length != (DES_KEY_SIZE * 3)) {
+			SS_ERR("Invalid para: key_length = %d\n",
+			       req->key_length);
+			return -EINVAL;
+		}
+	} else {
+		SS_ERR("algorithm not supported\n");
 	}
 
 	return 0;
@@ -122,8 +142,9 @@ static int check_aes_ctx_vaild(crypto_aes_req_ctx_t *req)
 
 static void ce_aes_config(crypto_aes_req_ctx_t *req, ce_task_desc_t *task)
 {
+	unsigned char alg_method  = (req->aes_mode & APP_AES_METHON_MASK) >> 8;
 	task->chan_id = req->channel_id;
-	ss_method_set(req->dir, SS_METHOD_AES, task);
+	ss_method_set(req->dir, alg_method, task);
 	ss_aes_mode_set(req->aes_mode, task);
 }
 
@@ -288,6 +309,8 @@ static int aes_crypto_start(crypto_aes_req_ctx_t *req, u8 *src_buffer,
 	phys_addr_t src_phy = 0;
 	phys_addr_t dst_phy = 0;
 	ce_task_desc_t *task = NULL;
+	unsigned char alg_method = (req->aes_mode & APP_AES_METHON_MASK) >> 8;
+	unsigned char alg_mode = req->aes_mode & APP_AES_MODE_MASK;
 
 	task = ce_alloc_task();
 	if (!task) {
@@ -338,7 +361,7 @@ static int aes_crypto_start(crypto_aes_req_ctx_t *req, u8 *src_buffer,
 	ss_irq_enable(channel_id);
 
 	init_completion(&ce_cdev->flows[channel_id].done);
-	ss_ctrl_start(task, SS_METHOD_AES, req->aes_mode);
+	ss_ctrl_start(task, alg_method, alg_mode);
 
 	ret = wait_for_completion_timeout(&ce_cdev->flows[channel_id].done,
 		msecs_to_jiffies(SS_WAIT_TIME));
@@ -767,7 +790,6 @@ static void ce_task_hash_destroy(ce_new_task_desc_t *task)
 void ce_hash_task_description_print(ce_new_task_desc_t *task)
 {
 	int i;
-	ulong addr;
 	ce_new_task_desc_t *ptask = task;
 	pr_err("the hash task description");
 
@@ -796,7 +818,6 @@ int hash_crypto_start(crypto_hash_req_ctx_t *req)
 	phys_addr_t iv_phy = 0;
 	ce_new_task_desc_t *task = NULL;
 	int channel_id = req->channel_id;
-	int i;
 	task = ce_alloc_hash_task();
 	if (!task) {
 		return -1;

@@ -78,7 +78,7 @@
 #endif
 
 #if defined(USE_LINUX_PCIE_DEVICE) || defined(USE_LINUX_PLATFORM_DEVICE)
-#define FLUSH_CACHE_HOOK            1
+#define FLUSH_CACHE_HOOK            0
 #else
 #define FLUSH_CACHE_HOOK            0
 #endif
@@ -1915,7 +1915,7 @@ static vip_status_e gckvip_map_user_ion(
 #else
     vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
 #endif
-    vma->vm_flags |= (VM_IO | VM_DONTCOPY | VM_DONTEXPAND | VM_DONTDUMP);
+    vma->vm_flags |= (VM_IO | VM_DONTCOPY | VM_DONTEXPAND | VM_DONTDUMP| VM_MIXEDMAP);
 
     /* map kernel memory to user space.. */
     /*
@@ -1926,12 +1926,19 @@ static vip_status_e gckvip_map_user_ion(
     }
     PRINTK_I("vipcore, dyn remap pfn range to user space\n");
     */
-    
-    if(aw_vip_mmap(&node->mem_ion_dyn, vma, 0))
-    {
-        PRINTK_E("vipcore, aw_vip_mmap failed\n");
-        return -1;
+    status = dma_mmap_attrs(get_device(kdriver->device), vma, node->mem_ion_dyn.vir_addr,
+		(vip_uint32_t)node->mem_ion_dyn.phy_addr, node->mem_ion_dyn.size, 0);
+    if (status) {
+	PRINTK_E("dma_mmap_attr map fail, addr 0x%x 0x%x dev_name:%s ret:%d\n", (vip_uint32_t)node->mem_ion_dyn.phy_addr,
+		(vip_uint32_t)node->mem_ion_dyn.vir_addr, dev_name(kdriver->device), status);
+	gcGoOnError(VIP_ERROR_IO);
     }
+    PRINTK_E("device name:%s get_device name:%s\n", dev_name(kdriver->device), dev_name(get_device(kdriver->device)));
+    //if(aw_vip_mmap(,&node->mem_ion_dyn, vma, 0))
+    //{
+    //    PRINTK_E("vipcore, aw_vip_mmap failed\n");
+    //    return -1;
+    //}
     node->user_logical = (vip_uint8_t*)user_logical;
 
 onError:
@@ -2100,7 +2107,7 @@ static vip_status_e gckvip_allocator_dyn_free_contiguous_ion(
 
     /* unmap user space */
     if (node->mem_flag & GCVIP_MEM_FLAG_MAP_USER) {
-        if (vm_munmap((unsigned long)node->user_logical, node->size) < 0) {
+	if (vm_munmap((unsigned long)node->user_logical, PAGE_ALIGN(node->size)) < 0) {
             PRINTK_E("failed to vm munmap user space contiguous memory\n");
             gcGoOnError(VIP_ERROR_IO);
         }
@@ -2113,7 +2120,10 @@ static vip_status_e gckvip_allocator_dyn_free_contiguous_ion(
     // PRINTK_D("dyn free contiguous memory handle=0x%" PRIx64"\n", GCKVIPPTR_TO_UINT64(node->alloc_handle));
 
     // __free_pages(pages, get_order(PAGE_ALIGN(node->size)));
-
+#if FLUSH_CACHE_HOOK
+    gckvip_os_free_memory(node->flush_cache_handle);
+    node->flush_cache_handle = VIP_NULL;
+#endif
     aw_vip_munmap( &node->mem_ion_dyn);
     aw_vip_mem_free(kdriver->device, &node->mem_ion_dyn);
 

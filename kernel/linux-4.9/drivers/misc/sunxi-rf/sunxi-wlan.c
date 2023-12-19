@@ -747,9 +747,9 @@ static int sunxi_wlan_remove(struct platform_device *pdev)
 	devm_kfree(&pdev->dev, wlan_data->wlan_power_name);
 	devm_kfree(&pdev->dev, wlan_data);
 
-	misc_deregister(&sunxi_wlan_dev);
 	sysfs_remove_group(&(sunxi_wlan_dev.this_device->kobj),
 			&misc_attribute_group);
+	misc_deregister(&sunxi_wlan_dev);
 
 	if (!IS_ERR_OR_NULL(wlan_data->lpo))
 		clk_disable_unprepare(wlan_data->lpo);

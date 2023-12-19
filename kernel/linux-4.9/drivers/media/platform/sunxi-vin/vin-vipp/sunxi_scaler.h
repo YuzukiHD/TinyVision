@@ -67,6 +67,7 @@ struct scaler_dev {
 	unsigned char id;
 	spinlock_t slock;
 	unsigned int delay_init;
+	unsigned int delay_para_ready;
 #if defined VIPP_200
 	struct vin_mm load_para[2];
 	bool load_select; /*load_select = 0 select load_para[0], load_select = 1 select load_para[1]*/

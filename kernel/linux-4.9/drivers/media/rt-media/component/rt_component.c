@@ -43,11 +43,12 @@ static int get_cmp_index(char *cmp_name)
 error_type comp_get_handle(PARAM_OUT comp_handle *pHandle,
 								PARAM_IN  char *cComponentName,
 								PARAM_IN  void *pAppData,
+								PARAM_IN  const rt_media_config_s *pmedia_config,
 								PARAM_IN  comp_callback_type * pCallBacks)
 {
 	error_type eRet = ERROR_TYPE_OK;
 	int comp_index = get_cmp_index(cComponentName);
-    RT_LOGD("component name[%s]", cComponentName);
+	RT_LOGD("component name[%s]", cComponentName);
 	RT_LOGI("COMP CORE API - COMP_GetHandle");
 
 	if (comp_index >= 0) {
@@ -58,7 +59,7 @@ error_type comp_get_handle(PARAM_OUT comp_handle *pHandle,
 			return ERROR_TYPE_NOMEM;
 		}
 		memset(compHandle, 0, sizeof(rt_component_type));
-		rt_comp_table[comp_index].comp_init_fn(compHandle);
+		rt_comp_table[comp_index].comp_init_fn(compHandle, pmedia_config);
 		comp_set_callbacks(compHandle, pCallBacks, pAppData);
 		*pHandle = compHandle;
 	} else {

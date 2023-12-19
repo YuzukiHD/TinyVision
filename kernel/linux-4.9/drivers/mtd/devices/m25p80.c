@@ -26,6 +26,7 @@
 #include <linux/spi/spi.h>
 #include <linux/spi/flash.h>
 #include <linux/mtd/spi-nor.h>
+#include "../../spi/spi-sunxi.h"
 
 #define	MAX_CMD_SIZE		6
 struct m25p {
@@ -221,7 +222,9 @@ static int m25p_probe(struct spi_device *spi)
 	spi_set_drvdata(spi, flash);
 	flash->spi = spi;
 
-	if (spi->mode & SPI_RX_QUAD)
+	if (spi->mode & SPI_RX_OCTAL)
+		mode = SPI_NOR_OCTAL;
+	else if (spi->mode & SPI_RX_QUAD)
 		mode = SPI_NOR_QUAD;
 	else if (spi->mode & SPI_RX_DUAL)
 		mode = SPI_NOR_DUAL;
@@ -244,6 +247,8 @@ static int m25p_probe(struct spi_device *spi)
 	ret = spi_nor_scan(nor, flash_name, mode);
 	if (ret)
 		return ret;
+
+	sunxi_spi_update_sample_delay_para(&nor->mtd, spi);
 
 	spinor_debug_init();
 

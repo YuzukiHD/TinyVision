@@ -347,6 +347,8 @@ struct rproc_ops {
  *			a message.
  * @RPROC_RUNNING:	device is up and running
  * @RPROC_CRASHED:	device has crashed; need to start recovery
+ * @RPROC_RUNNING:	device is up and running, only the resource_table needs
+ * 			to be processed,no hardware setup required.
  * @RPROC_LAST:		just keep this one at the end
  *
  * Please note that the values of these states are used as indices
@@ -360,7 +362,8 @@ enum rproc_state {
 	RPROC_SUSPENDED	= 1,
 	RPROC_RUNNING	= 2,
 	RPROC_CRASHED	= 3,
-	RPROC_LAST	= 4,
+	RPROC_EARLY_BOOT	= 4,
+	RPROC_LAST	= 5,
 };
 
 /**
@@ -442,6 +445,7 @@ struct rproc {
 	bool has_iommu;
 	bool auto_boot;
 	int nb_vdev;
+	void *core;
 };
 
 /* we currently support only two vrings per rvdev */
@@ -517,5 +521,13 @@ struct rproc_mem_entry *
 rproc_add_mem_entry(struct rproc *rproc, const char *name, u32 pa,
 				u32 da, void *va, int len);
 void rproc_clean_mem_entry(struct rproc *rproc);
+
+#ifdef CONFIG_SUNXI_RPROC_SHARE_IRQ
+int sunxi_arch_interrupt_save(const char *name);
+int sunxi_arch_interrupt_restore(const char *name);
+int sunxi_arch_create_debug_dir(struct dentry *dir, const char *name);
+uint32_t sunxi_rproc_get_gpio_mask(int softirq);
+uint32_t sunxi_rproc_get_gpio_mask_by_hwirq(int hwirq);
+#endif
 
 #endif /* REMOTEPROC_H */

@@ -116,6 +116,14 @@ __s32 g2d_wb_set(struct wb_submodule *p_wb, g2d_image_enh *p_image)
 		p_reg->data_size.bits.width =
 		    (!p_image->clip_rect.w) ? 0 : p_image->clip_rect.w - 1;
 
+#if ((defined CONFIG_ARCH_SUN8IW21P1) || (defined CONFIG_ARCH_SUN20IW2P1) \
+		|| (defined CONFIG_ARCH_SUN20IW3P1))
+		while (p_reg->data_size.bits.height != p_image->clip_rect.h - 1 || p_reg->data_size.bits.width != p_image->clip_rect.w - 1) {
+			p_reg->data_size.bits.height = p_image->clip_rect.h - 1;
+			p_reg->data_size.bits.width = p_image->clip_rect.w - 1;
+		}
+#endif
+
 		if ((p_image->format >= G2D_FORMAT_YUV422UVC_V1U1V0U0) &&
 		    (p_image->format <= G2D_FORMAT_YUV422_PLANAR)) {
 			cw = p_image->width >> 1;

@@ -47,5 +47,7 @@ struct rpbuf_buffer_xfer {
 	_IOW(RPBUF_BUF_DEV_IOCTL_MAGIC, 0x2, struct rpbuf_buffer_xfer)
 #define RPBUF_BUF_DEV_IOCTL_RECEIVE_BUF \
 	_IOWR(RPBUF_BUF_DEV_IOCTL_MAGIC, 0x3, struct rpbuf_buffer_xfer)
+#define RPBUF_BUF_DEV_IOCTL_SET_SYNC_BUF \
+	_IOW(RPBUF_BUF_DEV_IOCTL_MAGIC, 0x4, struct rpbuf_buffer_xfer)
 
 #endif

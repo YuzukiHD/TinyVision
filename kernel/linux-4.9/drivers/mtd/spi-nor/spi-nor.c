@@ -25,6 +25,8 @@
 #include <linux/debugfs.h>
 #include <linux/uaccess.h>
 
+#define SUNXI_NOR_MODULE_VERSION "1.0.2"
+
 /* Define max times to check status register before we give up. */
 
 /*
@@ -41,6 +43,8 @@
 
 #define SPI_NOR_MAX_ID_LEN	6
 #define SPI_NOR_MAX_ADDR_WIDTH	4
+#define SPI_NOR_MAX_UID_LEN	16
+#define UID_READ_DUMMY_BITS	8
 
 static struct spinordbg_data spinordbg_priv;
 static struct spi_nor *spinordbg;
@@ -80,6 +84,13 @@ struct flash_info {
 					 * Flash SR has Top/Bottom (TB) protect
 					 * bit. Must be used with
 					 * SPI_NOR_HAS_LOCK.
+					 */
+#define SPI_NOR_4B_OPCODES	BIT(10) /*
+					 * Use dedicated 4byte address op codes
+					 * to support memory size above 256Mib.
+					 */
+#define SPI_NOR_ERASE_32K	BIT(11)	/* Flash supports erase 32KB
+					 * sector_size = 32KB
 					 */
 #define SPI_NOR_INDIVIDUAL_LOCK BIT(16) /* individual block/sector lock mode */
 #define SPI_NOR_HAS_LOCK_HANDLE BIT(17) /* OP/ERASE for lock operation */
@@ -186,10 +197,17 @@ struct nor_protection esmt_protection_8M[] = {
 
 static const struct flash_info *spi_nor_match_id(const char *name);
 
+#ifndef CONFIG_SPIF_SUNXI
 struct spi_nor *get_spinor(void)
 {
 	return spinordbg;
 }
+#else
+struct spi_nor *get_spinor_static(void)
+{
+	return spinordbg;
+}
+#endif
 
 /*
  * Read the status register, returning its value in the location
@@ -316,6 +334,7 @@ static inline int spi_nor_read_dummy_cycles(struct spi_nor *nor)
 	case SPI_NOR_FAST:
 	case SPI_NOR_DUAL:
 	case SPI_NOR_QUAD:
+	case SPI_NOR_OCTAL:
 		return 8;
 	case SPI_NOR_NORMAL:
 		return 0;
@@ -793,6 +812,120 @@ erase_err:
 
 	instr->state = ret ? MTD_ERASE_FAILED : MTD_ERASE_DONE;
 	mtd_erase_callback(instr);
+	return ret;
+}
+/*
+ * Erase an address range on the nor chip.  The address range may extend
+ * one or more erase sectors.  Return an error is there is a problem erasing.
+ * erase_size keep 4KB.
+ */
+static int spi_nor_erase_4k(struct mtd_info *mtd, struct erase_info *instr)
+{
+	struct spi_nor *nor = mtd_to_spi_nor(mtd);
+	u32 addr, len;
+	uint32_t rem;
+	int ids = 0;
+	int ret;
+	uint32_t temp_erasesize;
+	u8 temp_eraseopcode;
+
+	dev_dbg(nor->dev, "at 0x%llx, len %lld\n", (long long)instr->addr,
+			(long long)instr->len);
+
+	div_u64_rem(instr->len, mtd->erasesize, &rem);
+	if (rem)
+		return -EINVAL;
+
+	ret = spi_nor_lock_and_prep(nor, SPI_NOR_OPS_ERASE);
+	if (ret)
+		return ret;
+
+	/*
+	 * Save erasesize and erase_opcode. Change erasesize to 4096.
+	 * Set 4byte opcodes when possible.
+	 */
+	temp_erasesize = mtd->erasesize;
+	temp_eraseopcode  = nor->erase_opcode;
+	nor->erase_opcode = SPINOR_OP_BE_4K;
+	mtd->erasesize = 4096;
+
+	addr = instr->addr;
+	len = instr->len;
+
+	/* whole-chip erase? */
+	if (len == mtd->size) {
+		unsigned long timeout;
+		if (nor->n_banks && nor->flash_select_bank)
+			ids = nor->n_banks;
+		else
+			ids = 0;
+
+		do {
+			if (nor->flash_select_bank)
+				nor->flash_select_bank(nor, 0, ids);
+
+			write_enable(nor);
+
+			if (erase_chip(nor)) {
+				ret = -EIO;
+				goto erase_err;
+			}
+
+			/*
+			 * Scale the timeout linearly with the size of the flash, with
+			 * a minimum calibrated to an old 2MB flash. We could try to
+			 * pull these from CFI/SFDP, but these values should be good
+			 * enough for now.
+			 */
+			timeout = max(CHIP_ERASE_2MB_READY_WAIT_JIFFIES,
+					CHIP_ERASE_2MB_READY_WAIT_JIFFIES *
+					(unsigned long)(mtd->size / SZ_2M));
+			ret = spi_nor_wait_till_ready_with_timeout(nor, timeout);
+			if (ret)
+				goto erase_err;
+		} while (ids--);
+
+	/* REVISIT in some cases we could speed up erasing large regions
+	 * by using SPINOR_OP_SE instead of SPINOR_OP_BE_4K.  We may have set up
+	 * to use "small sector erase", but that's not always optimal.
+	 */
+
+	/* "sector"-at-a-time erase */
+	} else {
+		u32 bank_size = 0;
+
+		if (nor->n_banks && nor->flash_select_bank)
+			bank_size = (u32)div_u64(mtd->size, nor->n_banks);
+
+		while (len) {
+
+			if (nor->n_banks && nor->flash_select_bank)
+				nor->flash_select_bank(nor, addr, addr / bank_size);
+
+			write_enable(nor);
+
+			ret = spi_nor_erase_sector(nor, addr);
+			if (ret)
+				goto erase_err;
+
+			addr += mtd->erasesize;
+			len -= mtd->erasesize;
+
+			ret = spi_nor_wait_till_ready(nor);
+			if (ret)
+				goto erase_err;
+		}
+	}
+
+	write_disable(nor);
+
+erase_err:
+	instr->state = ret ? MTD_ERASE_FAILED : MTD_ERASE_DONE;
+	mtd_erase_callback(instr);
+	mtd->erasesize = temp_erasesize;
+	nor->erase_opcode = temp_eraseopcode;
+
+	spi_nor_unlock_and_unprep(nor, SPI_NOR_OPS_ERASE);
 	return ret;
 }
 
@@ -2176,7 +2309,8 @@ static const struct flash_info spi_nor_ids[] = {
 	{ "cat25128", CAT25_INFO(2048, 8, 64, 2, SPI_NOR_NO_ERASE | SPI_NOR_NO_FR) },
 
 	/* BOYA*/
-	{ "25q128",   INFO(0x684018, 0, 64 * 1024, 256, SPI_NOR_DUAL_READ) },
+	{ "BY25Q128",   INFO(0x684018, 0, 64 * 1024, 256, SPI_NOR_DUAL_READ) },
+	{ "BY25Q256FS",   INFO(0x684919, 0, 64 * 1024, 512, SECT_4K | SPI_NOR_DUAL_READ | SPI_NOR_QUAD_READ | SPI_NOR_4B_OPCODES) },
 
 	/* XT */
 	{ "xt25p1288",  INFO(0x0b4018, 0, 64 * 1024, 256, SPI_NOR_DUAL_READ | SPI_NOR_QUAD_READ) },
@@ -2186,6 +2320,7 @@ static const struct flash_info spi_nor_ids[] = {
 
 	/* XMC (Wuhan Xinxin Semiconductor Manufacturing Corp.) */
 	{ "XM25QH64A",  INFO(0x207017, 0, 64 * 1024, 128, SECT_4K | SPI_NOR_DUAL_READ | SPI_NOR_QUAD_READ) },
+	{ "XM25QH64C",  INFO(0x204017, 0, 64 * 1024, 128, SECT_4K | SPI_NOR_DUAL_READ | SPI_NOR_QUAD_READ) },
 	{ "XM25QH128A", INFO(0x207018, 0, 64 * 1024, 256, SECT_4K | SPI_NOR_DUAL_READ | SPI_NOR_QUAD_READ) },
 	{ "XM25QH256B", INFO(0x206019, 0, 64 * 1024, 512, SECT_4K | SPI_NOR_DUAL_READ | SPI_NOR_QUAD_READ) },
 
@@ -2218,6 +2353,38 @@ static const struct flash_info *spi_nor_read_id(struct spi_nor *nor)
 	dev_err(nor->dev, "unrecognized JEDEC id bytes: %02x, %02x, %02x\n",
 		id[0], id[1], id[2]);
 	return ERR_PTR(-ENODEV);
+}
+
+static int spi_nor_read_uid(struct mtd_info *mtd, u_char *rx_buf)
+{
+	struct spi_nor *nor = mtd_to_spi_nor(mtd);
+	int			tmp;
+	size_t		rx_len = SPI_NOR_MAX_UID_LEN;
+	loff_t		addr_from = 0;
+	u8 tmp_read_opcode = nor->read_opcode;
+	u8 tmp_read_dummy = nor->read_dummy;
+	u8 tmp_flash_read = nor->flash_read;
+	u_char *uid_buf = rx_buf;
+
+	if (strncmp(nor->info->name, "xt", 2) == 0) {	/* XTX flashes */
+		nor->read_opcode = SPINOR_OP_READ_UID_XTX;
+		addr_from = 0x94;
+	} else
+		nor->read_opcode = SPINOR_OP_READ_UID;
+
+	nor->read_dummy = UID_READ_DUMMY_BITS;
+	nor->flash_read = SPI_NOR_NORMAL;	//decide read in SINGLE/DUAL/QUAD mode
+
+	tmp = nor->read(nor, addr_from, rx_len, uid_buf);
+	nor->read_opcode = tmp_read_opcode;
+	nor->read_dummy = tmp_read_dummy;
+	nor->flash_read = tmp_flash_read;
+	if (tmp < 0) {
+		dev_dbg(nor->dev, "error %d reading UID\n", tmp);
+		return -1;
+	}
+
+	return 0;
 }
 
 static int spi_nor_read(struct mtd_info *mtd, loff_t from, size_t len,
@@ -2763,7 +2930,8 @@ static int spi_nor_init(struct spi_nor *nor)
 	}
 
 	if ((nor->addr_width == 4) &&
-	    (JEDEC_MFR(nor->info) != SNOR_MFR_SPANSION)) {
+	    (JEDEC_MFR(nor->info) != SNOR_MFR_SPANSION) &&
+	    !(nor->flags & SNOR_F_4B_OPCODES)) {
 		/*
 		 * If the RESET# pin isn't hooked up properly, or the system
 		 * otherwise doesn't perform a reset command in the boot
@@ -2793,7 +2961,8 @@ void spi_nor_restore(struct spi_nor *nor)
 {
 	/* restore the addressing mode */
 	if ((nor->addr_width == 4) &&
-	    (JEDEC_MFR(nor->info) != SNOR_MFR_SPANSION))
+	    (JEDEC_MFR(nor->info) != SNOR_MFR_SPANSION) &&
+	    !(nor->flags & SNOR_F_4B_OPCODES))
 		set_4byte(nor, nor->info, 0);
 
 	/*
@@ -2850,7 +3019,11 @@ static ssize_t spinordbg_param_write(struct file *file, const char __user *buf,
 static ssize_t spinordbg_status_read(struct file *file, char __user *buf,
 				    size_t count, loff_t *ppos)
 {
+#ifndef CONFIG_SPIF_SUNXI
 	struct spi_nor *nor = get_spinor();
+#else
+	struct spi_nor *nor = get_spinor_static();
+#endif
 	char tmpstatus[80];
 	u32 value;
 	int len = 0;
@@ -3146,6 +3319,9 @@ int spi_nor_scan(struct spi_nor *nor, const char *name, enum read_mode mode)
 	} else
 		nor->n_banks = 0;
 
+	if (info->flags & SPI_NOR_4B_OPCODES)
+		nor->flags |= SNOR_F_4B_OPCODES;
+
 	if (!mtd->name)
 		mtd->name = dev_name(dev);
 	mtd->priv = nor;
@@ -3154,9 +3330,18 @@ int spi_nor_scan(struct spi_nor *nor, const char *name, enum read_mode mode)
 	mtd->flags = MTD_CAP_NORFLASH;
 	mtd->size = info->sector_size * info->n_sectors;
 	mtd->_erase = spi_nor_erase;
+	mtd->_erase_4k = spi_nor_erase_4k;
 	mtd->_read = spi_nor_read;
 	mtd->_resume = spi_nor_resume;
 	mtd->_suspend = spi_nor_suspend;
+	mtd->_read_uid = spi_nor_read_uid;
+#ifdef CONFIG_SPI_FLASH_SR
+	mtd->_security_regiser_is_locked = security_regiser_is_locked;
+	mtd->_security_register_lock = security_register_lock;
+	mtd->_security_regiser_read_data = security_regiser_read_data;
+	mtd->_security_regiser_write_data = security_regiser_write_data;
+#endif
+
 	/* sst nor chips use AAI word program */
 	if (info->flags & SST_WRITE)
 		mtd->_write = sst_write;
@@ -3179,8 +3364,13 @@ int spi_nor_scan(struct spi_nor *nor, const char *name, enum read_mode mode)
 	} else
 #endif
 	{
-		nor->erase_opcode = SPINOR_OP_SE;
-		mtd->erasesize = info->sector_size;
+		if (info->flags & SPI_NOR_ERASE_32K) {
+			nor->erase_opcode = SPINOR_OP_BE_32K;
+			mtd->erasesize = 32 * 1024;
+		} else {
+			nor->erase_opcode = SPINOR_OP_SE;
+			mtd->erasesize = info->sector_size;
+		}
 	}
 
 	if (info->flags & SPI_NOR_NO_ERASE)
@@ -3212,13 +3402,17 @@ int spi_nor_scan(struct spi_nor *nor, const char *name, enum read_mode mode)
 		nor->flash_read = SPI_NOR_DUAL;
 	}
 
+	nor->read_proto = SNOR_PROTO_1_1_1;
+	nor->write_proto = SNOR_PROTO_1_1_1;
 	/* Default commands */
 	switch (nor->flash_read) {
 	case SPI_NOR_QUAD:
 		nor->read_opcode = SPINOR_OP_READ_1_1_4;
+		nor->read_proto = nor->write_proto = SNOR_PROTO_1_1_4;
 		break;
 	case SPI_NOR_DUAL:
 		nor->read_opcode = SPINOR_OP_READ_1_1_2;
+		nor->read_proto = SNOR_PROTO_1_1_2;
 		break;
 	case SPI_NOR_FAST:
 		nor->read_opcode = SPINOR_OP_READ_FAST;
@@ -3239,9 +3433,13 @@ int spi_nor_scan(struct spi_nor *nor, const char *name, enum read_mode mode)
 		/* enable 4-byte addressing if the device exceeds 16MiB */
 		nor->addr_width = 4;
 		if ((JEDEC_MFR(info) == SNOR_MFR_SPANSION) ||
-			(JEDEC_MFR(info) == SNOR_MFR_GIGADEVICE)) {
+			(JEDEC_MFR(info) == SNOR_MFR_GIGADEVICE) ||
+			(nor->flags & SNOR_F_4B_OPCODES)) {
 			/* Dedicated 4-byte command set */
 			switch (nor->flash_read) {
+			case SPI_NOR_OCTAL:
+				nor->read_opcode = SPINOR_OP_READ4_1_1_8;
+				break;
 			case SPI_NOR_QUAD:
 				nor->read_opcode = SPINOR_OP_READ4_1_1_4;
 				break;
@@ -3257,8 +3455,13 @@ int spi_nor_scan(struct spi_nor *nor, const char *name, enum read_mode mode)
 			}
 			nor->program_opcode = SPINOR_OP_PP_4B;
 			/* No small sector erase for 4-byte command set */
-			nor->erase_opcode = SPINOR_OP_SE_4B;
-			mtd->erasesize = info->sector_size;
+			if (info->flags & SPI_NOR_ERASE_32K) {
+				nor->erase_opcode = SPINOR_OP_BE_32K_4B;
+				mtd->erasesize = 32 * 1024;
+			} else {
+				nor->erase_opcode = SPINOR_OP_SE_4B;
+				mtd->erasesize = info->sector_size;
+			}
 		}
 	} else {
 		nor->addr_width = 3;
@@ -3285,9 +3488,11 @@ int spi_nor_scan(struct spi_nor *nor, const char *name, enum read_mode mode)
 
 	dev_dbg(dev,
 		"mtd .name = %s, .size = 0x%llx (%lldMiB), "
-		".erasesize = 0x%.8x (%uKiB) .numeraseregions = %d\n",
+		".erasesize = 0x%.8x (%uKiB) .numeraseregions = %d, "
+		"probe succeed (Version %s)\n",
 		mtd->name, (long long)mtd->size, (long long)(mtd->size >> 20),
-		mtd->erasesize, mtd->erasesize / 1024, mtd->numeraseregions);
+		mtd->erasesize, mtd->erasesize / 1024, mtd->numeraseregions,
+		SUNXI_NOR_MODULE_VERSION);
 
 	if (mtd->numeraseregions)
 		for (i = 0; i < mtd->numeraseregions; i++)
@@ -3299,6 +3504,7 @@ int spi_nor_scan(struct spi_nor *nor, const char *name, enum read_mode mode)
 				mtd->eraseregions[i].erasesize,
 				mtd->eraseregions[i].erasesize / 1024,
 				mtd->eraseregions[i].numblocks);
+
 	return 0;
 }
 EXPORT_SYMBOL_GPL(spi_nor_scan);
@@ -3318,4 +3524,5 @@ static const struct flash_info *spi_nor_match_id(const char *name)
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Huang Shijie <shijie8@gmail.com>");
 MODULE_AUTHOR("Mike Lavender");
+MODULE_VERSION(SUNXI_NOR_MODULE_VERSION);
 MODULE_DESCRIPTION("framework for SPI NOR");

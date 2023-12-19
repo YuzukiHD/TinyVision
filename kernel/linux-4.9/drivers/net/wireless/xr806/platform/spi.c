@@ -128,7 +128,7 @@ static int xradio_reg_rx_ind(rx_ind_func func)
 	spi_priv.rx_ind = func;
 
 	status = request_irq(gpio_irq, xradio_plat_interrupt_handler,
-			     IRQF_TRIGGER_LOW | IRQF_NO_SUSPEND, "xradio_irq", &spi_priv);
+			     IRQF_TRIGGER_HIGH | IRQF_NO_SUSPEND, "xradio_irq", &spi_priv);
 
 	if (status) {
 		spi_printk(XRADIO_DBG_ERROR, "Failed to request IRQ for spi wakeup:%d, %d\n",
@@ -148,7 +148,7 @@ static int xradio_spi_read_rx_gpio(void)
 
 static int xradio_spi_read_rw_gpio(void)
 {
-	return gpio_get_value(spi_priv.gpio_rw);
+	return !gpio_get_value(spi_priv.gpio_rw);
 }
 
 static int xradio_gpio_deinit(void)
@@ -267,6 +267,9 @@ static int xradio_spi_write(u8 *buff, u16 len)
 	};
 	struct spi_message m;
 	int status;
+
+	if (buff == NULL)
+		return -1;
 
 	spi_message_init(&m);
 	spi_message_add_tail(&t, &m);

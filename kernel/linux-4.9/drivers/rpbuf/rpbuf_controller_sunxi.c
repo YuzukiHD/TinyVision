@@ -29,7 +29,8 @@
 struct ion_list {
 	struct ion_handle *handle;
 	struct list_head list;
-	struct rpbuf_buffer *buffer;
+	int id;
+	void *va;
 };
 
 struct sunxi_rpbuf_controller_priv {
@@ -89,7 +90,8 @@ static int sunxi_rpbuf_alloc_has_iommu(struct device *dev,
 	buffer->da = (u64)pa;
 
 	ion_list->handle = handle;
-	ion_list->buffer = buffer;
+	ion_list->id = buffer->id;
+	ion_list->va = buffer->va;
 	list_add(&ion_list->list, &inst->list);
 
 	return 0;
@@ -112,7 +114,7 @@ static void sunxi_rpbuf_free_has_iommu(struct device *dev,
 	struct ion_handle *handle = NULL;
 
 	list_for_each_entry_safe(pos, tmp, &inst->list, list) {
-		if (pos->buffer == buffer) {
+		if (pos->id == buffer->id) {
 			handle = pos->handle;
 			break;
 		}
@@ -146,7 +148,7 @@ int sunxi_rpbuf_dev_mmap_sg(struct sunxi_rpbuf_controller_priv *inst,
 	struct scatterlist *sg;
 
 	list_for_each_entry_safe(pos, tmp, &inst->list, list) {
-		if (pos->buffer == buffer) {
+		if (pos->id == buffer->id) {
 			handle = pos->handle;
 			break;
 		}
@@ -245,7 +247,8 @@ static int sunxi_rpbuf_alloc(struct device *dev,
 	buffer->da = (u64)pa;
 
 	ion_list->handle = handle;
-	ion_list->buffer = buffer;
+	ion_list->id = buffer->id;
+	ion_list->va = buffer->va;
 	list_add(&ion_list->list, &inst->list);
 
 	return 0;
@@ -268,7 +271,7 @@ static void sunxi_rpbuf_free(struct device *dev,
 	struct ion_handle *handle = NULL;
 
 	list_for_each_entry_safe(pos, tmp, &inst->list, list) {
-		if (pos->buffer == buffer) {
+		if (pos->id == buffer->id) {
 			handle = pos->handle;
 			break;
 		}

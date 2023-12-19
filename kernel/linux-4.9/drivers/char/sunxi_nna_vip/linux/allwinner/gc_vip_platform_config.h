@@ -83,7 +83,7 @@ static const vip_uint32_t LOGIC_DEVICES_WITH_CORE[gcdCORE_COUNT] = {1};
 #if defined (USE_LINUX_RESERVE_MEM)
 #define VIDEO_MEMORY_HEAP_SIZE          (16 << 20)
 #else
-#define VIDEO_MEMORY_HEAP_SIZE          (32 << 20)
+#define VIDEO_MEMORY_HEAP_SIZE          (1 << 20)
 #endif
 
 /* defalut base pyhsical address of video memory heap */

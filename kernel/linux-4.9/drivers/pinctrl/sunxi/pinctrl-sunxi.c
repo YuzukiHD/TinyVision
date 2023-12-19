@@ -31,6 +31,9 @@
 #include <linux/sunxi-gpio.h>
 #include <asm/uaccess.h>
 #include <linux/arisc/arisc.h>
+#include <linux/irqnr.h>
+#include <linux/irq.h>
+#include <linux/remoteproc.h>
 
 #include "../core.h"
 #include "../pinconf.h"
@@ -1452,6 +1455,9 @@ static void sunxi_pinctrl_irq_handler(struct irq_desc *desc)
 	base_bank = pctl->desc->irq_bank_base[bank];
 	reg = sunxi_irq_status_reg_from_bank(bank, base_bank);
 	val = readl(pctl->membase + reg);
+#ifdef CONFIG_SUNXI_RPROC_SHARE_IRQ
+	val &= (~(sunxi_rproc_get_gpio_mask_by_hwirq(desc->irq_data.hwirq)));
+#endif
 
 	if (val) {
 		int irqoffset;
@@ -1733,6 +1739,38 @@ void sunxi_pinctrl_state_show(void)
 }
 EXPORT_SYMBOL_GPL(sunxi_pinctrl_state_show);
 
+#ifdef CONFIG_SUNXI_PIO_POWER_SEL
+/*
+ * 1.8 -> 3.3:
+ *	1. Increase withstand
+ *	2. Increase power voltage
+ * 3.3 -> 1.8:
+ *	1. Decrease power voltage
+ *	2. Decrease withstand
+ */
+static void sunxi_power_switch_pf(struct sunxi_pinctrl *pctl, u32 tar_vol, u32 pow_sel)
+{
+	u32 cur_vol;
+
+	cur_vol = readl(pctl->membase + GPIO_POW_VOL_SEL) & BIT(0);
+	tar_vol &= BIT(0);
+
+	if (cur_vol < tar_vol) {
+		writel(pow_sel, pctl->membase + GPIO_POW_MODE_SEL);
+		writel(tar_vol, pctl->membase + GPIO_POW_VOL_SEL);
+	} else if (cur_vol > tar_vol) {
+		writel(tar_vol, pctl->membase + GPIO_POW_VOL_SEL);
+		writel(pow_sel, pctl->membase + GPIO_POW_MODE_SEL);
+	} else {
+		writel(pow_sel, pctl->membase + GPIO_POW_MODE_SEL);
+	}
+}
+#endif
+/*
+ * pm_sel: target voltage for pio withstand
+ *	1: 1.8v
+ *	0: 3.3v
+ */
 int sunxi_sel_pio_mode(struct pinctrl *pinctrl, u32 pm_sel)
 {
 #ifdef CONFIG_SUNXI_PIO_POWER_MODE
@@ -1745,9 +1783,6 @@ int sunxi_sel_pio_mode(struct pinctrl *pinctrl, u32 pm_sel)
 	unsigned num_pins = 0;
 	const char *gname;
 	u32 bank, tmp;
-#ifdef CONFIG_SUNXI_PIO_POWER_SEL
-	u32 tmp1;
-#endif
 	unsigned long flags;
 
 	list_for_each_entry(setting, &pinctrl->state->settings, node) {
@@ -1775,15 +1810,16 @@ int sunxi_sel_pio_mode(struct pinctrl *pinctrl, u32 pm_sel)
 			bank = pins[i] / PINS_PER_BANK;
 			raw_spin_lock_irqsave(&pctl->lock, flags);
 			tmp = readl(pctl->membase + GPIO_POW_MODE_SEL);
+			tmp &= ~(1 << bank);
 			tmp |= (pm_sel << bank);
-			writel(tmp, pctl->membase + GPIO_POW_MODE_SEL);
+
 #ifdef CONFIG_SUNXI_PIO_POWER_SEL
-			if (bank == 5) {
-				tmp1 = readl(pctl->membase + GPIO_POW_VOL_SEL);
-				tmp1 &= ~(1>>0);
-				tmp1 |= (!pm_sel);
-				writel(tmp1, pctl->membase + GPIO_POW_VOL_SEL);
-			}
+			if (bank == 5)
+				sunxi_power_switch_pf(pctl, ~pm_sel, tmp);
+			else
+				writel(tmp, pctl->membase + GPIO_POW_MODE_SEL);
+#else
+			writel(tmp, pctl->membase + GPIO_POW_MODE_SEL);
 #endif
 			raw_spin_unlock_irqrestore(&pctl->lock, flags);
 		}
@@ -2627,6 +2663,26 @@ int sunxi_pinctrl_init(struct platform_device *pdev,
 		/* Mask and clear all IRQs before registering a handler */
 		unsigned bank_base = pctl->desc->irq_bank_base[i];
 
+#ifdef CONFIG_SUNXI_RPROC_SHARE_IRQ
+		struct irq_desc *irq_desc = irq_to_desc(pctl->irq[i]);
+		uint32_t banks_mask, ctrl_val, sta_val;
+		void __iomem *ctrl_reg, *sta_reg;
+
+		ctrl_reg = pctl->membase + sunxi_irq_ctrl_reg_from_bank(i, bank_base);
+		sta_reg = pctl->membase + sunxi_irq_status_reg_from_bank(i, bank_base);
+
+		banks_mask = sunxi_rproc_get_gpio_mask_by_hwirq(irq_desc->irq_data.hwirq);
+		sta_val = 0xffffffff & (~banks_mask);
+		ctrl_val = readl(ctrl_reg) & banks_mask;
+
+		writel(ctrl_val, ctrl_reg);
+		writel(sta_val, sta_reg);
+
+		if (banks_mask != 0xffffffff)
+			irq_set_chained_handler_and_data(pctl->irq[i],
+							 sunxi_pinctrl_irq_handler,
+							 pctl);
+#else
 		writel(0, pctl->membase +
 			sunxi_irq_ctrl_reg_from_bank(i, bank_base));
 		writel(0xffffffff, pctl->membase +
@@ -2635,6 +2691,7 @@ int sunxi_pinctrl_init(struct platform_device *pdev,
 		irq_set_chained_handler_and_data(pctl->irq[i],
 						 sunxi_pinctrl_irq_handler,
 						 pctl);
+#endif
 	}
 
 #ifdef CONFIG_DEBUG_FS
@@ -2655,4 +2712,4 @@ pinctrl_error:
 	pinctrl_unregister(pctl->pctl_dev);
 	return ret;
 }
-MODULE_VERSION("1.0.1");
+MODULE_VERSION("1.0.2");

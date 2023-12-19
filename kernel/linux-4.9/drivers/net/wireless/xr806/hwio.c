@@ -21,6 +21,9 @@
 #include "debug.h"
 
 #define SPI_BUF_SIZE 1536
+
+#define IO_WAIT_TIME_S 10
+
 static struct xradio_bus_ops *ops;
 
 void xradio_hwio_rx_irq(void *arg)
@@ -66,10 +69,15 @@ int xradio_hwio_deinit(void *priv)
 static int xradio_write_response(void)
 {
 	u8 res[8];
+	unsigned long delay;
 
 	// wait dev enter write state(gpio == 0)
-	while (ops->read_rw_gpio())
-		xradio_k_udelay(1);
+	delay = jiffies + IO_WAIT_TIME_S * HZ;
+	while (ops->read_rw_gpio()) {
+		if (time_after(jiffies, delay))
+			return -1;
+		xradio_k_usleep(1);
+	}
 
 	if (!ops->read(res, 8))
 		return -1;
@@ -79,32 +87,49 @@ static int xradio_write_response(void)
 
 int xradio_hwio_write(struct sk_buff *skb)
 {
+	unsigned long delay;
+
 	if (!ops || !ops->write)
 		return -EFAULT;
 
-	if (!skb)
+	if (!skb) {
+		hwio_printk(XRADIO_DBG_ERROR, "skb invaild\n");
 		return -ENOMEM;
+	}
 
 	// wait dev enter read state(gpio == 1)
-	while (!ops->read_rw_gpio())
-		xradio_k_udelay(1);
+	delay = jiffies + IO_WAIT_TIME_S * HZ;
+	while (!ops->read_rw_gpio()) {
+		if (time_after(jiffies, delay)) {
+			hwio_printk(XRADIO_DBG_ERROR, "write data wait dev read state faild\n");
+			return -1;
+		}
+		xradio_k_usleep(1);
+	}
 
 	if (ops->write(skb->data, skb->len)) {
 		hwio_printk(XRADIO_DBG_ERROR, "write data error\n");
 		return -1;
 	}
 
-	if (xradio_write_response() != 0)
+	if (xradio_write_response() != 0) {
 		hwio_printk(XRADIO_DBG_ERROR, "write rsp error\n");
+		return -1;
+	}
 	return 0;
 }
 
 static int xradio_read_request(void)
 {
 	u8 req[8] = {0, 0, 2, 0, 0, 0, 0, 0};
+	unsigned long delay;
 	// wait dev enter read state(gpio == 1)
-	while (!ops->read_rw_gpio())
-		xradio_k_udelay(1);
+	delay = jiffies + IO_WAIT_TIME_S * HZ;
+	while (!ops->read_rw_gpio()) {
+		if (time_after(jiffies, delay))
+			return -1;
+		xradio_k_usleep(1);
+	}
 
 	return ops->write(req, 8);
 }
@@ -113,6 +138,7 @@ struct sk_buff *xradio_hwio_read(u16 len)
 {
 	struct sk_buff *rx_skb = NULL;
 	u8 *buf = NULL;
+	unsigned long delay;
 
 	if (!ops || !ops->read)
 		return NULL;
@@ -123,8 +149,12 @@ struct sk_buff *xradio_hwio_read(u16 len)
 	}
 
 	// wait dev enter write state(gpio == 0)
-	while (ops->read_rw_gpio())
-		xradio_k_udelay(1);
+	delay = jiffies + IO_WAIT_TIME_S * HZ;
+	while (ops->read_rw_gpio()) {
+		if (time_after(jiffies, delay))
+			return NULL;
+		xradio_k_usleep(1);
+	}
 
 	if (len == 0 || len > SPI_BUF_SIZE)
 		len = SPI_BUF_SIZE;

@@ -1750,14 +1750,16 @@ static int wsm_receive_indication(struct xradio_common *hw_priv,
 			rx.rcpiRssi = 0;
 
 		if (!rx.status && unlikely(ieee80211_is_deauth(hdr->frame_control))) {
-			if (priv->join_status == XRADIO_JOIN_STATUS_STA) {
-				/* Shedule unjoin work */
-				wsm_printk(XRADIO_DBG_WARN, \
-					"Issue unjoin command (RX).\n");
-				wsm_lock_tx_async(hw_priv);
-				if (queue_work(hw_priv->workqueue,
-						&priv->unjoin_work) <= 0)
-					wsm_unlock_tx(hw_priv);
+			if (ieee80211_has_protected(hdr->frame_control) || !priv->is_mfp_connect) {
+				if (priv->join_status == XRADIO_JOIN_STATUS_STA) {
+					/* Shedule unjoin work */
+					wsm_printk(XRADIO_DBG_WARN, \
+						"Issue unjoin command (RX).\n");
+					wsm_lock_tx_async(hw_priv);
+					if (queue_work(hw_priv->workqueue,
+							&priv->unjoin_work) <= 0)
+						wsm_unlock_tx(hw_priv);
+				}
 			}
 		}
 		hw_priv->wsm_cbc.rx(priv, &rx, skb_p);
@@ -2416,12 +2418,17 @@ bool wsm_vif_flush_tx(struct xradio_vif *priv)
 
 void wsm_unlock_tx(struct xradio_common *hw_priv)
 {
-	int tx_lock;
+	int tx_lock = 0;
+
 	if (hw_priv->bh_error)
 		wsm_printk(XRADIO_DBG_ERROR, "bh_error=%d, wsm_unlock_tx is unsafe\n",
 			   hw_priv->bh_error);
 	else {
-		tx_lock = atomic_sub_return(1, &hw_priv->tx_lock);
+		if (atomic_read(&hw_priv->tx_lock) > 0)
+			tx_lock = atomic_sub_return(1, &hw_priv->tx_lock);
+		else
+			wsm_printk(XRADIO_DBG_WARN, "tx_unlock > tx_lock.\n");
+
 		if (tx_lock < 0) {
 			SYS_BUG(1);
 		} else if (tx_lock == 0) {

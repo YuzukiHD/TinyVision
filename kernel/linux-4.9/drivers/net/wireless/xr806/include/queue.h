@@ -88,4 +88,6 @@ void xradio_queue_debug_info(struct xradio_queue *queue);
 		queue_printk(XRADIO_DBG_ALWY, "pending list node cnt:%d\n", free_pool_cnt);        \
 	}
 #endif
+#define XRWL_CMD_QUEUE_SZ (128)
+#define XRWL_DATA_QUEUE_SZ (64)
 #endif

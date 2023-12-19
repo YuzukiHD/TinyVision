@@ -24,4 +24,10 @@ float atanf(float x);
 double atan2(double y, double x);
 float atan2f(float y, float x);
 void sincos(double x, double *sn, double *cs);
+
+double tan(double x);
+double acos(double x);
+double asin(double x);
+double ceil(double x);
+float ceilf(float x);
 #endif

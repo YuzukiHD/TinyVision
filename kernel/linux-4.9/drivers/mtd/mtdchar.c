@@ -59,6 +59,12 @@ struct burn_param_t {
 	long length;
 };
 
+struct write4k_op_t {
+	loff_t start;
+	unsigned char *buf;
+	loff_t len;
+};
+
 #if IS_ENABLED(CONFIG_AW_SPINAND_SECURE_STORAGE)
 struct secblc_op_t {
 	int item;
@@ -703,6 +709,10 @@ static int mtdchar_ioctl(struct file *file, u_int cmd, u_long arg)
 	u8 sr_num;
 	struct sr_param_t sr_param;
 	u_char *sr_buf;
+	struct mtd_info *master = (struct mtd_info *)mtd->priv;
+#endif
+#ifdef CONFIG_MTD_SPI_NOR
+	struct mtd_info *nor_master = (struct mtd_info *)mtd->priv;
 #endif
 
 	pr_debug("MTD_ioctl\n");
@@ -859,7 +869,7 @@ static int mtdchar_ioctl(struct file *file, u_int cmd, u_long arg)
 				pr_err("nand_ioctl input arg err, %p, srnum:%p\n", &sr_num, argp);
 				return -EINVAL;
 			}
-			ret = security_regiser_is_locked(mtd->priv, sr_num);
+			ret = master->_security_regiser_is_locked(mtd->priv, sr_num);
 			break;
 		}
 	case SRLOCK:
@@ -868,7 +878,7 @@ static int mtdchar_ioctl(struct file *file, u_int cmd, u_long arg)
 				pr_err("nand_ioctl input arg err\n");
 				return -EINVAL;
 			}
-			ret = security_register_lock(mtd->priv, sr_num);
+			ret = master->_security_register_lock(mtd->priv, sr_num);
 			break;
 		}
 	case SRREAD:
@@ -883,7 +893,7 @@ static int mtdchar_ioctl(struct file *file, u_int cmd, u_long arg)
 				pr_err("sr_buf malloc fail!\n");
 				return -ENOMEM;
 			}
-			ret = security_regiser_read_data(mtd->priv,
+			ret = master->_security_regiser_read_data(mtd->priv,
 						sr_param.addr, sr_param.len, sr_buf);
 			if (copy_to_user(sr_param.buf, sr_buf, sr_param.len))
 				ret  = -EFAULT;
@@ -904,7 +914,7 @@ static int mtdchar_ioctl(struct file *file, u_int cmd, u_long arg)
 			}
 			if (copy_from_user(sr_buf, sr_param.buf, sr_param.len))
 				return -EFAULT;
-			ret = security_regiser_write_data(mtd->priv,
+			ret = master->_security_regiser_write_data(mtd->priv,
 						sr_param.addr, sr_param.len, sr_buf);
 			kfree(sr_buf);
 			break;
@@ -1016,6 +1026,73 @@ static int mtdchar_ioctl(struct file *file, u_int cmd, u_long arg)
 			}
 			kfree(erase);
 		}
+		break;
+	}
+
+	case MEMWRITE_4K:
+	{
+		unsigned char *buf, *cache_buf;
+		struct write4k_op_t write_4k;
+		size_t retlen;
+		struct erase_info *erase;
+		loff_t sect_start;
+		loff_t offset, size;
+		loff_t sect_size = 4096;
+
+		if (copy_from_user(&write_4k,
+				(struct write4k_op_t __user *)arg, sizeof(struct write4k_op_t))) {
+				pr_err("write4k input arg err\n");
+				return -EINVAL;
+		}
+
+		buf = kmalloc(write_4k.len, GFP_KERNEL);
+		if (buf == NULL) {
+			pr_err("write4k buf malloc err\n");
+			return -ENOMEM;
+		}
+
+		if (copy_from_user(buf, write_4k.buf, write_4k.len))
+				return -EFAULT;
+
+		cache_buf = kmalloc(sect_size, GFP_KERNEL);
+		if (cache_buf == NULL) {
+			pr_err("read cache buf malloc err\n");
+			return -ENOMEM;
+		}
+
+		erase = kmalloc(sizeof(struct erase_info), GFP_KERNEL);
+		if (erase == NULL) {
+			pr_err(" erase buf malloc err\n");
+			return -ENOMEM;
+		}
+
+		erase->mtd = mtd;
+		erase->callback = NULL;
+
+		while (write_4k.len > 0) {
+			sect_start = (write_4k.start/sect_size)*sect_size;
+			offset = write_4k.start - sect_start;
+			if (write_4k.len >= sect_size)
+				size = sect_size - offset;
+			else
+				size = write_4k.len;
+
+			memset(cache_buf, 0, sect_size);
+			mtd->_read(mtd, sect_start, sect_size, &retlen, cache_buf);
+			memcpy(cache_buf + offset, buf, size);
+			erase->addr = sect_start;
+			erase->len = sect_size;
+			mtd->_erase_4k(mtd, erase);
+			mtd->_write(mtd, sect_start, sect_size, &retlen, cache_buf);
+
+			write_4k.start += size;
+			write_4k.len -= size;
+			write_4k.buf += size;
+		}
+
+		kfree(erase);
+		kfree(buf);
+		kfree(cache_buf);
 		break;
 	}
 
@@ -1280,6 +1357,23 @@ static int mtdchar_ioctl(struct file *file, u_int cmd, u_long arg)
 		break;
 	}
 
+#ifdef CONFIG_MTD_SPI_NOR
+	case MTD_NOR_RDUID:
+	{
+		struct nor_uid rdid;
+		memset(rdid.uid_buf, '0', sizeof(rdid.uid_buf));
+		if (nor_master->type != MTD_NORFLASH) {
+			printk("no support read uid\n");
+			return -1;
+		}
+		ret = nor_master->_read_uid(nor_master, rdid.uid_buf);
+		if (ret < 0)
+			return -1;
+		if (copy_to_user(argp, &rdid, sizeof(rdid)))
+			return -EFAULT;
+		break;
+	}
+#endif
 	default:
 		ret = -ENOTTY;
 	}

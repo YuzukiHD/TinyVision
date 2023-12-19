@@ -23,6 +23,7 @@ obj-$(CONFIG_REGULATOR_AS3711) += as3711-regulator.o
 obj-$(CONFIG_REGULATOR_AS3722) += as3722-regulator.o
 obj-$(CONFIG_REGULATOR_AXP20X) += axp20x-regulator.o
 obj-$(CONFIG_REGULATOR_AXP2101) += axp2101-regulator.o
+obj-$(CONFIG_REGULATOR_PMU_EXT)  += pmu-ext-regulator.o
 obj-$(CONFIG_REGULATOR_SUNXI_PMC)	+= sunxi_pmc-regulator.o
 obj-$(CONFIG_REGULATOR_BCM590XX) += bcm590xx-regulator.o
 obj-$(CONFIG_REGULATOR_DA903X)	+= da903x.o

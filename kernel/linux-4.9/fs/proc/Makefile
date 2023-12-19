@@ -15,17 +15,15 @@ proc-y       += inode.o root.o base.o generic.o array.o \
 proc-$(CONFIG_TTY)      += proc_tty.o
 proc-y	+= cmdline.o
 proc-y	+= consoles.o
-proc-y	+= interrupts.o
-proc-y	+= meminfo.o
-proc-y	+= version.o
-ifneq ($(CONFIG_SUNXI_FASTBOOT),y)
 proc-y	+= cpuinfo.o
 proc-y	+= devices.o
+proc-y	+= interrupts.o
 proc-y	+= loadavg.o
+proc-y	+= meminfo.o
 proc-y	+= stat.o
 proc-y	+= uptime.o
+proc-y	+= version.o
 proc-y	+= softirqs.o
-endif
 proc-y	+= namespaces.o
 proc-y	+= self.o
 proc-y	+= thread_self.o

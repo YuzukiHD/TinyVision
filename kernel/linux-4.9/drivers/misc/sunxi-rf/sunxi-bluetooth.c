@@ -179,6 +179,7 @@ static int sunxi_bt_set_block(void *data, bool blocked)
 		dev_err(&pdev->dev, "set block failed\n");
 		return ret;
 	}
+	sunxi_wl_chipen_set(1, !blocked);
 
 	return 0;
 }

@@ -67,6 +67,7 @@ int xradio_queue_put(struct xradio_queue *queue, struct sk_buff *skb, u16 seq)
 			list_first_entry(&queue->free_pool, struct xradio_queue_item, head);
 
 		if (!item) {
+			txrx_printk(XRADIO_DBG_ERROR, "push queue,find first entry error\n");
 			ret = -ENOMEM; // TODO,check
 			goto end;
 		}
@@ -85,15 +86,14 @@ int xradio_queue_put(struct xradio_queue *queue, struct sk_buff *skb, u16 seq)
 
 		item->queue_index = queue->num_queued;
 
-		if (queue->num_queued + queue->num_pending >= queue->capacity) {
+		/*Stop enqueuing if the 80% watermark is reached*/
+		if (queue->num_queued + queue->num_pending >=
+				queue->capacity * 4 / 5) {
+			txrx_printk(XRADIO_DBG_MSG, "num_queued:%d,num_pending:%d, cap:%d\n",
+					queue->num_queued, queue->num_pending, queue->capacity);
 			xradio_k_spin_unlock_bh(&queue->lock);
 			return -ENOMEM;
 		}
-
-	} else {
-		txrx_printk(XRADIO_DBG_WARN, "xradio queue is full.\n");
-
-		xradio_queue_debug_info(queue);
 	}
 end:
 	xradio_k_spin_unlock_bh(&queue->lock);
@@ -112,6 +112,7 @@ struct sk_buff *xradio_queue_get(struct xradio_queue *queue)
 		item = list_first_entry(&queue->queue, struct xradio_queue_item, head);
 
 		if (!item) {
+			txrx_printk(XRADIO_DBG_ERROR, "pop queue,find fist entry error\n");
 			xradio_queue_debug_info(queue);
 			goto end;
 		}

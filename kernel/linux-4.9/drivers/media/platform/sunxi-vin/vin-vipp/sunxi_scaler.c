@@ -134,42 +134,25 @@ static void __scaler_calc_ratios(struct scaler_dev *scaler,
 	output->width = width;
 	output->height = height;
 #else
-	if (para->xratio == para->yratio) {
-		width = min(ALIGN(output->width * r_min / 256, 2), input->width);
-		height = min(ALIGN(output->height * r_min / 256, 2), input->height);
-		para->width = output->width;
-		para->height = output->height;
-
-		vin_log(VIN_LOG_SCALER, "para: xr = %d, yr = %d, w = %d, h = %d\n",
-			  para->xratio, para->yratio, para->width, para->height);
-		/* Center the new crop rectangle.
-		 * crop is before scaler
-		 */
-		input->left += (input->width - width) / 2;
-		input->top += (input->height - height) / 2;
-		input->left = ALIGN(input->left, 2);
-		input->top = ALIGN(input->top, 1);
-	} else {
-		width = ALIGN(output->width * r_min / 256, 4);
-		height = ALIGN(output->height * r_min / 256, 2);
-		para->xratio = 256 * width / output->width;
-		para->yratio = 256 * height / output->height;
-		para->xratio = clamp_t(u32, para->xratio, MIN_RATIO, MAX_RATIO);
-		para->yratio = clamp_t(u32, para->yratio, MIN_RATIO, MAX_RATIO);
-		para->width = output->width;
-		para->height = output->height;
-		vin_log(VIN_LOG_SCALER, "para: xr = %d, yr = %d, w = %d, h = %d\n",
-			  para->xratio, para->yratio, para->width, para->height);
-		/* Center the new crop rectangle.
-		 * crop is before scaler
-		 */
-		input->left += (input->width - width) / 2;
-		input->top += (input->height - height) / 2;
-		input->left = ALIGN(input->left, 4);
-		input->top = ALIGN(input->top, 2);
-		input->width = width;
-		input->height = height;
-	}
+	width = min(ALIGN(output->width * r_min / 256, 2), input->width);
+	height = min(ALIGN(output->height * r_min / 256, 2), input->height);
+	para->xratio = 256 * width / output->width;
+	para->yratio = 256 * height / output->height;
+	para->xratio = clamp_t(u32, para->xratio, MIN_RATIO, MAX_RATIO);
+	para->yratio = clamp_t(u32, para->yratio, MIN_RATIO, MAX_RATIO);
+	para->width = output->width;
+	para->height = output->height;
+	vin_log(VIN_LOG_SCALER, "para: xr = %d, yr = %d, w = %d, h = %d\n",
+		  para->xratio, para->yratio, para->width, para->height);
+	/* Center the new crop rectangle.
+	 * crop is before scaler
+	 */
+	input->left += (input->width - width) / 2;
+	input->top += (input->height - height) / 2;
+	input->left = ALIGN(input->left, 2);
+	input->top = ALIGN(input->top, 1);
+	input->width = width;
+	input->height = height;
 #endif
 	vin_log(VIN_LOG_SCALER, "crop: left = %d, top = %d, w = %d, h = %d\n",
 		input->left, input->top, input->width, input->height);
@@ -400,18 +383,20 @@ int sunxi_scaler_subdev_init(struct v4l2_subdev *sd, u32 val)
 		return 0;
 	vin_log(VIN_LOG_SCALER, "%s, val = %d.\n", __func__, val);
 	if (val) {
-		memset(scaler->vipp_reg.vir_addr, 0, scaler->vipp_reg.size);
+		if (!scaler->delay_para_ready) {
+			memset(scaler->vipp_reg.vir_addr, 0, scaler->vipp_reg.size);
 #if !defined VIPP_200
-		vipp_set_reg_load_addr(scaler->id, (unsigned long)scaler->vipp_reg.dma_addr);
+			vipp_set_reg_load_addr(scaler->id, (unsigned long)scaler->vipp_reg.dma_addr);
 #else
-		scaler->load_select = true;
-		vipp_set_reg_load_addr(scaler->id, (unsigned long)scaler->load_para[0].dma_addr);
+			scaler->load_select = true;
+			vipp_set_reg_load_addr(scaler->id, (unsigned long)scaler->load_para[0].dma_addr);
 #endif
-		vipp_set_osd_para_load_addr(scaler->id, (unsigned long)scaler->osd_para.dma_addr);
-		vipp_set_osd_stat_load_addr(scaler->id, (unsigned long)scaler->osd_stat.dma_addr);
-		vipp_set_osd_cv_update(scaler->id, NOT_UPDATED);
-		vipp_set_osd_ov_update(scaler->id, NOT_UPDATED);
-		vipp_set_para_ready(scaler->id, NOT_READY);
+			vipp_set_osd_para_load_addr(scaler->id, (unsigned long)scaler->osd_para.dma_addr);
+			vipp_set_osd_stat_load_addr(scaler->id, (unsigned long)scaler->osd_stat.dma_addr);
+			vipp_set_osd_cv_update(scaler->id, NOT_UPDATED);
+			vipp_set_osd_ov_update(scaler->id, NOT_UPDATED);
+			vipp_set_para_ready(scaler->id, NOT_READY);
+		}
 	}
 	return 0;
 }
@@ -511,6 +496,23 @@ static int sunxi_scaler_subdev_s_stream(struct v4l2_subdev *sd, int enable)
 	}
 
 	if (enable) {
+#if defined CONFIG_VIN_INIT_MELIS
+		if (scaler->delay_para_ready) {
+			memset(scaler->vipp_reg.vir_addr, 0, scaler->vipp_reg.size);
+#if !defined VIPP_200
+			vipp_set_reg_load_addr(scaler->id, (unsigned long)scaler->vipp_reg.dma_addr);
+#else
+			scaler->load_select = true;
+			vipp_set_reg_load_addr(scaler->id, (unsigned long)scaler->load_para[0].dma_addr);
+#endif
+			vipp_set_osd_para_load_addr(scaler->id, (unsigned long)scaler->osd_para.dma_addr);
+			vipp_set_osd_stat_load_addr(scaler->id, (unsigned long)scaler->osd_stat.dma_addr);
+			vipp_set_osd_cv_update(scaler->id, NOT_UPDATED);
+			vipp_set_osd_ov_update(scaler->id, NOT_UPDATED);
+			vipp_set_para_ready(scaler->id, NOT_READY);
+			scaler->delay_para_ready = 0;
+		}
+#endif
 		if (sunxi_scaler_logic_s_stream(scaler->id, enable))
 			return -1;
 
@@ -678,6 +680,7 @@ static int scaler_resource_alloc(struct scaler_dev *scaler)
 	scaler->load_para[0].vir_addr = scaler->vipp_reg.vir_addr + VIPP_REG_SIZE;
 	scaler->load_para[1].dma_addr = scaler->vipp_reg.dma_addr + VIPP_REG_SIZE * 2;
 	scaler->load_para[1].vir_addr = scaler->vipp_reg.vir_addr + VIPP_REG_SIZE * 2;
+	memset(scaler->vipp_reg.vir_addr, 0, scaler->vipp_reg.size);
 #endif
 	return 0;
 }
@@ -840,13 +843,14 @@ static irqreturn_t scaler_isr(int irq, void *priv)
 #endif
 
 #if defined CONFIG_VIN_INIT_MELIS
-extern void sunxi_enable_device_iommu(unsigned int master_id, bool flag);
 static int scaler_irq_enable(void *dev, void *data, int len)
 {
 	struct scaler_dev *scaler = dev;
 	int ret;
 
-	sunxi_enable_device_iommu(1, true);
+#if defined CONFIG_ARCH_SUN8IW21P1
+	vin_iommu_en(CSI_IOMMU_MASTER, true);
+#endif
 	ret = request_irq(scaler->irq, scaler_isr, IRQF_SHARED, scaler->pdev->name, scaler);
 	if (ret) {
 		vin_err("isp%d request irq failed\n", scaler->id);
@@ -926,6 +930,13 @@ static int scaler_probe(struct platform_device *pdev)
 		scaler->is_irq_empty = 1;
 		if (scaler->id == vipp_virtual_find_logic[scaler->id])
 			vin_err("failed to get vipp%d IRQ resource\n", scaler->id);
+		else {
+#if !defined CONFIG_VIN_INIT_MELIS
+			scaler->delay_para_ready = 0;
+#else
+			scaler->delay_para_ready = 1;
+#endif
+		}
 	} else {
 #if !defined CONFIG_VIN_INIT_MELIS
 		ret = request_irq(scaler->irq, scaler_isr, IRQF_SHARED, scaler->pdev->name, scaler);
@@ -934,6 +945,10 @@ static int scaler_probe(struct platform_device *pdev)
 			ret = -EINVAL;
 			goto unmap;
 		}
+#if defined CONFIG_ARCH_SUN8IW21P1
+		vin_iommu_en(CSI_IOMMU_MASTER, true);
+#endif
+		scaler->delay_para_ready = 0;
 #else
 		of_property_read_u32(np, "delay_init", &scaler->delay_init);
 		if (scaler->delay_init == 0) {
@@ -947,6 +962,7 @@ static int scaler_probe(struct platform_device *pdev)
 			sprintf(name, "scaler%d", scaler->id);
 			rpmsg_notify_add("e907_rproc@0", name, scaler_irq_enable, scaler);
 		}
+		scaler->delay_para_ready = 1;
 #endif
 	}
 #endif
@@ -978,7 +994,7 @@ unmap:
 freedev:
 	kfree(scaler);
 ekzalloc:
-	vin_err("scaler%d probe err!\n", scaler->id);
+	vin_err("scaler probe err!\n");
 	return ret;
 }
 

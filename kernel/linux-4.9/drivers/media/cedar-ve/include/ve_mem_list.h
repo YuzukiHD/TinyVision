@@ -58,6 +58,9 @@ static inline void __aw_list_add(struct aw_mem_list_head *newList,
 	  struct aw_mem_list_head *aw_prev,
 	  struct aw_mem_list_head *aw_next)
 {
+	if (newList == NULL || aw_prev == NULL || aw_next == NULL) {
+		printk("error! null poiter, newList %p aw_prev %p aw_next %p\n", newList, aw_prev, aw_next);
+	}
 	aw_next->aw_prev = newList;
 	newList->aw_next = aw_next;
 	newList->aw_prev = aw_prev;

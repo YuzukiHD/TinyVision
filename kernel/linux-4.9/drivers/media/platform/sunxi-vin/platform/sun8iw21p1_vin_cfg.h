@@ -35,6 +35,9 @@
 #define GPIO_REGS_VBASE				0x02000000
 #define SYSCFG_REGS_VBASE			0x03000000
 
+#define CSI_IOMMU_MASTER 1
+#define ISP_IOMMU_MASTER 4
+
 #define VIN_MAX_DEV			16
 #define VIN_MAX_CSI			3
 #define VIN_MAX_CCI			3

@@ -493,12 +493,13 @@ void cmb_phy_init(struct mipi_dev *mipi)
 	cmb_s2p_ctl(mipi->id + mipi->phy_offset, mipi->time_hs, mipi->cmb_csi_cfg.phy_lane_cfg);
 	cmb_mipirx_ctl(mipi->id + mipi->phy_offset, mipi->cmb_csi_cfg.phy_lane_cfg);
 	cmb_phy0_en(mipi->id + mipi->phy_offset, 1);
-	cmb_phy_deskew1_cfg(mipi->id + mipi->phy_offset);
+	cmb_phy_deskew1_cfg(mipi->id + mipi->phy_offset, mipi->deskew, mipi->cmb_mode == MIPI_VC_WDR_MODE ? true : false);
 }
 
 static void combo_csi_mipi_init(struct v4l2_subdev *sd)
 {
 	struct mipi_dev *mipi = v4l2_get_subdevdata(sd);
+	struct v4l2_mbus_framefmt *mf = &mipi->format;
 	int i;
 
 	mipi->cmb_csi_cfg.phy_lane_cfg.phy_laneck_en = CK_1LANE;
@@ -522,9 +523,12 @@ static void combo_csi_mipi_init(struct v4l2_subdev *sd)
 
 	for (i = 0; i < mipi->cmb_csi_cfg.lane_num; i++)
 		mipi->cmb_csi_cfg.mipi_lane[i] = cmb_port_set_lane_map(mipi->id, i);
+
 	for (i = 0; i < mipi->cmb_csi_cfg.total_rx_ch; i++) {
 		mipi->cmb_csi_cfg.mipi_datatype[i] = get_pkt_fmt(mipi->format.code);
 		mipi->cmb_csi_cfg.vc[i] = i;
+		mipi->cmb_csi_cfg.field[i] = mf->field;
+		cmb_port_mipi_ch_trigger_en(mipi->id, i, 1);
 	}
 
 	cmb_port_lane_num(mipi->id, mipi->cmb_csi_cfg.lane_num);
@@ -536,7 +540,7 @@ static void combo_csi_mipi_init(struct v4l2_subdev *sd)
 	cmb_port_lane_map(mipi->id, mipi->cmb_csi_cfg.mipi_lane);
 	cmb_port_mipi_cfg(mipi->id, mipi->cmb_fmt->yuv_seq);
 	cmb_port_set_mipi_datatype(mipi->id, &mipi->cmb_csi_cfg);
-	cmb_port_mipi_ch_trigger_en(mipi->id, 1);
+	cmb_port_mipi_set_field(mipi->id, mipi->cmb_csi_cfg.total_rx_ch, &mipi->cmb_csi_cfg);
 	if (mipi->cmb_mode == MIPI_DOL_WDR_MODE)
 		cmb_port_set_mipi_wdr(mipi->id, 0, 2);
 	cmb_port_enable(mipi->id);
@@ -597,6 +601,8 @@ static int sunxi_mipi_subdev_s_stream(struct v4l2_subdev *sd, int enable)
 		mipi->time_hs = 0x28;
 #endif
 	}
+	if (res->res_deskew)
+		mipi->deskew = res->res_deskew;
 
 #if defined CONFIG_ARCH_SUN8IW21P1
 	__mcsi_pin_config(mipi, enable);

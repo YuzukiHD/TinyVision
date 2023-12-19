@@ -16,8 +16,15 @@ config VIDEO_KERNEL_DEC_SUNXI
      Choose Y to enable sunxi video dec kernel module
 
 config VIDEO_KERNEL_ENC_SUNXI
-	depends on (VIDEO_ENCODER_DECODER_SUNXI)
+	depends on (VIDEO_ENCODER_DECODER_SUNXI && VIDEO_RT_MEDIA)
 	bool "sunxi video enc kernel module"
 	default n
 	---help---
      Choose Y to enable rotate video enc kernel module
+
+config VE_SUPPORT_RPM
+	depends on (VIDEO_ENCODER_DECODER_SUNXI)
+	bool "ppu of ve should power down when suspend."
+	default n
+	---help---
+     Choose Y to support ppu of ve should power down when suspend.

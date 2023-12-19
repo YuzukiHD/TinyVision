@@ -14,6 +14,7 @@
 #define to_kb(size) (size / KB)
 #define to_mb(size) (size / MB)
 
+
 /* manufacture num */
 #define MICRON_MANUFACTURE	0x2c
 #define GD_MANUFACTURE		0xc8
@@ -27,6 +28,7 @@
 #define FORESEE_MANUFACTURE	0xcd
 #define ZETTA_MANUFACTURE	0xba
 #define FM_MANUFACTURE		0xa1
+#define SKYHIGH_MANUFACTURE	0x01
 
 struct spinand_manufacture m;
 
@@ -153,7 +155,8 @@ struct aw_spinand_phy_info micron[] = {
 		.BlkCntPerDie	= 2048,
 		.OobSizePerPage = 64,
 		.OperationOpt	= SPINAND_QUAD_READ | SPINAND_QUAD_PROGRAM |
-			SPINAND_DUAL_READ | SPINAND_QUAD_NO_NEED_ENABLE,
+			SPINAND_DUAL_READ | SPINAND_QUAD_NO_NEED_ENABLE |
+			SPINAND_TWO_PLANE_SELECT,
 		.MaxEraseTimes  = 65000,
 		.EccType	= BIT3_LIMIT5_ERR2,
 		.EccProtectedType = SIZE16_OFF32_LEN16,
@@ -249,6 +252,21 @@ struct aw_spinand_phy_info fm[] = {
 		.EccProtectedType = SIZE16_OFF0_LEN16,
 		.BadBlockFlag = BAD_BLK_FLAG_FIRST_2_PAGE,
 	},
+	{
+		.Model		= "FM25S01A",
+		.NandID		= {0xa1, 0xe4, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff},
+		.DieCntPerChip  = 1,
+		.SectCntPerPage = 4,
+		.PageCntPerBlk  = 64,
+		.BlkCntPerDie	= 1024,
+		.OobSizePerPage = 64,
+		.OperationOpt	= SPINAND_QUAD_READ | SPINAND_QUAD_PROGRAM |
+			SPINAND_DUAL_READ,
+		.MaxEraseTimes  = 65000,
+		.EccType	= BIT2_LIMIT1_ERR2,
+		.EccProtectedType = SIZE16_OFF0_LEN16,
+		.BadBlockFlag = BAD_BLK_FLAG_FIRST_2_PAGE,
+	},
 };
 
 struct aw_spinand_phy_info etron[] = {
@@ -320,6 +338,36 @@ struct aw_spinand_phy_info winbond[] = {
 		.EccProtectedType = SIZE16_OFF4_LEN4_OFF8,
 		.BadBlockFlag = BAD_BLK_FLAG_FRIST_1_PAGE,
 	},
+	{
+		.Model		= "W25N02KV",
+		.NandID		= {0xef, 0xaa, 0x22, 0xff, 0xff, 0xff, 0xff, 0xff},
+		.DieCntPerChip  = 1,
+		.SectCntPerPage = 4,
+		.PageCntPerBlk  = 64,
+		.BlkCntPerDie	= 2048,
+		.OobSizePerPage = 64,
+		.OperationOpt	= SPINAND_QUAD_READ | SPINAND_QUAD_PROGRAM |
+			SPINAND_DUAL_READ,
+		.MaxEraseTimes  = 65000,
+		.EccType	= BIT2_ERR2_LIMIT3,
+		.EccProtectedType = SIZE16_OFF4_LEN12,
+		.BadBlockFlag = BAD_BLK_FLAG_FRIST_1_PAGE,
+	},
+	{
+		.Model		= "W25M02GV",
+		.NandID 	= {0xef, 0xab, 0x21, 0xff, 0xff, 0xff, 0xff, 0xff},
+		.DieCntPerChip	= 1,
+		.SectCntPerPage = 4,
+		.PageCntPerBlk	= 64,
+		.BlkCntPerDie	= 1024,
+		.OobSizePerPage = 64,
+		.OperationOpt	= SPINAND_QUAD_READ | SPINAND_DUAL_READ |
+			SPINAND_QUAD_PROGRAM,
+		.MaxEraseTimes	= 65000,
+		.EccType	= BIT2_LIMIT1_ERR2,
+		.EccProtectedType = SIZE16_OFF4_LEN12,
+		.BadBlockFlag	= BAD_BLK_FLAG_FRIST_1_PAGE,
+	},
 };
 
 struct aw_spinand_phy_info dosilicon[] = {
@@ -370,7 +418,23 @@ struct aw_spinand_phy_info foresee[] = {
 		.EccType	= BIT2_LIMIT1_ERR2,
 		.EccProtectedType = SIZE16_OFF0_LEN16,
 		.BadBlockFlag = BAD_BLK_FLAG_FRIST_1_PAGE,
-	}
+	},
+	{
+		.Model		= "FS35SQA001G",
+		.NandID		= {0xcd, 0x71, 0x71, 0xff, 0xff, 0xff, 0xff, 0xff},
+		.DieCntPerChip  = 1,
+		.SectCntPerPage = 4,
+		.PageCntPerBlk  = 64,
+		.BlkCntPerDie	= 1024,
+		.OobSizePerPage = 64,
+		.OperationOpt	= SPINAND_QUAD_READ | SPINAND_QUAD_PROGRAM |
+			SPINAND_DUAL_READ,
+		.MaxEraseTimes  = 50000,
+		.EccType	= BIT2_LIMIT1_ERR2_TO_ERR3,
+		.EccProtectedType = SIZE16_OFF0_LEN16,
+		.BadBlockFlag = BAD_BLK_FLAG_FRIST_1_PAGE,
+	},
+
 };
 
 struct aw_spinand_phy_info zetta[] = {
@@ -390,6 +454,25 @@ struct aw_spinand_phy_info zetta[] = {
 		.BadBlockFlag = BAD_BLK_FLAG_FIRST_2_PAGE,
 	},
 };
+
+struct aw_spinand_phy_info skyhigh[] = {
+	{
+		.Model		= "S35ML02G3",
+		.NandID		= {0x01, 0x25, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff},
+		.DieCntPerChip  = 1,
+		.SectCntPerPage = 4,
+		.PageCntPerBlk  = 64,
+		.BlkCntPerDie	= 2048,
+		.OobSizePerPage = 128,
+		.OperationOpt	= SPINAND_QUAD_READ | SPINAND_QUAD_PROGRAM |
+			SPINAND_DUAL_READ,
+		.MaxEraseTimes  = 80000,
+		.EccType	= BIT2_LIMIT2_ERR3,
+		.EccProtectedType = SIZE16_OFF0_LEN16,
+		.BadBlockFlag = BAD_BLK_FLAG_FIRST_2_PAGE,
+	},
+};
+
 
 static const char *aw_spinand_info_model(struct aw_spinand_chip *chip)
 {
@@ -516,6 +599,7 @@ static struct spinand_manufacture spinand_factory[] = {
 	SPINAND_FACTORY_INFO(DSTECH_MANUFACTURE, "Dosilicon", dosilicon),
 	SPINAND_FACTORY_INFO(FORESEE_MANUFACTURE, "Foresee", foresee),
 	SPINAND_FACTORY_INFO(ZETTA_MANUFACTURE, "Zetta", zetta),
+	SPINAND_FACTORY_INFO(SKYHIGH_MANUFACTURE, "SkyHigh", skyhigh),
 	SPINAND_FACTORY_INFO(FM_MANUFACTURE, "FM", fm),
 };
 
@@ -557,6 +641,9 @@ static int spinand_get_chip_munufacture(struct aw_spinand_chip *chip, const char
 	break;
 	case ZETTA_MANUFACTURE:
 		*m = "Zetta";
+	break;
+	case SKYHIGH_MANUFACTURE:
+		*m = "SkyHigh";
 	break;
 	default:
 		*m = NULL;

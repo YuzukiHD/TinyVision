@@ -501,6 +501,10 @@ static int sunxi_ohci_hcd_remove(struct platform_device *pdev)
 	if (ohci_enable[sunxi_ohci->usbc_no] == 0)
 		device_remove_file(&pdev->dev, &dev_attr_ohci_enable);
 
+	if (sunxi_ohci->wakeup_source_flag && sunxi_ohci->wakeup_suspend) {
+		dev_pm_clear_wake_irq(&pdev->dev);
+	}
+
 	if (sunxi_ohci->probe == 1) {
 		ret = sunxi_rmmod_ohci(pdev);
 		if (ret == 0)

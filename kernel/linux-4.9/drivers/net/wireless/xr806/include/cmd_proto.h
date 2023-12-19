@@ -22,6 +22,10 @@ struct cmd_para_hand_way {
 	u8 id;
 };
 
+struct cmd_para_keep_alive {
+	u8 data;
+};
+
 /*XR_WIFI_HOST_DATA_TEST */
 struct cmd_para_data_test {
 	u16 len;
@@ -45,12 +49,16 @@ struct cmd_para_data_test_res {
 /* opcode */
 enum cmd_host_opcode {
 	XR_WIFI_HOST_HAND_WAY = 0,
+	XR_WIFI_HOST_KEEP_AVLIE,
 	XR_WIFI_HOST_DATA_TEST,
 	XR_WIFI_HOST_KERNEL_MAX,
 };
 
 enum cmd_dev_opcode {
 	XR_WIFI_DEV_HAND_WAY_RES = 0,
+	XR_WIFI_DEV_RX_PAUSE,
+	XR_WIFI_DEV_RX_RESUME,
+	XR_WIFI_DEV_KEEP_AVLIE,
 	XR_WIFI_DEV_DATA_TEST_RES,
 	XR_WIFI_DEV_KERNEL_MAX,
 };

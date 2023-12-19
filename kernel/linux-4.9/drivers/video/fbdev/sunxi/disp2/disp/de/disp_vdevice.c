@@ -88,6 +88,10 @@ static s32 vdevice_clk_config(struct disp_device *vdevice)
 	memset(&clk_info, 0, sizeof(struct lcd_clk_info));
 	para = kmalloc(sizeof(struct disp_panel_para),
 			GFP_KERNEL | __GFP_ZERO);
+	if (para == NULL) {
+		DE_WRN("malloc memory fail!\n");
+		return DIS_FAIL;
+	}
 	dclk_rate =
 	    vdevicep->video_info->pixel_clk *
 	    (vdevicep->video_info->pixel_repeat + 1);

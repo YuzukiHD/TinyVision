@@ -252,6 +252,17 @@ struct tdm_speeddn_cfg {
 	unsigned char tdm_tx_invalid_num;
 };
 
+struct isp_memremap_cfg {
+	unsigned char en;
+	void *vir_addr;
+	unsigned int size;
+};
+
+struct bk_buffer_align {
+	unsigned char lbc_align_en;
+	unsigned char yuv_align_en;
+};
+
 #define VIDIOC_ISP_AE_STAT_REQ \
 	_IOWR('V', BASE_VIDIOC_PRIVATE + 1, struct isp_stat_buf)
 #define VIDIOC_ISP_HIST_STAT_REQ \
@@ -286,7 +297,16 @@ struct tdm_speeddn_cfg {
 	_IOWR('V', BASE_VIDIOC_PRIVATE + 17, struct vipp_shrink_cfg)
 #define VIDIOC_SET_TDM_SPEEDDN_CFG \
 	_IOWR('V', BASE_VIDIOC_PRIVATE + 18, struct tdm_speeddn_cfg)
-
+#define VIDIOC_SET_TDM_DEPTH \
+	_IOWR('V', BASE_VIDIOC_PRIVATE + 21, unsigned int)
+#define VIDIOC_SET_PHY2VIR \
+	_IOWR('V', BASE_VIDIOC_PRIVATE + 23, struct isp_memremap_cfg)
+#define VIDIOC_SET_D3DLBCRATIO \
+	_IOWR('V', BASE_VIDIOC_PRIVATE + 24, unsigned int)
+#define VIDIOC_SET_BKBUFFER_ALIGN \
+	_IOWR('V', BASE_VIDIOC_PRIVATE + 25, struct bk_buffer_align)
+#define VIDIOC_SET_BK_SET_WSTRIDE \
+	_IOWR('V', BASE_VIDIOC_PRIVATE + 26, unsigned char)
 /*
  * Events
  *

@@ -53,6 +53,12 @@
 #define TWI_DRIVER_SENDF	(0x300)
 #define TWI_DRIVER_RECVF	(0x304)
 
+/* 0:normal; 1:reset */
+#define SOFT_RESET		(0x1 << 1)
+/* I2C_SRST */
+/* write 1 to clear 0, when complete soft reset clear 0 */
+#define I2C_SOFT_RST		(0x1 << 0)
+
 /* TWI address register */
 /* general call address enable for slave mode */
 #define TWI_GCE_EN		(0x1<<0)
@@ -261,7 +267,8 @@
 #define TWI_DRV_CLK_DUTY	(0x01<<16)
 #define TWI_DRV_CLK_M		(0x0f<<8)
 #define TWI_DRV_CLK_N		(0x07<<12)
-
+/* SDA current status */
+#define SDA_STA		(0x01 << 6)
 
 /*
  * Offset:0x0214.
@@ -326,6 +333,7 @@
 /* GPIO mode select */
 #define IO_3V3		0
 #define IO_1V8		1
+#define LOOP_TIMEOUT	1024
 
 struct sunxi_i2c_platform_data {
 	int		bus_num;

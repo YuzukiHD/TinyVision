@@ -147,7 +147,7 @@ int rpmsg_notify_del(const char *ser_name, const char *name)
 		if (strncmp(pos->name, name, RPMSG_NOTIFY_NAME_MAX))
 			continue;
 
-		list_del(&pos->list);
+		list_del_init(&pos->list);
 		kfree(pos);
 		spin_unlock(&ser->list_lock);
 
@@ -164,7 +164,7 @@ no_ser:
 			continue;
 
 		spin_lock(&g_spin_lock);
-		list_del(&pos->list);
+		list_del_init(&pos->list);
 		spin_unlock(&g_spin_lock);
 		kfree(pos);
 
@@ -213,10 +213,12 @@ static void rpmsg_notify_work_func(struct work_struct *work)
 
 	pr_debug("rpmsg_notify : cancel %s wait.\n", name);
 
-	cancel_delayed_work(&wait->work);
-	spin_lock(&g_spin_lock);
-	list_del(&wait->list);
-	spin_unlock(&g_spin_lock);
+	/* maybe this work has been removed by rpmsg_notify_remove */
+	if (!list_empty(&wait->list)) {
+		spin_lock(&g_spin_lock);
+		list_del_init(&wait->list);
+		spin_unlock(&g_spin_lock);
+	}
 	kfree(wait);
 }
 
@@ -232,7 +234,7 @@ static void rpmsg_notify_add_wait(char *ser_name, void *data, int len, int timeo
 
 	wait->ser_name = ser_name;
 	wait->len = len;
-	wait->timeout = jiffies_to_msecs(timeout);
+	wait->timeout = msecs_to_jiffies(timeout);
 	memcpy(wait->data, data, len);
 	INIT_DELAYED_WORK(&wait->work, rpmsg_notify_work_func);
 
@@ -249,6 +251,7 @@ static void rpmsg_notify_check_wait(struct rpmsg_notify_entry *notify)
 	int len = 0;
 	struct rpmsg_notify_wait *pos, *tmp;
 
+	spin_lock(&g_spin_lock);
 	list_for_each_entry_safe(pos, tmp, &g_wait_list, list) {
 
 		name = pos->data;
@@ -266,15 +269,16 @@ static void rpmsg_notify_check_wait(struct rpmsg_notify_entry *notify)
 		if (strncmp(notify->name, name, RPMSG_NOTIFY_NAME_MAX))
 			continue;
 
-		cancel_delayed_work(&pos->work);
-		dev_dbg(notify->dev, "Calling %s cb.\n", notify->name);
-		notify->callback(notify->dev, buf, len);
+		/* it will be free by rpmsg_notify_work_func */
+		list_del_init(&pos->list);
 
-		spin_lock(&g_spin_lock);
-		list_del(&pos->list);
+		dev_dbg(notify->dev, "Calling %s cb.\n", notify->name);
 		spin_unlock(&g_spin_lock);
-		kfree(pos);
+		notify->callback(notify->dev, buf, len);
+		spin_lock(&g_spin_lock);
+
 	}
+	spin_unlock(&g_spin_lock);
 }
 
 static int rpmsg_notify_thread(void *data)
@@ -295,7 +299,8 @@ static int rpmsg_notify_thread(void *data)
 		if (skb_queue_empty(&ser->queue)) {
 			if (wait_event_interruptible(ser->rq,
 							!skb_queue_empty(&ser->queue) ||
-							!ser->rpdev->ept))
+							!ser->rpdev->ept ||
+							kthread_should_stop()))
 				break;
 
 			if (!ser->rpdev->ept) {
@@ -392,7 +397,7 @@ static int rpmsg_notify_probe(struct rpmsg_device *rpdev)
 		if (strncmp(pos->ser, service->name, RPMSG_NOTIFY_NAME_MAX))
 			continue;
 		spin_lock(&g_spin_lock);
-		list_del(&pos->list);
+		list_del_init(&pos->list);
 		spin_unlock(&g_spin_lock);
 		list_add(&pos->list, &service->notify);
 		dev_dbg(service->dev, "move srm: %s.\n", pos->name);
@@ -420,12 +425,12 @@ static void rpmsg_notify_remove(struct rpmsg_device *rpdev)
 
 	kthread_stop(ser->daemon);
 	spin_lock(&g_spin_lock);
-	list_del(&ser->list);
+	list_del_init(&ser->list);
 	spin_unlock(&g_spin_lock);
 
 	spin_lock(&ser->list_lock);
 	list_for_each_entry_safe(pos, tmp, &ser->notify, list) {
-		list_del(&pos->list);
+		list_del_init(&pos->list);
 		kfree(pos);
 	}
 	spin_unlock(&ser->list_lock);
@@ -436,17 +441,17 @@ static void rpmsg_notify_remove(struct rpmsg_device *rpdev)
 
 	list_for_each_entry_safe(pos, tmp, &g_device_list, list) {
 		spin_lock(&g_spin_lock);
-		list_del(&pos->list);
+		list_del_init(&pos->list);
 		spin_unlock(&g_spin_lock);
 		kfree(pos);
 	}
 
+	spin_lock(&g_spin_lock);
 	list_for_each_entry_safe(wpos, wtmp, &g_wait_list, list) {
-		spin_lock(&g_spin_lock);
-		list_del(&wpos->list);
-		spin_unlock(&g_spin_lock);
-		kfree(wpos);
+		list_del_init(&wpos->list);
+		/* it will be free by rpmsg_notify_work_func */
 	}
+	spin_unlock(&g_spin_lock);
 }
 
 static struct rpmsg_device_id rpmsg_driver_srm_id_table[] = {

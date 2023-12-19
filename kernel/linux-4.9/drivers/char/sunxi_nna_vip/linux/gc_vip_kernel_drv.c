@@ -501,7 +501,7 @@ static int drv_mmap(struct file *file, struct vm_area_struct *vma)
 #else
     vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
 #endif
-    vma->vm_flags |= (VM_IO | VM_DONTCOPY | VM_DONTEXPAND | VM_DONTDUMP);
+    vma->vm_flags |= (VM_IO | VM_DONTCOPY | VM_DONTEXPAND | VM_DONTDUMP | VM_MIXEDMAP);
 #if 0
     /* map kernel memory to user space.. */
     if (remap_pfn_range(vma, vma->vm_start, device->cpu_physical >> PAGE_SHIFT,
@@ -510,11 +510,16 @@ static int drv_mmap(struct file *file, struct vm_area_struct *vma)
         return -1;
     }
 #else
+    if (dma_mmap_attrs(kdriver->device, vma, device->vip_ion_mm.vir_addr, (vip_uint32_t)device->vip_ion_mm.phy_addr, device->vip_ion_mm.size, 0)) {
+	PRINTK_E("vipcore, dma_mmap_attrs failed\n");
+	return -1;
+    }
+    /*
     if (aw_vip_mmap(&device->vip_ion_mm, vma, 0)) {
         PRINTK_E("vipcore, aw_vip_mmap failed\n");
         return -1;
     }
-
+    */
 #endif
     PRINTK_D("vipcore, remap pfn range to user space\n");
 
@@ -1153,7 +1158,7 @@ static void drv_exit(void)
     gckvip_debug_destroy_fs();
 #endif
 
-#if vpmdENABLE_VIDEO_MEMORY_HEAP
+#if 0 //vpmdENABLE_VIDEO_MEMORY_HEAP
     drv_unprepare_video_memory(kdriver);
 #endif
 

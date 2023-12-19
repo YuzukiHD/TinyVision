@@ -66,6 +66,10 @@ struct dentry *vi_debugfs_root, *vi_node;
 size_t vi_status_size[VIN_MAX_DEV];
 size_t vi_status_size_sum;
 
+struct dentry *isp_debugfs_root, *isp_node;
+size_t isp_status_size[VIN_MAX_DEV];
+size_t isp_status_size_sum;
+
 uint ptn_frame_cnt;
 
 #define DEVICE_ATTR_SHOW(name) \
@@ -893,6 +897,325 @@ static const struct file_operations vin_debugfs_fops = {
 	.release = vin_debugfs_release,
 };
 
+#if defined CONFIG_ISP_SERVER_MELIS
+static size_t isp_melis_status_dump(struct isp_dev *isp, struct vin_core *vinc, char *buf, size_t size)
+{
+	struct vin_md *vind = dev_get_drvdata(vinc->v4l2_dev->dev);
+	size_t count = 0;
+	char isp_mode[10] = {'\0'};
+	char isp_colorspace[15] = {'\0'};
+
+	switch (vinc->vid_cap.isp_wdr_mode) {
+	case ISP_NORMAL_MODE:
+		sprintf(isp_mode, "%s", "NORMAL");
+		break;
+	case ISP_DOL_WDR_MODE:
+		sprintf(isp_mode, "%s", "DOL_WDR");
+		break;
+	case ISP_COMANDING_MODE:
+		sprintf(isp_mode, "%s", "CMD_WDR");
+		break;
+	case ISP_SEHDR_MODE:
+		sprintf(isp_mode, "%s", "SEHDR");
+		break;
+	default:
+		sprintf(isp_mode, "%s", "NULL");
+		break;
+	}
+
+	switch (vinc->vid_cap.frame.fmt.color) {
+	case V4L2_COLORSPACE_DEFAULT:
+		sprintf(isp_colorspace, "%s", "DEFAULT");
+		break;
+	case V4L2_COLORSPACE_SMPTE170M:
+		sprintf(isp_colorspace, "%s", "SMPTE170M");
+		break;
+	case V4L2_COLORSPACE_SMPTE240M:
+		sprintf(isp_colorspace, "%s", "SMPTE240M");
+		break;
+	case V4L2_COLORSPACE_REC709:
+		sprintf(isp_colorspace, "%s", "REC709_FULL");
+		break;
+	case V4L2_COLORSPACE_BT878:
+		sprintf(isp_colorspace, "%s", "BT878");
+		break;
+	case V4L2_COLORSPACE_470_SYSTEM_M:
+		sprintf(isp_colorspace, "%s", "470_SYSTEM_M");
+		break;
+	case V4L2_COLORSPACE_470_SYSTEM_BG:
+		sprintf(isp_colorspace, "%s", "470_SYSTEM_BG");
+		break;
+	case V4L2_COLORSPACE_JPEG:
+		sprintf(isp_colorspace, "%s", "JPEG");
+		break;
+	case V4L2_COLORSPACE_SRGB:
+		sprintf(isp_colorspace, "%s", "SRGB");
+		break;
+	case V4L2_COLORSPACE_ADOBERGB:
+		sprintf(isp_colorspace, "%s", "ADOBERGB");
+		break;
+	case V4L2_COLORSPACE_BT2020:
+		sprintf(isp_colorspace, "%s", "BT2020");
+		break;
+	case V4L2_COLORSPACE_RAW:
+		sprintf(isp_colorspace, "%s", "RAW");
+		break;
+	case V4L2_COLORSPACE_DCI_P3:
+		sprintf(isp_colorspace, "%s", "DCI_P3");
+		break;
+	default:
+		sprintf(isp_colorspace, "%s", "REC709_PART");
+		break;
+	}
+
+		count += scnprintf(buf + count, size - count, "*****************************************************\n");
+		count += scnprintf(buf + count, size - count, "VIN hardware feature list:\n"
+				"CSI_VERSION: CSI%x_%x, ISP_VERSION: ISP%x_%x\n"
+				"CSI_CLK: %ld, ISP_CLK: %ld\n"
+				"vipp%d, isp_dode: %s\n",
+				vind->csic_ver.ver_big,	vind->csic_ver.ver_small, vind->isp_ver_major, vind->isp_ver_minor,
+				clk_get_rate(vind->clk[VIN_TOP_CLK].clock),
+				clk_get_rate(vind->isp_clk[VIN_ISP_CLK].clock), vinc->vipp_sel, isp_mode);
+		count += scnprintf(buf + count, size - count, "*****************************************************\n");
+
+		count += scnprintf(buf + count, size - count, "ISP%d debug param list:\n"
+				"===> exp: %d, gain: %d, lum_idx: %d, coms_temp: %d\n"
+				"===> color_temp: %d, rgain: %d, bgain: %d\n"
+				"===> contrast: %d, sharp: %d, bright: %d\n"
+				"===> satur: %d, tdnf: %d, bdnf: %d, pltm: %d\n",
+				vinc->isp_sel,
+				isp->isp_info_node.exp_val,
+				isp->isp_info_node.gain_val,
+				isp->isp_info_node.lum_idx,
+				vinc->vin_status.isp_debug_param_info.sensor_temper,
+				isp->isp_info_node.awb_color_temp,
+				isp->isp_info_node.awb_rgain,
+				isp->isp_info_node.awb_bgain,
+				isp->isp_info_node.contrast_level,
+				isp->isp_info_node.sharpness_level,
+				isp->isp_info_node.brightness_level,
+				isp->isp_info_node.saturation_level,
+				isp->isp_info_node.tdf_level,
+				isp->isp_info_node.denoise_level,
+				isp->isp_info_node.pltmwdr_level);
+		count += scnprintf(buf + count, size - count, "*****************************************************\n");
+		count += scnprintf(buf + count, size - count, "[ISP Colorspace]\n====> %s\n"
+				"[ISP Cfg Version Name]\n====> %s\n"
+				"[ISP Libs Commit Version]\n====> commit: %s\n",
+				isp_colorspace, isp->isp_info_node.isp_cfg_version,
+				isp->isp_info_node.libs_version);
+		count += scnprintf(buf + count, size - count, "*****************************************************\n");
+
+	return count;
+}
+#else
+static size_t isp_status_dump(struct vin_core *vinc, char *buf, size_t size)
+{
+	struct vin_md *vind = dev_get_drvdata(vinc->v4l2_dev->dev);
+	size_t count = 0;
+	char isp_mode[10] = {'\0'};
+	char isp_colorspace[15] = {'\0'};
+
+	switch (vinc->vid_cap.isp_wdr_mode) {
+	case ISP_NORMAL_MODE:
+		sprintf(isp_mode, "%s", "NORMAL");
+		break;
+	case ISP_DOL_WDR_MODE:
+		sprintf(isp_mode, "%s", "DOL_WDR");
+		break;
+	case ISP_COMANDING_MODE:
+		sprintf(isp_mode, "%s", "CMD_WDR");
+		break;
+	case ISP_SEHDR_MODE:
+		sprintf(isp_mode, "%s", "SEHDR");
+		break;
+	default:
+		sprintf(isp_mode, "%s", "NULL");
+		break;
+	}
+
+	switch (vinc->vid_cap.frame.fmt.color) {
+	case V4L2_COLORSPACE_DEFAULT:
+		sprintf(isp_colorspace, "%s", "DEFAULT");
+		break;
+	case V4L2_COLORSPACE_SMPTE170M:
+		sprintf(isp_colorspace, "%s", "SMPTE170M");
+		break;
+	case V4L2_COLORSPACE_SMPTE240M:
+		sprintf(isp_colorspace, "%s", "SMPTE240M");
+		break;
+	case V4L2_COLORSPACE_REC709:
+		sprintf(isp_colorspace, "%s", "REC709_FULL");
+		break;
+	case V4L2_COLORSPACE_BT878:
+		sprintf(isp_colorspace, "%s", "BT878");
+		break;
+	case V4L2_COLORSPACE_470_SYSTEM_M:
+		sprintf(isp_colorspace, "%s", "470_SYSTEM_M");
+		break;
+	case V4L2_COLORSPACE_470_SYSTEM_BG:
+		sprintf(isp_colorspace, "%s", "470_SYSTEM_BG");
+		break;
+	case V4L2_COLORSPACE_JPEG:
+		sprintf(isp_colorspace, "%s", "JPEG");
+		break;
+	case V4L2_COLORSPACE_SRGB:
+		sprintf(isp_colorspace, "%s", "SRGB");
+		break;
+	case V4L2_COLORSPACE_ADOBERGB:
+		sprintf(isp_colorspace, "%s", "ADOBERGB");
+		break;
+	case V4L2_COLORSPACE_BT2020:
+		sprintf(isp_colorspace, "%s", "BT2020");
+		break;
+	case V4L2_COLORSPACE_RAW:
+		sprintf(isp_colorspace, "%s", "RAW");
+		break;
+	case V4L2_COLORSPACE_DCI_P3:
+		sprintf(isp_colorspace, "%s", "DCI_P3");
+		break;
+	default:
+		sprintf(isp_colorspace, "%s", "REC709_PART");
+		break;
+	}
+
+		count += scnprintf(buf + count, size - count, "*****************************************************\n");
+		count += scnprintf(buf + count, size - count, "VIN hardware feature list:\n"
+				"CSI_VERSION: CSI%x_%x, ISP_VERSION: ISP%x_%x\n"
+				"CSI_CLK: %ld, ISP_CLK: %ld\n"
+				"vipp%d, isp_dode: %s\n",
+				vind->csic_ver.ver_big,	vind->csic_ver.ver_small, vind->isp_ver_major, vind->isp_ver_minor,
+				clk_get_rate(vind->clk[VIN_TOP_CLK].clock),
+				clk_get_rate(vind->isp_clk[VIN_ISP_CLK].clock), vinc->vipp_sel, isp_mode);
+		count += scnprintf(buf + count, size - count, "*****************************************************\n");
+
+		count += scnprintf(buf + count, size - count, "ISP%d debug param list:\n"
+				"===> exp: %d, gain: %d, lum_idx: %d, coms_temp: %d\n"
+				"===> color_temp: %d, rgain: %d, bgain: %d\n"
+				"===> contrast: %d, sharp: %d, bright: %d\n"
+				"===> satur: %d, tdnf: %d, bdnf: %d, pltm: %d\n",
+				vinc->isp_sel,
+				vinc->vin_status.isp_debug_param_info.exp_val,
+				vinc->vin_status.isp_debug_param_info.gain_val,
+				vinc->vin_status.isp_debug_param_info.lum_idx,
+				vinc->vin_status.isp_debug_param_info.sensor_temper,
+				vinc->vin_status.isp_debug_param_info.awb_color_temp,
+				vinc->vin_status.isp_debug_param_info.awb_rgain,
+				vinc->vin_status.isp_debug_param_info.awb_bgain,
+				vinc->vin_status.isp_debug_param_info.contrast_level,
+				vinc->vin_status.isp_debug_param_info.sharpness_level,
+				vinc->vin_status.isp_debug_param_info.brightness_level,
+				vinc->vin_status.isp_debug_param_info.saturation_level,
+				vinc->vin_status.isp_debug_param_info.tdf_level,
+				vinc->vin_status.isp_debug_param_info.denoise_level,
+				vinc->vin_status.isp_debug_param_info.pltmwdr_level);
+		count += scnprintf(buf + count, size - count, "*****************************************************\n");
+		count += scnprintf(buf + count, size - count, "[ISP Colorspace]\n====> %s\n"
+				"[ISP Cfg Version Name]\n====> %s\n"
+				"[ISP Libs Commit Version]\n====> commit: %s\n",
+				isp_colorspace, vinc->vin_status.isp_debug_param_info.isp_cfg_version,
+				vinc->vin_status.isp_debug_param_info.libs_version);
+		count += scnprintf(buf + count, size - count, "*****************************************************\n");
+
+	return count;
+}
+#endif
+
+static int isp_debugfs_open(struct inode *inode, struct file *file)
+{
+	struct vin_debugfs_buffer *buf;
+	struct isp_dev *isp;
+	int i = 0;
+
+	buf = kmalloc(sizeof(*buf), GFP_KERNEL);
+	if (buf == NULL)
+		return -ENOMEM;
+
+	isp_status_size_sum = 0;
+	while (vin_core_gbl[i] != NULL) {
+		/* check the video status */
+		if (vin_streaming(&(vin_core_gbl[i]->vid_cap))) {
+			/* get the isp_dev */
+			isp = container_of(vin_core_gbl[i]->vid_cap.pipe.sd[VIN_IND_ISP], struct isp_dev, subdev);
+			if (isp == NULL) {
+				vin_warn("[isp_debugfs] isp is NULL !\n");
+				break;
+			}
+			/* check isp work status */
+			if (isp->use_isp) {
+#if defined CONFIG_ISP_SERVER_MELIS
+				unsigned int data[2];
+				unsigned short wait_cnt;
+				unsigned int timeout_cnt = 100;
+
+				if (isp->h3a_stat.state == ISPSTAT_ENABLED) {
+					data[0] = VIN_SYNC_ISP_INFO;
+					isp->isp_info_node.update_flag = 0;
+					isp_rpmsg_send(isp, data, 2*4);
+					for (wait_cnt = 0; wait_cnt < timeout_cnt; wait_cnt++) {
+					/* wait for update_flag ok */
+						if (isp->isp_info_node.update_flag) {
+							break;
+						}
+						usleep_range(500, 550);
+					}
+
+					if (wait_cnt == timeout_cnt) {
+						vin_err("VIN_SYNC_ISP_INFO timeout!!!\n");
+						/*return -1;*/
+					} else {
+						isp_status_size[i] = isp_melis_status_dump(isp, vin_core_gbl[i],
+								buf->data + isp_status_size_sum,
+								sizeof(buf->data) - isp_status_size_sum);
+						isp_status_size_sum += isp_status_size[i];
+					}
+				} else {
+						vin_warn("h3a_stat.state is ISPSTAT_DISABLED, will not sync isp info node\n");
+				}
+#else
+				isp_status_size[i] = isp_status_dump(vin_core_gbl[i],
+						buf->data + isp_status_size_sum,
+						sizeof(buf->data) - isp_status_size_sum);
+				isp_status_size_sum += isp_status_size[i];
+#endif
+			} else
+				vin_warn("[isp_debugfs] isp is not be used !\n");
+			/*break;*/
+		}
+		if (++i >= VIN_MAX_DEV)
+			break;
+	}
+	buf->count = isp_status_size_sum;
+	file->private_data = buf;
+
+	return 0;
+}
+
+static ssize_t isp_debugfs_read(struct file *file, char __user *user_buf,
+				      size_t nbytes, loff_t *ppos)
+{
+	struct vin_debugfs_buffer *buf = file->private_data;
+
+	return simple_read_from_buffer(user_buf, nbytes, ppos, buf->data,
+				       buf->count);
+}
+
+static int isp_debugfs_release(struct inode *inode, struct file *file)
+{
+	kfree(file->private_data);
+	file->private_data = NULL;
+
+	return 0;
+}
+
+static const struct file_operations isp_debugfs_fops = {
+	.owner = THIS_MODULE,
+	.open = isp_debugfs_open,
+	.llseek = no_llseek,
+	.read = isp_debugfs_read,
+	.release = isp_debugfs_release,
+};
+
 static void __vin_get_frame_internal(struct vin_core *vinc)
 {
 	struct timeval ts;
@@ -1012,9 +1335,11 @@ static void __sunxi_bk_reset(struct vin_core *vinc)
 	case V4L2_PIX_FMT_LBC_1_0X:
 		csic_lbc_disable(vinc->vipp_sel);
 		csic_lbc_enable(vinc->vipp_sel);
+		break;
 	default:
 		csic_dma_disable(vinc->vipp_sel);
 		csic_dma_enable(vinc->vipp_sel);
+		break;
 	}
 #endif
 
@@ -1035,7 +1360,7 @@ static irqreturn_t vin_isr(int irq, void *priv)
 	unsigned long flags;
 	struct vin_buffer *buf;
 	struct vin_vid_cap *cap = (struct vin_vid_cap *)priv;
-	struct vin_core *vinc = cap->vinc;
+	struct vin_core *vinc = container_of(cap, struct vin_core, vid_cap);
 	struct dma_int_status status;
 	int need_callback = 0;
 	bool display_sync = false;
@@ -1048,6 +1373,7 @@ static irqreturn_t vin_isr(int irq, void *priv)
 	__maybe_unused bool clk_reset = 0;
 	__maybe_unused unsigned int virtual;
 	__maybe_unused unsigned int i, j, k;
+	__maybe_unused unsigned char work_mode = BK_ONLINE;
 #ifndef BUF_AUTO_UPDATE
 	struct dma_output_size size;
 #else
@@ -1059,6 +1385,7 @@ static irqreturn_t vin_isr(int irq, void *priv)
 
 #if defined CSIC_DMA_VER_140_000
 	if (vinc->work_mode == BK_ONLINE) {
+		work_mode = BK_ONLINE;
 		if (vin_streaming(cap) == 0) {
 			csic_dma_int_clear_status(vinc->vipp_sel, DMA_INT_ALL);
 			return IRQ_HANDLED;
@@ -1067,6 +1394,7 @@ static irqreturn_t vin_isr(int irq, void *priv)
 		if (!status.mask)
 			return IRQ_HANDLED;
 	} else {
+		work_mode = BK_OFFLINE;
 		for (i = vinc->vir_prosess_ch; i < (vinc->vir_prosess_ch + 4); i++) {
 			j = clamp(i >= (vinc->vipp_sel + 4) ? i - 4 : i, vinc->vipp_sel, vinc->vipp_sel + 4);
 			csic_dma_int_get_status(j, &status);
@@ -1224,6 +1552,7 @@ static irqreturn_t vin_isr(int irq, void *priv)
 				size.hor_start = 32;
 			csic_dma_output_size_cfg(vinc->vipp_sel, &size);
 		}
+#ifndef CONFIG_FRAMEDONE_TWO_BUFFER
 		if (cap->capture_mode != V4L2_MODE_IMAGE && !display_sync) {
 			if (cap->first_flag && vinc->large_image != 2) {
 				if (!two_buffer_prosess && ((&cap->vidq_active) == cap->vidq_active.next->next->next)) {
@@ -1262,7 +1591,10 @@ static irqreturn_t vin_isr(int irq, void *priv)
 					vinc->vin_status.lost_cnt++;
 				} else {
 					if (cap->special_active == 1) {
-						list_add_tail(&buf->list, &cap->vidq_done);
+						if (two_buffer_prosess)
+							buf->qbufed = 1;
+						else
+							list_add_tail(&buf->list, &cap->vidq_done);
 						need_callback = 1;
 					} else
 						vb2_buffer_done(&buf->vb.vb2_buf, VB2_BUF_STATE_DONE);
@@ -1298,6 +1630,7 @@ static irqreturn_t vin_isr(int irq, void *priv)
 			cap->first_flag++;
 		}
 #endif
+#endif /* end not CONFIG_FRAMEDONE_TWO_BUFFER */
 		if (cap->first_flag == 0) {
 			cap->first_flag++;
 			vin_log(VIN_LOG_VIDEO, "video%d first frame!\n", vinc->id);
@@ -1335,6 +1668,51 @@ vsync_end:
 		if (one_buffer_prosess)
 			goto unlock;
 
+#ifdef CONFIG_FRAMEDONE_TWO_BUFFER
+		if (work_mode == BK_ONLINE) {
+			if (vinc->vin_status.frame_cnt < 5)
+				vin_err("frame done two buffer mode only support offline mode!");
+			goto unlock;
+		}
+		if (cap->capture_mode != V4L2_MODE_IMAGE && !display_sync) {
+			if (cap->first_flag && vinc->large_image != 2) {
+				if ((&cap->vidq_active) == cap->vidq_active.next->next) {
+					vin_log(VIN_LOG_VIDEO, "Only one buffer left for video%d\n", vinc->id);
+					vinc->vin_status.lost_cnt++;
+					goto unlock;
+				}
+
+				buf = list_entry(cap->vidq_active.next, struct vin_buffer, list);
+
+				buf->vb.sequence = csic_dma_get_frame_cnt(vinc->vipp_sel);
+				buf->vb.vb2_buf.timestamp = ktime_get_ns();
+				buf->vb.framecnt = vinc->vin_status.frame_cnt;
+				buf->vb.exp_time = sensor_get_exp(vinc->vid_cap.pipe.sd[VIN_IND_SENSOR]);
+				list_del(&buf->list);
+
+				if (cap->frame_delay_cnt > 0) {
+					if (cap->frame_delay_cnt >= 5)
+						cap->frame_delay_cnt = 5;
+					list_add_tail(&buf->list, &cap->vidq_active);
+					cap->frame_delay_cnt--;
+					vinc->vin_status.lost_cnt++;
+				} else {
+					if (cap->special_active == 1) {
+						list_add_tail(&buf->list, &cap->vidq_done);
+						need_callback = 1;
+					} else
+						vb2_buffer_done(&buf->vb.vb2_buf, VB2_BUF_STATE_DONE);
+				}
+			}
+			if (list_empty(&cap->vidq_active)) {
+				vin_log(VIN_LOG_VIDEO, "No active queue to serve\n");
+				goto unlock;
+			}
+
+			buf = list_entry(cap->vidq_active.next, struct vin_buffer, list);
+			vin_set_addr(vinc, &buf->vb.vb2_buf, &vinc->vid_cap.frame, &vinc->vid_cap.frame.paddr);
+		}
+#endif
 		if (!display_sync) {
 			vin_get_rest_buf_cnt(vinc);
 
@@ -1436,15 +1814,20 @@ unlock:
 }
 #if defined CONFIG_VIN_INIT_MELIS
 int rt_vin_is_ready(int channel_id);
-extern void sunxi_enable_device_iommu(unsigned int master_id, bool flag);
 static int vinc_irq_enable(void *dev, void *data, int len)
 {
 	struct vin_core *vinc = dev;
 	int ret;
 
-	sunxi_enable_device_iommu(1, true);
-	ret = request_irq(vinc->irq, vin_isr, IRQF_SHARED,
-			vinc->pdev->name, &vinc->vid_cap);
+#if defined CONFIG_ARCH_SUN8IW21P1
+	vin_iommu_en(CSI_IOMMU_MASTER, true);
+#endif
+	if (vinc->is_irq_empty == 0) {
+		ret = request_irq(vinc->irq, vin_isr, IRQF_SHARED,
+				vinc->pdev->name, &vinc->vid_cap);
+	} else {
+		ret = 0;
+	}
 	if (ret) {
 		vin_err("failed to install CSI DMA irq (%d)\n", ret);
 		return -ENXIO;
@@ -1469,6 +1852,12 @@ static int vin_irq_request(struct vin_core *vinc, int i)
 	if (vinc->irq <= 0) {
 		if (vinc->id == dma_virtual_find_logic[vinc->id])
 			vin_err("failed to get CSI DMA IRQ resource\n");
+		else {
+#if defined CONFIG_VIN_INIT_MELIS
+			sprintf(name, "vinc%d", vinc->id);
+			rpmsg_notify_add("e907_rproc@0", name, vinc_irq_enable, vinc);
+#endif
+		}
 		vinc->is_irq_empty = 1;
 		return -ENXIO;
 	}
@@ -1486,6 +1875,9 @@ static int vin_irq_request(struct vin_core *vinc, int i)
 		vin_err("failed to install CSI DMA irq (%d)\n", ret);
 		return -ENXIO;
 	}
+#if defined CONFIG_ARCH_SUN8IW21P1
+	vin_iommu_en(CSI_IOMMU_MASTER, true);
+#endif
 #else
 	of_property_read_u32(np, "delay_init", &vinc->delay_init);
 	if (vinc->delay_init == 0) {
@@ -1836,6 +2228,10 @@ static int vin_core_probe(struct platform_device *pdev)
 		goto unmap;
 	}
 
+#if defined CONFIG_ISP_SERVER_MELIS
+	INIT_WORK(&vinc->ldci_buf_send_task, isp_ldci_send_handle);
+#endif
+
 #ifdef CONFIG_PM
 	pm_runtime_enable(&pdev->dev);
 #endif
@@ -1879,6 +2275,52 @@ static int vin_core_remove(struct platform_device *pdev)
 	vin_log(VIN_LOG_VIDEO, "%s end\n", __func__);
 	return 0;
 }
+
+#if defined(CONFIG_DEBUG_FS)
+int sunxi_isp_debug_register_driver(void)
+{
+#if defined (CONFIG_SUNXI_MPP)
+	isp_debugfs_root = debugfs_mpp_root;
+
+	if (isp_debugfs_root == NULL)
+		return -ENOENT;
+
+	isp_node = debugfs_create_file("isp", 0444, isp_debugfs_root,
+				   NULL, &isp_debugfs_fops);
+	if (IS_ERR_OR_NULL(vi_node)) {
+		vin_err("Unable to create debugfs status file.\n");
+		isp_debugfs_root = NULL;
+		return -ENODEV;
+	}
+#else
+	isp_debugfs_root = NULL;
+	vin_warn("Unable to create debugfs status file, please set CONFIG_SUNXI_MPP\n");
+#endif
+
+	return 0;
+}
+#else
+int sunxi_isp_debug_register_driver(void)
+{
+	return 0;
+}
+#endif
+
+#if defined(CONFIG_DEBUG_FS)
+void sunxi_isp_debug_unregister_driver(void)
+{
+	if (isp_debugfs_root == NULL)
+		return;
+#if defined (CONFIG_SUNXI_MPP)
+	debugfs_remove_recursive(isp_node);
+#else
+	debugfs_remove_recursive(isp_debugfs_root);
+	isp_debugfs_root = NULL;
+#endif
+}
+#else
+void sunxi_isp_debug_unregister_driver(void) {}
+#endif
 
 #if defined(CONFIG_DEBUG_FS)
 int sunxi_vin_debug_register_driver(void)

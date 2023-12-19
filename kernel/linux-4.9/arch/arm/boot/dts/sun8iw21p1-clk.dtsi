@@ -1,3 +1,4 @@
+#include <dt-bindings/clock/sunxi-clk.h>
 /{
 clocks {
 	compatible = "allwinner,clk-init";
@@ -8,7 +9,52 @@ clocks {
 	reg = <0x0 0x02001000 0x0 0x1000>,	/* cpux-ccu space */
 	      <0x0 0x07010000 0x0 0x400>,	/* cpus-ccu space */
 	      <0x0 0x07090000 0x0 0x400>;	/* rtc-ccu space */
-
+	/*
+	 * sdm info:
+	 * for example:
+	 * pll_npux4 {
+	 * 	sdm-enable = <1>;
+	 * 	sdm-factor = <4>; // 0.4%
+	 *	freq-mod   = <TR_N>;
+	 * 	sdm-freq   = <FREQ_32>;
+	 * };
+	 */
+	/* list all clk which can set sdm */
+	/*
+	sdm_info: sdm_info {
+		pll_periph0x2 {
+			sdm-enable = <1>;
+		};
+		pll_periph0800m {
+			sdm-enable = <3>;
+			sdm-factor = <8>;
+		};
+		pll_periph0480m {
+			sdm-enable = <1>;
+			sdm-factor = <8>;
+		};
+		pll_video0x4 {
+			sdm-enable = <1>;
+			sdm-factor = <1>;
+		};
+		pll_csix4 {
+			sdm-enable = <1>;
+			sdm-factor = <1>;
+		};
+		pll_audio_div2 {
+			sdm-enable = <1>;
+			sdm-factor = <1>;
+		};
+		pll_audio_div5 {
+			sdm-enable = <1>;
+			sdm-factor = <1>;
+		};
+		pll_npux4 {
+			sdm-enable = <1>;
+			sdm-factor = <1>;
+		};
+	};
+	*/
 /* register fixed rate clock*/
 		clk_ext_losc: ext_losc {
 			#clock-cells = <0>;
@@ -600,6 +646,11 @@ clocks {
 			#clock-cells = <0>;
 			compatible = "allwinner,periph-clock";
 			clock-output-names = "wiegand";
+		};
+		clk_e907_gate: e907_gate{
+			#clock-cells = <0>;
+			compatible = "allwinner,periph-clock";
+			clock-output-names = "e907_gate";
 		};
 		clk_e907: e907{
 			#clock-cells = <0>;

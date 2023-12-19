@@ -19,6 +19,7 @@
 #define CHECK_SOC_CHIPID      0x04
 #define CHECK_SOC_FT_ZONE     0x05
 #define CHECK_SOC_ROTPK_STATUS     0x06
+#define CHECK_SOC_CHIPID_FULL	0x07
 
 #endif /* end of __SUNXI_SYSINFO_USER_H__ */
 

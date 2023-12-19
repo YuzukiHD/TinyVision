@@ -35,6 +35,7 @@
 
 #if defined CONFIG_ISP_SERVER_MELIS
 #include "../vin-rp/vin_rp.h"
+#include "isp_comm.h"
 #endif
 
 enum isp_pad {
@@ -64,6 +65,15 @@ enum isp_bit_width {
 	RAW_20    = 20,
 	RAW_22    = 22,
 	RAW_24    = 24,
+};
+
+enum encpp_ctrl_id {
+	/*encpp_ctrl*/
+	ISP_CTRL_ENCPP_EN = 0,
+	ISP_CTRL_ENCPP_STATIC_CFG,
+	ISP_CTRL_ENCPP_DYNAMIC_CFG,
+	ISP_CTRL_ENCODER_3DNR_CFG,
+	ISP_CTRL_ENCODER_2DNR_CFG,
 };
 
 struct isp_pix_fmt {
@@ -113,8 +123,10 @@ struct isp_dev {
 	char save_get_flag;
 	bool load_select; /*load_select = 0 select load_para[0], load_select = 1 select load_para[1]*/
 	bool d3d_rec_reset;
+	unsigned int d3d_lbc_ratio;
 #endif
 	struct isp_size err_size;
+	struct isp_size save_size;
 	struct isp_debug_mode isp_dbg;
 	struct isp_pix_fmt *isp_fmt;
 	struct isp_size_settings isp_ob;
@@ -150,16 +162,27 @@ struct isp_dev {
 	char load_shadow[ISP_LOAD_DRAM_SIZE];
 #endif
 	bool first_init_server;
+	bool isp_server_reset;
+	struct device_node *isp_reserved_np;
+	struct resource reserved_r;
+	int reserved_len;
 #if defined CONFIG_ISP_SERVER_MELIS
 	struct rpbuf_controller *controller;
 	struct rpbuf_buffer *load_buffer;
 	struct rpbuf_buffer *save_buffer;
+	struct rpbuf_buffer *ldci_buffer;
+	char gtm_type;
 
 	struct rpmsg_device *rpmsg;
 	struct work_struct isp_rpmsg_send_task;
 
-	struct resource reserved_r;
-	int reserved_len;
+	int encpp_en;
+	struct encpp_static_sharp_config encpp_static_sharp_cfg;
+	struct encpp_dynamic_sharp_config encpp_dynamic_sharp_cfg;
+	struct encoder_3dnr_config encoder_3dnr_cfg;
+	struct encoder_2dnr_config encoder_2dnr_cfg;
+	struct isp_cfg_attr_data isp_cfg_attr;
+	struct melis_isp_info_node isp_info_node;
 #endif
 };
 

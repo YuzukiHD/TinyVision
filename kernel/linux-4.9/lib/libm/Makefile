@@ -9,12 +9,15 @@ libm-y = \
 	e_powf.o \
 	e_exp.o \
 	e_expf.o \
+	e_acos.o \
+	e_asin.o \
 	s_floor.o \
 	s_floorf.o \
 	k_rem_pio2.o \
 	e_rem_pio2.o \
 	k_cos.o \
 	k_sin.o \
+	k_tan.o \
 	s_sin.o \
 	s_cos.o \
 	e_rem_pio2f.o \
@@ -22,6 +25,9 @@ libm-y = \
 	k_sinf.o \
 	s_sinf.o \
 	s_cosf.o \
+	s_tan.o \
+	s_ceil.o \
+	s_ceilf.o \
 	s_atan.o \
 	s_atanf.o \
 	e_atan2.o \
@@ -34,7 +40,7 @@ libm-y = \
 #	e_log2f.o
 #	e_log10f.o
 #	libgcc.a
-
+#ifeq (,$(filter $(CONFIG_VIDEO_RT_MEDIA), y m))
 ifneq (x$(CONFIG_VIDEO_RT_MEDIA),xy)
 libm-y += libgcc
 endif

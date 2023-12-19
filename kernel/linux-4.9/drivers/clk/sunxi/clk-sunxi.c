@@ -21,6 +21,7 @@
 #include <linux/syscore_ops.h>
 #include "clk-sunxi.h"
 #include "clk-factors.h"
+#include "clk-sdm.h"
 #include "clk-periph.h"
 #include "clk-cpu.h"
 
@@ -104,6 +105,10 @@ static void __init of_sunxi_pll_clk_setup(struct device_node *node)
 	const char *clk_name = node->name;
 	const char *lock_mode = NULL;
 	struct factor_init_data *factor;
+	struct clk_sdm_info sdm_info;
+	int ret;
+
+	memset(&sdm_info, 0x0, sizeof(sdm_info));
 
 	if (of_property_read_string(node, "clock-output-names", &clk_name)) {
 		pr_err("%s:get clock-output-names failed in %s node\n",
@@ -118,6 +123,16 @@ static void __init of_sunxi_pll_clk_setup(struct device_node *node)
 
 	if (!of_property_read_string(node, "lock-mode", &lock_mode))
 		sunxi_clk_set_factor_lock_mode(factor, lock_mode);
+
+	ret = sunxi_clk_get_sdm_info(clk_name, &sdm_info);
+	if (!ret) {
+		pr_info("clk:name:%s, enable:%d, factor:%d freq_mode:%d, sdm_freq:%d\n",
+				clk_name, sdm_info.sdm_enable, sdm_info.sdm_factor,
+				sdm_info.freq_mode, sdm_info.sdm_freq);
+	} else {
+		sdm_info.sdm_enable = CODE_SDM;
+	}
+	sunxi_clk_set_factor_sdm_info(factor, sdm_info);
 
 	clk = sunxi_clk_register_factors(NULL, sunxi_clk_base,
 					 &clk_lock, factor);

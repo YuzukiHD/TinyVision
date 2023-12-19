@@ -834,36 +834,9 @@ dtb-$(CONFIG_MACH_SUN8I) += \
 dtb-$(CONFIG_MACH_SUN9I) += \
 	sun9i-a80-optimus.dtb \
 	sun9i-a80-cubieboard4.dtb
-dtb-$(CONFIG_ARCH_SUN8IW6P1) += \
-	sun8iw6p1-soc.dtb
-dtb-$(CONFIG_ARCH_SUN8IW7P1) += \
-	sun8iw7p1-soc.dtb
-dtb-$(CONFIG_ARCH_SUN8IW8P1) += \
-	board.dtb
-dtb-$(CONFIG_ARCH_SUN8IW11P1) += \
-	sun8iw11p1-soc.dtb \
-	sun8iw11p1-v40_perf3_v1_0_axpv1.dtb
-dtb-$(CONFIG_ARCH_SUN8IW12P1) += \
-	sun8iw12p1-soc.dtb
-dtb-$(CONFIG_ARCH_SUN8IW15P1) += \
-	board.dtb
-
-ifneq (strip $(CONFIG_ARCH_SUN8IW16P1),)
-DTS_SRC := $(patsubst $(dtstree)/sun8iw16p1-%.dts,sun8iw16p1-%.dtb, $(wildcard $(dtstree)/sun8iw16p1-*.dts))
-dtb-$(CONFIG_ARCH_SUN8IW16P1) += \
-	sun8iw16p1-soc.dtb \
-	$(DTS_SRC)
-endif
-dtb-$(CONFIG_ARCH_SUN8IW17P1) += \
-	board.dtb
-dtb-$(CONFIG_ARCH_SUN8IW18P1) += \
-	board.dtb
-
-dtb-$(CONFIG_ARCH_SUN8IW19P1) += \
-	board.dtb
 
 dtb-$(CONFIG_ARCH_SUN8IW21P1) += \
-	board.dtb
+	sun8i-v851s-tinyvision.dtb
 
 dtb-$(CONFIG_ARCH_TANGO) += \
 	tango4-vantage-1172.dtb

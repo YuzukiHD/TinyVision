@@ -28,6 +28,8 @@
 #include <linux/types.h>
 
 #include "efuse_ioctl.h"
+#include "common.h"
+
 
 static int efuse_use_ioctl;
 
@@ -152,7 +154,7 @@ int sunxi_efuse_read(char *key_name, int offset, int len, char *key_buf)
 	return -1;
 }
 
-int sunxi_efuse_write(char *key_name, int offset, char *key_buf)
+int sunxi_ioctl_efuse_write(char *key_name, int offset, char *key_buf)
 {
 	int fd;
 	int ret;
@@ -201,5 +203,21 @@ int sunxi_efuse_write(char *key_name, int offset, char *key_buf)
 		return 0;
 	}
 	printf("efuse_use_ioctl write fail\n");
+	return -1;
+}
+
+int sunxi_efuse_write(char *key_name, int offset, char *key_buf)
+{
+	printf("try io ctrl\n");
+	if (!sunxi_ioctl_efuse_write(key_name, offset, key_buf)) {
+		return 0;
+	} else {
+		printf("try io mmap\n");
+		if (!sunxi_mmap_efuse_write(key_name, offset, key_buf)) {
+			return 0;
+		}
+	}
+
+	printf("write efuse failed\n");
 	return -1;
 }

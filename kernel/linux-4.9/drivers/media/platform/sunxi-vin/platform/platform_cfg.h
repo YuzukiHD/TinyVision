@@ -51,11 +51,14 @@
 
 #if !defined CONFIG_ARCH_SUN50IW3P1 && !defined CONFIG_ARCH_SUN50IW6P1 && !defined CONFIG_ARCH_SUN8IW12P1 && !defined CONFIG_ARCH_SUN8IW17P1 && \
 	!defined CONFIG_ARCH_SUN8IW15P1 && !defined CONFIG_ARCH_SUN8IW16P1 && !defined CONFIG_ARCH_SUN8IW19P1 && \
-	!defined CONFIG_ARCH_SUN50IW10P1 && !defined CONFIG_ARCH_SUN50IW9P1 && !defined CONFIG_ARCH_SUN8IW20P1
+	!defined CONFIG_ARCH_SUN50IW10P1 && !defined CONFIG_ARCH_SUN50IW9P1
+#if !defined CONFIG_ARCH_SUN8IW20 && !defined CONFIG_ARCH_SUN20IW1
 #define VIPP_200
 #define ISP_600
 #define TDM_V200
 #define CSIC_DMA_VER_140_000
+#endif
+#define PARSER_MULTI_CH_SRC_TYPE
 #endif
 
 #define CSI_VE_ONLINE_VIDEO 0
@@ -127,6 +130,7 @@ struct mbus_framefmt_res {
 	u8 res_combo_mode;
 	u8 res_wdr_mode;
 	u8 res_time_hs;
+	u8 res_deskew;
 	u8 res_lp_mode;
 };
 

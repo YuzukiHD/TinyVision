@@ -39,6 +39,8 @@ enum rpbuf_role {
 	RPBUF_ROLE_SLAVE,
 };
 
+#define RPBUF_FLAGS_GETNOTIFY			(1 << 0)	/* buffer get notify */
+
 struct rpbuf_link {
 	/*
 	 * 'token' is a symbol to link service and controller. Only the service
@@ -105,7 +107,10 @@ struct rpbuf_controller {
 	struct list_head local_dummy_buffers;
 	/* To store buffers whose information is complete */
 	struct idr buffers;
+	/* To store buffers whose information is alloc in local */
+	struct idr local_buffers;
 
+	wait_queue_head_t wq;
 	const struct rpbuf_controller_ops *ops;
 	void *priv;
 };
@@ -134,6 +139,17 @@ struct rpbuf_buffer {
 	struct rpbuf_controller *controller;
 
 	struct list_head dummy_list;
+	/*
+	 * used to sync transmit
+	 */
+	uint32_t state;
+	wait_queue_head_t wait;
+
+#define BUFFER_SYNC_TRANSMIT			0x01
+	u32 flags;
+
+	bool allocated;
+	bool offline; /* is while be set true, when remote re-online */
 };
 
 /*
@@ -177,6 +193,7 @@ enum rpbuf_service_command {
 	RPBUF_SERVICE_CMD_BUFFER_CREATED,
 	RPBUF_SERVICE_CMD_BUFFER_DESTROYED,
 	RPBUF_SERVICE_CMD_BUFFER_TRANSMITTED,
+	RPBUF_SERVICE_CMD_BUFFER_ACK,
 	RPBUF_SERVICE_CMD_MAX,
 };
 
@@ -201,6 +218,12 @@ struct rpbuf_service_content_buffer_transmitted {
 	u32 id;
 	u32 offset;
 	u32 data_len;
+	u32 flags;
+} __attribute__((packed));
+
+struct rpbuf_service_content_buffer_ack {
+	u32 id;
+	u32 timediff;
 } __attribute__((packed));
 
 struct rpbuf_service_ops {

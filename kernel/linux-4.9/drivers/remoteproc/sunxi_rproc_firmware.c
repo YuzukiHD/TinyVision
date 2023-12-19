@@ -23,8 +23,10 @@
 #include <linux/mtd/aw-spinand.h>
 #include <linux/string.h>
 #include <linux/memblock.h>
+#include <linux/elf.h>
+#include <asm/cacheflush.h>
 
-#include "sunxi_rproc_internal.h"
+#include "sunxi_remoteproc_internal.h"
 
 #define DELAY_TIME				msecs_to_jiffies(500)
 #define FW_TRY_CNT				5
@@ -38,6 +40,9 @@ struct fw_mem_info {
 	phys_addr_t pa;
 	int len;
 	struct list_head list;
+	/* use to wait elf decompress complete */
+	wait_queue_head_t wq;
+	struct timer_list timer;
 };
 static LIST_HEAD(g_memory_fw_list);
 static DEFINE_MUTEX(g_list_lock);
@@ -348,7 +353,6 @@ out:
 int sunxi_register_memory_fw(const char *name, phys_addr_t addr, int len)
 {
 	struct fw_mem_info *info;
-	void *va;
 
 	info = kzalloc(sizeof(*info), GFP_KERNEL);
 	if (!info) {
@@ -366,7 +370,7 @@ int sunxi_register_memory_fw(const char *name, phys_addr_t addr, int len)
 	mutex_unlock(&g_list_lock);
 
 	pr_debug("register fw:%s addr=%pad,len=%d,va=0x%p\n",
-					name, &addr, len, va);
+					name, &addr, len, info->addr);
 
 	return 0;
 }
@@ -398,11 +402,13 @@ static int sunxi_unregister_memory_fw(struct fw_mem_info *info)
 
 	pr_debug("remove fw:%s addr=%pad,len=0x%x\n",
 			info->name, &info->pa, info->len);
+
 	ret = memblock_free(info->pa, info->len);
 	if (ret)
 		pr_err("memblock_free failed,ret=%d.\n", ret);
 	free_reserved_area(__va(info->pa), __va(info->pa + info->len), -1, NULL);
 	kfree(info);
+
 	return 0;
 }
 
@@ -430,6 +436,25 @@ static void sunxi_remove_memory_fw(const char *name)
 	mutex_unlock(&g_list_lock);
 }
 
+static void decompress_timeout_handler(unsigned long arg)
+{
+	struct fw_mem_info *info = (struct fw_mem_info *)arg;
+	Elf32_Ehdr *ehdr = info->addr;
+
+	if (!arg)
+		return;
+
+#ifdef CONFIG_ARM64
+	__dma_flush_range((void *)ehdr, sizeof(*ehdr));
+#else
+	dmac_flush_range((void *)ehdr, (void *)ehdr + sizeof(*ehdr));
+#endif
+	if ((ehdr->e_machine & 0xff00) == 0)
+		wake_up_interruptible(&info->wq);
+	else
+		mod_timer(&info->timer, jiffies + msecs_to_jiffies(10));
+}
+
 static int sunxi_request_fw_from_mem(const struct firmware **fw,
 			   const char *name, struct device *dev)
 {
@@ -437,6 +462,7 @@ static int sunxi_request_fw_from_mem(const struct firmware **fw,
 	u8 *img;
 	struct firmware *fw_p = NULL;
 	struct fw_mem_info *info;
+	Elf32_Ehdr *ehdr;
 
 	info = sunxi_find_memory_fw(name);
 	if (!info)
@@ -454,6 +480,36 @@ static int sunxi_request_fw_from_mem(const struct firmware **fw,
 		vfree(img);
 		sunxi_unregister_memory_fw(info);
 		return -ENOMEM;
+	}
+
+	/* test if the elf is decompressing */
+	ehdr = (Elf32_Ehdr *)info->addr;
+#ifdef CONFIG_ARM64
+	__dma_flush_range((void *)ehdr, sizeof(*ehdr));
+#else
+	dmac_flush_range((void *)ehdr, (void *)ehdr + sizeof(*ehdr));
+#endif
+	if ((ehdr->e_machine & 0xff00) == 0xff00) {
+		init_waitqueue_head(&info->wq);
+		init_timer(&info->timer);
+		info->timer.function = decompress_timeout_handler;
+		info->timer.data = (unsigned long)info;
+		info->timer.expires = jiffies + msecs_to_jiffies(10);
+		dev_dbg(dev, "wait for %s firmware decompress complete.\n", name);
+		add_timer(&info->timer);
+		/* decompressing */
+		if (wait_event_interruptible_timeout(info->wq,
+						!(ehdr->e_machine & 0xff00),
+						msecs_to_jiffies(5000)) <= 0) {
+
+			dev_dbg(dev, "%s decompress timeout.\n", name);
+			del_timer_sync(&info->timer);
+			vfree(img);
+			sunxi_unregister_memory_fw(info);
+			return -ENODEV;
+		}
+		dev_dbg(dev, "%s decompress complete.\n", name);
+		del_timer_sync(&info->timer);
 	}
 
 	/* read data from memory */
@@ -567,10 +623,10 @@ sunxi_request_firmware_nowait(
 	void (*cont)(const struct firmware *fw, void *context))
 {
 	struct sunxi_firmware_work *fw_work;
+#ifdef CONFIG_SUNXI_RPROC_FASTBOOT
 	const struct firmware *fw;
 	int ret;
 
-#ifdef CONFIG_SUNXI_RPROC_FASTBOOT
 	dev_dbg(device, "try to directly request firmware\n");
 	ret = sunxi_request_firmware(&fw, name, device);
 

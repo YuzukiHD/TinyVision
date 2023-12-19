@@ -96,13 +96,13 @@ struct etf_sdd_req {
 	u32    sdd_cmd;
 };
 
-typedef enum{
+typedef enum {
     ETF_CHANNEL_BANDWIDTH_20MHz,
     ETF_CHANNEL_BANDWIDTH_10MHz,
     ETF_CHANNEL_BANDWIDTH_40MHz
 } ETF_CHANNEL_BANDWIDTH_T;
 
-typedef enum{
+typedef enum {
     ETF_SUB_CHANNEL_UPPER,
     ETF_SUB_CHANNEL_LOWER
 } ETF_SUB_CHANNEL_T;
@@ -141,7 +141,7 @@ typedef struct CLI_PARAM_SAVE_REQ {
 
 #define  FLAG_GET_SDD_ALL         0x1
 
-typedef struct{
+typedef struct {
     u16 MsgLen;
     u16 MsgId;
     u32 result;

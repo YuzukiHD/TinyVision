@@ -147,6 +147,10 @@ struct otp_info {
 	__u32 locked;
 };
 
+struct nor_uid {
+	__u8 uid_buf[16]; 	/* store the uid read from nor */
+};
+
 /*
  * Note, the following ioctl existed in the past and was removed:
  * #define MEMSETOOBSEL           _IOW('M', 9, struct nand_oobinfo)
@@ -211,6 +215,13 @@ struct otp_info {
 #define SRREAD			_IOWR('M', 27, struct sr_param_t)
 /* Write data to security register */
 #define SRWRITE			_IOWR('M', 28, struct sr_param_t)
+/* Erase segment of MTD erase keep 4K */
+#define MEMWRITE_4K		_IOWR('M', 29, struct write4k_op_t)
+
+/*
+ * Read UID of NOR flash
+ */
+#define MTD_NOR_RDUID		_IOW('M', 30, struct nor_uid)
 
 /*
  * Obsolete legacy interface. Keep it in order not to break userspace

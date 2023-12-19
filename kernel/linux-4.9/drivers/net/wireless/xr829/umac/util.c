@@ -44,7 +44,6 @@ struct ieee80211_hw *xrmac_wiphy_to_ieee80211_hw(struct wiphy *wiphy)
 	local = wiphy_priv(wiphy);
 	return &local->hw;
 }
-EXPORT_SYMBOL(xrmac_wiphy_to_ieee80211_hw);
 
 u8 *mac80211_get_bssid(struct ieee80211_hdr *hdr, size_t len,
 			enum nl80211_iftype type)
@@ -184,7 +183,6 @@ __le16 mac80211_generic_frame_duration(struct ieee80211_hw *hw,
 
 	return cpu_to_le16(dur);
 }
-EXPORT_SYMBOL(mac80211_generic_frame_duration);
 
 __le16 mac80211_rts_duration(struct ieee80211_hw *hw,
 			      struct ieee80211_vif *vif, size_t frame_len,
@@ -224,7 +222,6 @@ __le16 mac80211_rts_duration(struct ieee80211_hw *hw,
 
 	return cpu_to_le16(dur);
 }
-EXPORT_SYMBOL(mac80211_rts_duration);
 
 __le16 mac80211_ctstoself_duration(struct ieee80211_hw *hw,
 				    struct ieee80211_vif *vif,
@@ -263,7 +260,6 @@ __le16 mac80211_ctstoself_duration(struct ieee80211_hw *hw,
 
 	return cpu_to_le16(dur);
 }
-EXPORT_SYMBOL(mac80211_ctstoself_duration);
 
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 23))
 static bool ieee80211_all_queues_started(struct ieee80211_hw *hw)
@@ -486,7 +482,6 @@ void mac80211_stop_queues(struct ieee80211_hw *hw)
 	mac80211_stop_queues_by_reason(hw,
 					IEEE80211_QUEUE_STOP_REASON_DRIVER);
 }
-EXPORT_SYMBOL(mac80211_stop_queues);
 
 int mac80211_queue_stopped(struct ieee80211_hw *hw, int queue)
 {
@@ -502,7 +497,6 @@ int mac80211_queue_stopped(struct ieee80211_hw *hw, int queue)
 	spin_unlock_irqrestore(&local->queue_stop_reason_lock, flags);
 	return ret;
 }
-EXPORT_SYMBOL(mac80211_queue_stopped);
 
 void mac80211_wake_queues_by_reason(struct ieee80211_hw *hw,
 				     enum queue_stop_reason reason)
@@ -523,7 +517,6 @@ void mac80211_wake_queues(struct ieee80211_hw *hw)
 {
 	mac80211_wake_queues_by_reason(hw, IEEE80211_QUEUE_STOP_REASON_DRIVER);
 }
-EXPORT_SYMBOL(mac80211_wake_queues);
 
 void mac80211_iterate_active_interfaces(
 	struct ieee80211_hw *hw,
@@ -551,7 +544,6 @@ void mac80211_iterate_active_interfaces(
 
 	mutex_unlock(&local->iflist_mtx);
 }
-EXPORT_SYMBOL_GPL(mac80211_iterate_active_interfaces);
 
 void mac80211_iterate_active_interfaces_atomic(
 	struct ieee80211_hw *hw,
@@ -579,7 +571,6 @@ void mac80211_iterate_active_interfaces_atomic(
 
 	rcu_read_unlock();
 }
-EXPORT_SYMBOL_GPL(mac80211_iterate_active_interfaces_atomic);
 
 /*
  * Nothing should have been stuffed into the workqueue during
@@ -606,7 +597,6 @@ void mac80211_queue_work(struct ieee80211_hw *hw, struct work_struct *work)
 
 	queue_work(local->workqueue, work);
 }
-EXPORT_SYMBOL(mac80211_queue_work);
 
 void mac80211_queue_delayed_work(struct ieee80211_hw *hw,
 				  struct delayed_work *dwork,
@@ -619,7 +609,6 @@ void mac80211_queue_delayed_work(struct ieee80211_hw *hw,
 
 	queue_delayed_work(local->workqueue, dwork, delay);
 }
-EXPORT_SYMBOL(mac80211_queue_delayed_work);
 u32 mac802_11_parse_elems_crc(u8 *start, size_t len,
 			       struct ieee802_11_elems *elems,
 			       u64 filter, u32 crc)
@@ -987,12 +976,17 @@ void mac80211_send_auth(struct ieee80211_sub_if_data *sdata,
 	struct ieee80211_mgmt *mgmt;
 	int err;
 
+/*
 	skb = dev_alloc_skb(local->hw.extra_tx_headroom +
 			    sizeof(*mgmt) + 6 + extra_len);
+*/
+	skb = dev_alloc_skb(local->hw.extra_tx_headroom + IEEE80211_WEP_IV_LEN +
+					24 + 6 + extra_len + IEEE80211_WEP_ICV_LEN);
+
 	if (!skb)
 		return;
 
-	skb_reserve(skb, local->hw.extra_tx_headroom);
+	skb_reserve(skb, local->hw.extra_tx_headroom + IEEE80211_WEP_IV_LEN);
 
 	mgmt = (struct ieee80211_mgmt *) skb_put(skb, 24 + 6);
 	memset(mgmt, 0, 24 + 6);
@@ -1258,7 +1252,6 @@ int mac80211_reconfig(struct ieee80211_local *local)
 	bool reconfig_due_to_wowlan = false;
 	bool suspended = local->suspended;
 
-
 #ifdef CONFIG_PM
 	if (local->suspended)
 		local->resuming = true;
@@ -1287,7 +1280,6 @@ int mac80211_reconfig(struct ieee80211_local *local)
 		reconfig_due_to_wowlan = true;
 	}
 #endif
-
 	/*
 	 * In case of hw_restart during suspend (without wowlan),
 	 * cancel restart work, as we are reconfiguring the device
@@ -1296,7 +1288,7 @@ int mac80211_reconfig(struct ieee80211_local *local)
 	 * so we can't deadlock in this case.
 	 */
 	if (suspended && local->in_reconfig && !reconfig_due_to_wowlan)
-			cancel_work_sync(&local->restart_work);
+		cancel_work_sync(&local->restart_work);
 
 	/* setup fragmentation threshold */
 	drv_set_frag_threshold(local, hw->wiphy->frag_threshold);
@@ -1459,8 +1451,8 @@ int mac80211_reconfig(struct ieee80211_local *local)
 
  wake_up:
 	if (local->in_reconfig) {
-			local->in_reconfig = false;
-			barrier();
+		local->in_reconfig = false;
+		barrier();
 	}
 
 	mac80211_wake_queues_by_reason(hw,
@@ -1532,7 +1524,6 @@ void mac80211_resume_disconnect(struct ieee80211_vif *vif)
 		key->flags |= KEY_FLAG_TAINTED;
 	mutex_unlock(&local->key_mtx);
 }
-EXPORT_SYMBOL_GPL(mac80211_resume_disconnect);
 
 static int check_mgd_smps(struct ieee80211_if_managed *ifmgd,
 			  enum ieee80211_smps_mode *smps_mode)
@@ -1683,7 +1674,6 @@ void mac80211_enable_rssi_reports(struct ieee80211_vif *vif,
 	_mac80211_enable_rssi_reports(sdata, rssi_min_thold,
 				       rssi_max_thold);
 }
-EXPORT_SYMBOL(mac80211_enable_rssi_reports);
 
 void mac80211_disable_rssi_reports(struct ieee80211_vif *vif)
 {
@@ -1691,7 +1681,6 @@ void mac80211_disable_rssi_reports(struct ieee80211_vif *vif)
 
 	_mac80211_enable_rssi_reports(sdata, 0, 0);
 }
-EXPORT_SYMBOL(mac80211_disable_rssi_reports);
 
 int mac80211_add_srates_ie(struct ieee80211_vif *vif, struct sk_buff *skb)
 {

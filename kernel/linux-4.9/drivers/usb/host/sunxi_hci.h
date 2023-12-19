@@ -292,8 +292,13 @@ extern s32 axp_usb_vbus_output(int high);
 #define SUNXI_HCI_PHY_EFUSE_MODE		0x20000		//bit17 unvalid, don't distinguish
 #define SUNXI_HCI_PHY_EFUSE_RES			0x1E0		//bit8-5
 #define SUNXI_HCI_PHY_EFUSE_COM			0x1E00		//bit12-9
-#define SUNXI_HCI_PHY_EFUSE_USB0TX		0x1E0		//bit8-5
+#define SUNXI_HCI_PHY_EFUSE_USB0TX		0x1E00		//bit12-9
 #define SUNXI_HCI_PHY_EFUSE_USB1TX		0xE000000	//bit25-27 unvalid, don't have USB1
+
+/* PHY RANGE: bit field */
+#define PHY_RANGE_TRAN_MASK			0x3C0		//bit9:6, trancevie_data
+#define PHY_RANGE_PREE_MASK			0x30		//bit5:4, preemphasis_data
+#define PHY_RANGE_RESI_MASK			0xF		//bit3:0, resistance_data
 
 #if defined(CONFIG_FPGA_V4_PLATFORM) || defined(CONFIG_FPGA_V7_PLATFORM)
 #define SUNXI_USB_FPGA
@@ -504,8 +509,6 @@ void sunxi_hci_common_set_rcgating(struct sunxi_hci_hcd *sunxi_hci, int is_on);
 void sunxi_hci_set_rcgating(struct sunxi_hci_hcd *sunxi_hci, int is_on);
 void sunxi_hci_switch_clk(struct sunxi_hci_hcd *sunxi_hci, int is_on);
 #endif
-int usb_new_phyx_tp_write(struct sunxi_hci_hcd *sunxi_hci,
-		int addr, int data, int len);
-int usb_new_phyx_tp_read(struct sunxi_hci_hcd *sunxi_hci,
-		int adddr, int len);
+int usb_new_phyx_read(struct sunxi_hci_hcd *sunxi_hci);
+void usb_new_phyx_write(struct sunxi_hci_hcd *sunxi_hci, u32 data);
 #endif /* __SUNXI_HCI_SUNXI_H__ */

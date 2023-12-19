@@ -14,6 +14,8 @@
 #include <linux/clkdev.h>
 #include <linux/io.h>
 #include "clk-factors.h"
+#include "clk-sdm.h"
+
 
 /* CCMU Register List */
 #define PLL_CPU             0x0000
@@ -148,9 +150,7 @@
 #define FANOUT27M_CFG	    0x0F34
 #define FANOUTPCLK_CFG	    0x0F34
 #define CCMU_FANOUT_CFG	    0x0F3C
-/*
 #define E907_GATE	    0x0D04
-*/
 #define DSPO_CFG            0x0C60
 #define DSPO_GATE           0x0C6C
 #define SUNXI_CLK_MAX_REG   0x0C6C

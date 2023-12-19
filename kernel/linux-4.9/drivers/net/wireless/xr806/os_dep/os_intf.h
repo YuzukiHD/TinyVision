@@ -35,6 +35,14 @@ typedef struct {
 typedef struct {
 	spinlock_t lock;
 } xr_spinlock_t;
+
+typedef struct {
+	struct mutex mutex;
+} xr_mutex_t;
+
+typedef struct {
+	struct semaphore sema;
+} xr_sem_t;
 #endif
 
 void xradio_k_msleep(u32 ms);
@@ -50,6 +58,24 @@ void xradio_k_spin_lock_init(xr_spinlock_t *l);
 void xradio_k_spin_lock_bh(xr_spinlock_t *l);
 
 void xradio_k_spin_unlock_bh(xr_spinlock_t *l);
+
+void xradio_k_mutex_init(xr_mutex_t *l);
+
+void xradio_k_mutex_lock(xr_mutex_t *l);
+
+void xradio_k_mutex_unlock(xr_mutex_t *l);
+
+void xradio_k_mutex_deinit(xr_mutex_t *l);
+
+int xradio_k_sema_init(xr_sem_t *s, int val);
+
+int xradio_k_sem_deinit(xr_sem_t *s);
+
+int xradio_k_sem_take(xr_sem_t *s);
+
+int xradio_k_sem_give(xr_sem_t *s);
+
+int xradio_k_sem_take_timeout(xr_sem_t *s, long timeout);
 
 void *xradio_k_zmalloc(u32 sz);
 
@@ -82,6 +108,6 @@ struct sk_buff *xradio_alloc_skb(u32 len, const char *func);
 
 void xradio_free_skb(struct sk_buff *skb, const char *func);
 
-void xraido_free_skb_any(struct sk_buff *skb);
+void xradio_free_skb_any(struct sk_buff *skb);
 
 #endif

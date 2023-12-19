@@ -59,6 +59,18 @@ config TDM_LBC_EN
 	depends on SUPPORT_ISP_TDM
 	default y
 
+config TDM_ONE_BUFFER
+	bool "tdm use one buffer mode"
+	depends on SUPPORT_ISP_TDM
+	default n
+	help
+		need ensure sensor vbland > 20%
+
+config TDM_ONE_BUFFER_WITH_TWORX
+	bool "tdm use one buffer mode with two tdm_rx run"
+	depends on TDM_ONE_BUFFER
+	default n
+
 config DISPPLAY_SYNC
 	bool "use one buffer for delay display"
 	default n
@@ -90,12 +102,17 @@ config WDR_COMPRESS_EN
 	depends on WDR
 	default	n
 
+config FRAMEDONE_TWO_BUFFER
+	bool "use two buffer in bk frame done interrupt"
+	default	n
+
 config ISP_SERVER_MELIS
 	bool "use ISP server from melis"
 	default n
 
 config VIN_INIT_MELIS
 	bool "vin and isp init in melis"
+	depends on ISP_SERVER_MELIS
 	default n
 
 config VIDEO_SUNXI_VIN_SPECIAL

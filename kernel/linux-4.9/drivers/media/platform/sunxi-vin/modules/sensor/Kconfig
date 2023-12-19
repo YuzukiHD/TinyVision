@@ -38,8 +38,20 @@ config SENSOR_OV5648
 	tristate "use ov5658 driver"
 	default n
 
+config SENSOR_OS02G10
+	tristate "use os02g10 driver"
+	default n
+
 config SENSOR_GC2145
 	tristate "use gc2145 driver"
+	default n
+
+config SENSOR_GC1054_MIPI
+	tristate "use gc1054_mipi driver"
+	default n
+
+config SENSOR_GC0308_MIPI
+	tristate "use gc0308_mipi driver"
 	default n
 
 config SENSOR_GC0310_MIPI
@@ -52,6 +64,14 @@ config SENSOR_GC2355_MIPI
 
 config SENSOR_GC2053_MIPI
 	tristate "use gc2053_mipi driver"
+	default n
+
+config SENSOR_GC2093_MIPI
+	tristate "use gc2093_mipi driver"
+	default n
+
+config SENSOR_GC4023_MIPI
+	tristate "use gc4023_mipi driver"
 	default n
 
 config SENSOR_GC4663_MIPI
@@ -70,6 +90,10 @@ config SENSOR_GC5035_MIPI
 	tristate "use gc5035_mipi driver"
 	default n
 
+config SENSOR_GC5603_MIPI
+	tristate "use gc5603_mipi driver"
+	default n
+
 config SENSOR_GC02M1_MIPI
 	tristate "use gc02m1_mipi driver"
 	default n
@@ -78,12 +102,48 @@ config SENSOR_SC2232_MIPI
 	tristate "use sc2232_mipi driver"
 	default n
 
+config SENSOR_SC2336_MIPI
+	tristate "use sc2336_mipi driver"
+	default n
+
+config SENSOR_SC5336_MIPI
+	tristate "use sc5336_mipi driver"
+	default n
+
+config SENSOR_SC2355_MIPI
+	tristate "use sc2355_mipi driver"
+	default n
+
 config SENSOR_SC031GS_MIPI
 	tristate "use sc031gs_mipi driver"
 	default n
 
 config SENSOR_SC530AI_MIPI
 	tristate "use sc530ai_mipi driver"
+	default n
+
+config SENSOR_SC3335_MIPI
+	tristate "use sc3335_mipi driver"
+	default n
+
+config SENSOR_SC3336_MIPI
+	tristate "use sc3336_mipi driver"
+	default n
+
+config SENSOR_SC3338_MIPI
+	tristate "use sc3338_mipi driver"
+	default n
+
+config SENSOR_SC4336_MIPI
+	tristate "use sc4336_mipi driver"
+	default n
+
+config SENSOR_SC4336P_MIPI
+	tristate "use sc4336p_mipi driver"
+	default n
+
+config SENSOR_SP2306_MIPI
+	tristate "use sp2306_mipi driver"
 	default n
 
 config SENSOR_IMX214
@@ -152,4 +212,28 @@ config SENSOR_TP9953
 
 config SENSOR_OFILM0092
 	tristate "use ofilm0092 driver"
+	default n
+
+config SENSOR_OS03B10
+	tristate "use os03B10 driver"
+	default n
+
+config SENSOR_F37P
+	tristate "use f37p driver"
+	default n
+
+config SENSOR_OS04A10
+	tristate "use os04a10 driver"
+	default n
+
+config SENSOR_K302P
+	tristate "use k302p driver"
+	default n
+
+config SENSOR_K06
+	tristate "use k06 driver"
+	default n
+
+config SENSOR_F53
+	tristate "use f53 driver"
 	default n

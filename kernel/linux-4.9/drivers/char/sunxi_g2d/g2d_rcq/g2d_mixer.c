@@ -982,7 +982,19 @@ __s32 mixer_task_process(__g2d_info_t *p_g2d_info, struct mixer_para *p_para,
 		goto OUT;
 
 	ret = p_task->apply(p_task, p_para);
-
+/* Run the same frame 3 times repeatedly if return -1 */
+#if ((defined CONFIG_ARCH_SUN8IW21P1) || (defined CONFIG_ARCH_SUN20IW2P1) \
+		|| (defined CONFIG_ARCH_SUN20IW3P1))
+{
+	__s32 i = 0;
+	for (i = 0; i < 2; i++) {
+		if (ret < 0)
+			ret = p_task->apply(p_task, p_para);
+		else
+			break;
+	}
+}
+#endif
 	p_task->destory(p_task);
 
 OUT:

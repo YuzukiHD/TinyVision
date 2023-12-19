@@ -537,6 +537,7 @@ extern int axp_debug_mask;
 #define AXP1530_VREF_VRPN            (0x85)
 #define AXP1530_VREF_VOL             (0x86)
 #define AXP1530_FREQUENCY            (0x87)
+#define AXP1530_END                  (0xFF)
 
 /* For AXP858 */
 #define AXP858_ON_INDICATE          (0x00)
@@ -744,6 +745,7 @@ extern int axp_debug_mask;
 #define AXP2202_ILIM_TYPE           (0x06)
 #define AXP2202_COMM_FAULT          (0x08)
 #define AXP2202_ICO_CFG             (0x0a)
+#define AXP2202_CURVE_CHECK         (0x0c)
 #define AXP2202_CLK_EN              (0x0b)
 #define AXP2202_VBUS_TYPE           (0x0f)
 
@@ -1688,5 +1690,6 @@ int axp20x_device_probe(struct axp20x_dev *axp20x);
  * This tells the axp20x core to remove the associated mfd devices
  */
 int axp20x_device_remove(struct axp20x_dev *axp20x);
+int axp20x_device_shutdown(struct axp20x_dev *axp20x);
 
 #endif /* __LINUX_MFD_AXP20X_H */

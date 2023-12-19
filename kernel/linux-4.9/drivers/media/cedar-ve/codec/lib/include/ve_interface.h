@@ -22,6 +22,8 @@
 #ifndef VE_INTERFACE_H
 #define VE_INTERFACE_H
 
+#include "cdc_log.h"
+
 enum VE_REGISTER_GROUP {
 	REG_GROUP_VETOP	= 0,
 	REG_GROUP_MPEG_DECODER = 1,
@@ -107,6 +109,24 @@ typedef struct CsiOnlineRelatedInfo {
 	unsigned int csi_line_done_cnt;
 } CsiOnlineRelatedInfo;
 
+typedef struct ve_channel_proc_info {
+	unsigned char *base_info_data;
+	unsigned int   base_info_size;
+	unsigned char *advance_info_data;
+	unsigned int   advance_info_size;
+	unsigned int   channel_id;
+} ve_channel_proc_info;
+
+typedef struct page_buf_info {
+    /* total_size = header + data + ext */
+    unsigned int header_size;
+    unsigned int data_size;
+    unsigned int ext_size;
+    unsigned int phy_addr_0;
+    unsigned int phy_addr_1;
+    unsigned int buf_id;
+} page_buf_info;
+
 struct ve_interface {
 	void (*reset)(struct ve_interface *);
 	int (*wait_interrupt)(struct ve_interface *);
@@ -126,8 +146,12 @@ struct ve_interface {
 	void (*force_reset)(struct ve_interface *);
 	int (*get_csi_online_info)(struct ve_interface *, CsiOnlineRelatedInfo *);
 	int (*set_lbc_parameter)(struct ve_interface *, unsigned int, unsigned int);
-	int (*set_proc_info)(struct ve_interface *, char *, unsigned int, unsigned char);
+	int (*set_proc_info)(void *, struct ve_channel_proc_info *);
 	int (*stop_proc_info)(struct ve_interface *, unsigned char);
+
+    int  (*allocPageBuf)(struct ve_interface *, struct page_buf_info *);
+    int  (*recPageBuf)(struct ve_interface *, struct page_buf_info *);
+    int  (*freePageBuf)(struct ve_interface *, struct page_buf_info *);
 };
 
 static inline void ve_reset(struct ve_interface *p)
@@ -147,9 +171,9 @@ static inline void ve_set_lbc_parameter(struct ve_interface *p, unsigned int lbc
 	p->set_lbc_parameter(p, lbc_mode, w);
 }
 
-static inline int ve_set_proc_info(struct ve_interface *p, char *proc_info_buf, unsigned int buf_len, unsigned char cChannelNum)
+static inline int ve_set_proc_info(struct ve_interface *p, struct ve_channel_proc_info *ch_proc_info)
 {
-	return p->set_proc_info(p, proc_info_buf, buf_len, cChannelNum);
+	return p->set_proc_info(p, ch_proc_info);
 }
 
 static inline int ve_stop_proc_info(struct ve_interface *p, unsigned char cChannelNum)
@@ -159,13 +183,11 @@ static inline int ve_stop_proc_info(struct ve_interface *p, unsigned char cChann
 
 static inline void ve_lock(struct ve_interface *p)
 {
-	return;
-	//p->lock(p);
+	p->lock(p);
 }
 static inline void ve_unlock(struct ve_interface *p)
 {
-	return;
-	//p->unlock(p);
+	p->unlock(p);
 }
 
 static inline int ve_wait_interrupt(struct ve_interface *p)
@@ -177,6 +199,8 @@ static inline void *ve_get_group_reg_addr(struct ve_interface *p, int id)
 {
 	if (p && p->get_reg_group_addr)
 		return p->get_reg_group_addr(p, id);
+	loge("fatal error! p %p", p);
+	return NULL;
 }
 
 static inline void ve_set_ddr_mode(struct ve_interface *p, int ddr_mode)
@@ -207,6 +231,21 @@ static inline void ve_disable_ve(struct ve_interface *p)
 static inline int ve_set_ve_freq(struct ve_interface *p, int freq)
 {
 	return p->set_ve_freq(p, freq);
+}
+
+static inline unsigned int CdcVeAllocPageBuf(struct ve_interface *p, struct page_buf_info *page_buf)
+{
+    return p->allocPageBuf(p, page_buf);
+}
+
+static inline unsigned int CdcVeRecPageBuf(struct ve_interface *p, struct page_buf_info *page_buf)
+{
+    return p->recPageBuf(p, page_buf);
+}
+
+static inline unsigned int CdcVeFreePageBuf(struct ve_interface *p, struct page_buf_info *page_buf)
+{
+    return p->freePageBuf(p, page_buf);
 }
 
 struct ve_interface *ve_create(int type, struct ve_config config);

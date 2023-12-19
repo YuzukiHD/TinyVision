@@ -46,6 +46,10 @@
 #include <linux/clk/sunxi.h>
 #include <linux/debugfs.h>
 
+#if defined CONFIG_VE_SUPPORT_RPM
+#include <linux/pm_runtime.h>
+#endif
+
 #if defined(CONFIG_SUNXI_MPP)
 #include <linux/mpp.h>
 #endif
@@ -80,6 +84,9 @@ struct regulator *regu;
 #define SUNXI_IRQ_VE (90)
 #endif
 
+/* MHz,  just set low ve freq as init, it will reset by user-caller*/
+#define CEDAR_VE_INIT_FREQ (180)
+
 /* just for decoder case with v5v200*/
 #if (defined CONFIG_ARCH_SUN8IW16P1)
 #define VE_POWER_MANAGE_VALID (1)
@@ -102,10 +109,11 @@ struct regulator *regu;
 /* #define CEDAR_DEBUG */
 #define cedar_ve_printk(level, msg...) printk(level "VE: " msg)
 
-#define VE_LOGD(fmt, arg...) printk(KERN_DEBUG "VE: " fmt "\n", ##arg)
-#define VE_LOGI(fmt, arg...) printk(KERN_INFO "VE: " fmt "\n", ##arg)
-#define VE_LOGW(fmt, arg...) printk(KERN_WARNING "VE: " fmt "\n", ##arg)
-#define VE_LOGE(fmt, arg...) printk(KERN_ERR "VE: " fmt "\n", ##arg)
+/* #define VE_LOGD(fmt, arg...) printk(KERN_DEBUG "[VE_DEBUG:%s:%d] " fmt "\n", __func__, __LINE__, ##arg) */
+#define VE_LOGI(fmt, arg...)
+#define VE_LOGD(fmt, arg...) printk(KERN_DEBUG "[VE_DEBUG:%d] " fmt "\n", __LINE__, ##arg)
+#define VE_LOGW(fmt, arg...) printk(KERN_WARNING "[VE_WARNING:%d] " fmt "\n", __LINE__, ##arg)
+#define VE_LOGE(fmt, arg...) printk(KERN_ERR "[VE_ERROR:%d] " fmt "\n", __LINE__, ##arg)
 
 #define VE_CLK_HIGH_WATER (900)
 #define VE_CLK_LOW_WATER (100)
@@ -113,11 +121,17 @@ struct regulator *regu;
 #define PRINTK_IOMMU_ADDR 0
 #define MAX_VE_DEBUG_INFO_NUM (16)
 
-#define SUPPORT_CSI_RESET_CALLBCAK (0)
+
 #if SUPPORT_ONLINE_MODE
+
 #if (defined CONFIG_VIDEO_SUNXI_VIN)
-#define SUPPORT_CSI_RESET_CALLBCAK (1)
+	#define SUPPORT_CSI_RESET_CALLBCAK (1)
+#else
+	#define SUPPORT_CSI_RESET_CALLBCAK (0)
 #endif
+
+#else
+#define SUPPORT_CSI_RESET_CALLBCAK (0)
 #endif
 
 #if SUPPORT_CSI_RESET_CALLBCAK
@@ -125,33 +139,30 @@ extern void vin_isp_reset_done_callback(int id, void *func);
 #endif
 
 /* the struct must be same with cedarc/ve/veAw/veAw.h*/
-struct debug_head_info {
-	unsigned int pid;
-	unsigned int tid;
-	unsigned int length;
-};
-struct ve_debug_info {
-	struct debug_head_info head_info;
-	char *data;
-};
 struct dentry *ve_debugfs_root;
 #define VE_DEBUGFS_MAX_CHANNEL 16
 #define VE_DEBUGFS_BUF_SIZE 1024
 
-struct ve_debugfs_proc {
-	unsigned int len;
-	char data[VE_DEBUGFS_BUF_SIZE * VE_DEBUGFS_MAX_CHANNEL];
+struct ve_channel_proc_manager {
+	struct ve_channel_proc_info proc_info;
+	int          channel_id;
+	unsigned int active_flag;
 };
 
-struct ve_debugfs_buffer {
-	unsigned char cur_channel_id;
-	unsigned int proc_len[VE_DEBUGFS_MAX_CHANNEL];
-	char *proc_buf[VE_DEBUGFS_MAX_CHANNEL];
-	char *data;
-	struct mutex lock_proc;
-	int flag; //* 0:default, 1:view debugging info after app finish, other:TODO
+struct ve_debugfs_proc_info_manager {
+	struct mutex  lock_proc;
+	/* 0:default, 1:view debugging info after app finish, other:TODO*/
+	int           flag;
+	/*when cat ve_advance, 0: just show advance info, 1: show base and advance info*/
+	int           advance_flag;
+	/* to clear the previous channel proc info*/
+	int           ref_cnt;
+	struct ve_channel_proc_manager ch_proc_mgr[VE_DEBUGFS_MAX_CHANNEL];
 };
-struct ve_debugfs_buffer ve_debug_proc_info;
+struct ve_debugfs_proc_info_manager ve_proc_mgr;
+
+//struct ve_debugfs_proc_info_manager ve_debug_proc_info;
+
 
 struct __cedarv_task {
 	int task_prio;
@@ -223,6 +234,33 @@ struct iomap_para {
 };
 
 static DECLARE_WAIT_QUEUE_HEAD(wait_ve);
+
+struct recref_transform_mgr {
+	unsigned int ext_page_num;
+	unsigned int data_page_num;
+	unsigned int header_page_num;
+	unsigned int total_page_num;
+	unsigned int *pre_rec_header_index;
+	unsigned int *pre_rec_data_index;
+	unsigned int *pre_rec_ext_index;
+
+	unsigned int *cur_rec_index;
+	unsigned int *cur_rec_header_index;
+	unsigned int *cur_rec_data_index;
+	unsigned int *cur_rec_ext_index;
+};
+
+struct phy_page_buf_mgr {
+	struct aw_mem_list_head i_list;
+	struct page_buf_info buf_info;
+	struct page **page;
+	struct recref_transform_mgr recref_transf_mgr;
+	struct sg_table *sgt_0;
+	struct sg_table *sgt_1;
+	int sg_free_flag;
+	unsigned int buf_id;
+};
+
 struct cedar_dev {
 	struct cdev cdev; /* char device struct				   */
 	struct device *dev; /* ptr to class device struct		   */
@@ -261,9 +299,9 @@ struct cedar_dev {
 	struct mutex lock_mem;
 	unsigned char bMemDevAttachFlag;
 	u32 power_manage_request_ref;
-	struct ve_debug_info debug_info[MAX_VE_DEBUG_INFO_NUM];
-	int debug_info_cur_index;
-	struct mutex lock_debug_info;
+
+	struct aw_mem_list_head page_buf_list; /* page buf buffer list */
+	unsigned int page_buf_cnt;
 };
 
 struct ve_info { /* each object will bind a new file handler */
@@ -290,6 +328,11 @@ struct cedarv_iommu_buffer {
 };
 
 static struct cedar_dev *cedar_devp;
+
+#if defined CONFIG_VIDEO_RT_MEDIA
+#define LOGLEVEL_NUM 	10
+int debug_fs_set_log_level;
+#endif
 
 #if SUPPORT_CSI_RESET_CALLBCAK
 int online_csi_reset_callback(int id)
@@ -926,6 +969,7 @@ void cedar_open(void)
 	cedar_devp->ref_count++;
 	if (cedar_devp->ref_count == 1) {
 		cedar_devp->last_min_freq = 0;
+		AW_MEM_INIT_LIST_HEAD(&cedar_devp->list);
 		enable_cedar_hw_clk();
 	}
 
@@ -1057,91 +1101,542 @@ long cedar_get_csi_online_info(unsigned long arg)
 }
 EXPORT_SYMBOL(cedar_get_csi_online_info);
 
-int cedar_set_proc_info(unsigned long arg)
+
+/*add for kernel encoder end*/
+
+static long setup_proc_info(unsigned long usr_arg, int b_from_user)
 {
-	struct VE_PROC_INFO proc_info;
-	unsigned char channel_id = 0;
-	//    u32 lock_type = VE_LOCK_PROC_INFO;
+	int i = 0;
+	struct ve_channel_proc_info ch_proc_info_user;
+	struct ve_channel_proc_manager *cur_ch_proc_mgr = NULL;
+	unsigned int cur_channel_id = 0;
 
-	//    struct ve_info *vi = filp->private_data;
-
+	memset(&ch_proc_info_user, 0, sizeof(struct ve_channel_proc_info));
 	if (ve_debugfs_root == NULL)
 		return 0;
+	if (b_from_user) {
+		if (copy_from_user(&ch_proc_info_user, (void __user *)usr_arg, sizeof(struct ve_channel_proc_info))) {
+			VE_LOGW("IOCTL_SET_PROC_INFO copy_from_user fail\n");
+			return -EFAULT;
+		}
+	} else {
+		memcpy(&ch_proc_info_user, (ve_channel_proc_info *)usr_arg, sizeof(ve_channel_proc_info));
+	}
+	cur_channel_id = ch_proc_info_user.channel_id;
 
-	if (copy_from_user(&proc_info, (void __user *)arg, sizeof(struct VE_PROC_INFO))) {
-		cedar_ve_printk(KERN_WARNING, "IOCTL_SET_PROC_INFO copy_from_user fail\n");
-		return -EFAULT;
+	VE_LOGI("*base_size = %d, advance_size = %d, struct_size = %d",
+		ch_proc_info_user.base_info_size, ch_proc_info_user.advance_info_size, sizeof(struct ve_channel_proc_info));
+
+	if (ch_proc_info_user.base_info_size == 0 || ch_proc_info_user.base_info_data == NULL) {
+		VE_LOGW("invalid base info, size = %d, data = %p",
+			ch_proc_info_user.base_info_size, ch_proc_info_user.base_info_data);
+		return 0;
 	}
 
-	channel_id = proc_info.channel_id;
-	if (channel_id >= VE_DEBUGFS_MAX_CHANNEL) {
-		cedar_ve_printk(KERN_WARNING, "set channel[%c] is bigger than max channel[%d]\n",
-				channel_id, VE_DEBUGFS_MAX_CHANNEL);
-		return -EFAULT;
+	/* check whether had the-match channel*/
+	for (i = 0; i < MAX_VE_DEBUG_INFO_NUM; i++) {
+		if (ve_proc_mgr.ch_proc_mgr[i].channel_id == cur_channel_id
+			&& ve_proc_mgr.ch_proc_mgr[i].active_flag == 1) {
+			break;
+		}
+	}
+	VE_LOGI("channel_id = %d, i = %d", cur_channel_id, i);
+
+	if (i >= MAX_VE_DEBUG_INFO_NUM) {
+		for (i = 0; i < MAX_VE_DEBUG_INFO_NUM; i++) {
+			VE_LOGI("find channel, active_flag = %d, i = %d", ve_proc_mgr.ch_proc_mgr[i].active_flag, i);
+			if (ve_proc_mgr.ch_proc_mgr[i].active_flag == 0)
+				break;
+		}
+		if (i >= MAX_VE_DEBUG_INFO_NUM) {
+			VE_LOGE("cannot find empty channel proc, max_ch = %d", MAX_VE_DEBUG_INFO_NUM);
+			return 0;
+		}
+		cur_ch_proc_mgr = &ve_proc_mgr.ch_proc_mgr[i];
+		if (cur_ch_proc_mgr->proc_info.base_info_data)
+			vfree(cur_ch_proc_mgr->proc_info.base_info_data);
+		if (cur_ch_proc_mgr->proc_info.advance_info_data)
+			vfree(cur_ch_proc_mgr->proc_info.advance_info_data);
+
+		cur_ch_proc_mgr->proc_info.base_info_data = vmalloc(ch_proc_info_user.base_info_size);
+		if (cur_ch_proc_mgr->proc_info.base_info_data == NULL) {
+			VE_LOGE("vmalloc failed, size = %d", ch_proc_info_user.base_info_size);
+			return 0;
+		}
+		cur_ch_proc_mgr->proc_info.base_info_size = ch_proc_info_user.base_info_size;
+		memset(cur_ch_proc_mgr->proc_info.base_info_data, 0, ch_proc_info_user.base_info_size);
+
+		if (ch_proc_info_user.advance_info_size > 0) {
+			cur_ch_proc_mgr->proc_info.advance_info_data = vmalloc(ch_proc_info_user.advance_info_size);
+			if (cur_ch_proc_mgr->proc_info.advance_info_data == NULL) {
+				VE_LOGE("vmalloc failed, size = %d", ch_proc_info_user.advance_info_size);
+				return 0;
+			}
+			cur_ch_proc_mgr->proc_info.advance_info_size = ch_proc_info_user.advance_info_size;
+			memset(cur_ch_proc_mgr->proc_info.advance_info_data, 0, ch_proc_info_user.advance_info_size);
+		} else {
+			cur_ch_proc_mgr->proc_info.advance_info_data = NULL;
+			cur_ch_proc_mgr->proc_info.advance_info_size = 0;
+		}
+
+		cur_ch_proc_mgr->active_flag = 1;
+		cur_ch_proc_mgr->channel_id  = cur_channel_id;
+	} else {
+		cur_ch_proc_mgr = &ve_proc_mgr.ch_proc_mgr[i];
+
+		/* re-vmalloc buffer if not enought*/
+		if (cur_ch_proc_mgr->proc_info.base_info_size != ch_proc_info_user.base_info_size) {
+			vfree(cur_ch_proc_mgr->proc_info.base_info_data);
+
+			cur_ch_proc_mgr->proc_info.base_info_data = vmalloc(ch_proc_info_user.base_info_size);
+			if (cur_ch_proc_mgr->proc_info.base_info_data == NULL) {
+				VE_LOGE("vmalloc failed, size = %d", ch_proc_info_user.base_info_size);
+				return 0;
+			}
+			cur_ch_proc_mgr->proc_info.base_info_size = ch_proc_info_user.base_info_size;
+
+		}
+		memset(cur_ch_proc_mgr->proc_info.base_info_data, 0, ch_proc_info_user.base_info_size);
+
+		if (cur_ch_proc_mgr->proc_info.advance_info_size != ch_proc_info_user.advance_info_size) {
+			vfree(cur_ch_proc_mgr->proc_info.advance_info_data);
+			cur_ch_proc_mgr->proc_info.advance_info_data = NULL;
+			cur_ch_proc_mgr->proc_info.advance_info_size = 0;
+
+			if (ch_proc_info_user.advance_info_data && ch_proc_info_user.advance_info_size > 0) {
+				cur_ch_proc_mgr->proc_info.advance_info_data = vmalloc(ch_proc_info_user.advance_info_size);
+				if (cur_ch_proc_mgr->proc_info.advance_info_data == NULL) {
+					VE_LOGE("vmalloc failed, size = %d", ch_proc_info_user.advance_info_size);
+					return 0;
+				}
+				cur_ch_proc_mgr->proc_info.advance_info_size = ch_proc_info_user.advance_info_size;
+			}
+
+		}
+		if (cur_ch_proc_mgr->proc_info.advance_info_data)
+			memset(cur_ch_proc_mgr->proc_info.advance_info_data, 0, ch_proc_info_user.advance_info_size);
 	}
 
-	//    mutex_lock(&vi->lock_flag_io);
-	//    vi->lock_flags |= lock_type;
-	//    mutex_unlock(&vi->lock_flag_io);
+	/*copy proc info data*/
+	if (b_from_user) {
+		if (copy_from_user(cur_ch_proc_mgr->proc_info.base_info_data, (void __user *)ch_proc_info_user.base_info_data, ch_proc_info_user.base_info_size)) {
+			VE_LOGW("IOCTL_SET_PROC_INFO copy_from_user fail\n");
+			return -EFAULT;
+		}
+		//VE_LOGW("base_data = %s", cur_ch_proc_mgr->proc_info.base_info_data);
 
-	mutex_lock(&ve_debug_proc_info.lock_proc);
-	ve_debug_proc_info.cur_channel_id       = proc_info.channel_id;
-	ve_debug_proc_info.proc_len[channel_id] = proc_info.proc_info_len;
-	ve_debug_proc_info.proc_buf[channel_id] = ve_debug_proc_info.data +
-						  channel_id * VE_DEBUGFS_BUF_SIZE;
-	mutex_unlock(&ve_debug_proc_info.lock_proc);
+		if (ch_proc_info_user.advance_info_data && ch_proc_info_user.advance_info_size > 0) {
+			if (copy_from_user(cur_ch_proc_mgr->proc_info.advance_info_data, (void __user *)ch_proc_info_user.advance_info_data, ch_proc_info_user.advance_info_size)) {
+				VE_LOGW("IOCTL_SET_PROC_INFO copy_from_user fail\n");
+				return -EFAULT;
+			}
+		}
+	} else {
+		memcpy(cur_ch_proc_mgr->proc_info.base_info_data, ch_proc_info_user.base_info_data, ch_proc_info_user.base_info_size);
+
+		if (ch_proc_info_user.advance_info_data && ch_proc_info_user.advance_info_size > 0)
+			memcpy(cur_ch_proc_mgr->proc_info.advance_info_data, ch_proc_info_user.advance_info_data, ch_proc_info_user.advance_info_size);
+	}
+
 	return 0;
 }
-EXPORT_SYMBOL(cedar_set_proc_info);
-int cedar_copy_proc_info(unsigned long arg)
+
+static long stop_proc_info(unsigned int channel_id)
+{
+	int i = 0;
+	struct ve_channel_proc_manager *cur_ch_proc_mgr = NULL;
+
+	for (i = 0; i < MAX_VE_DEBUG_INFO_NUM; i++) {
+		if (ve_proc_mgr.ch_proc_mgr[i].channel_id == channel_id
+			&& ve_proc_mgr.ch_proc_mgr[i].active_flag == 1) {
+			break;
+		}
+	}
+
+	if (i >= MAX_VE_DEBUG_INFO_NUM) {
+		VE_LOGI("can not find match channel, id = %d", channel_id);
+		return 0;
+	}
+
+	cur_ch_proc_mgr = &ve_proc_mgr.ch_proc_mgr[i];
+
+	if (ve_proc_mgr.flag == 1) {
+		cur_ch_proc_mgr->active_flag = 0;
+	} else {
+		if (cur_ch_proc_mgr->proc_info.base_info_data)
+			vfree(cur_ch_proc_mgr->proc_info.base_info_data);
+		if (cur_ch_proc_mgr->proc_info.advance_info_data)
+			vfree(cur_ch_proc_mgr->proc_info.advance_info_data);
+		cur_ch_proc_mgr->proc_info.base_info_data = NULL;
+		cur_ch_proc_mgr->proc_info.base_info_size = 0;
+		cur_ch_proc_mgr->proc_info.advance_info_data = NULL;
+		cur_ch_proc_mgr->proc_info.advance_info_size = 0;
+		cur_ch_proc_mgr->active_flag = 0;
+		cur_ch_proc_mgr->channel_id  = -1;
+	}
+
+	return 0;
+}
+
+static void reset_proc_info(void)
+{
+	int i = 0;
+	struct ve_channel_proc_manager *cur_ch_proc_mgr = NULL;
+
+	for (i = 0; i < MAX_VE_DEBUG_INFO_NUM; i++) {
+		cur_ch_proc_mgr = &ve_proc_mgr.ch_proc_mgr[i];
+
+		if (cur_ch_proc_mgr->proc_info.base_info_data)
+			vfree(cur_ch_proc_mgr->proc_info.base_info_data);
+		if (cur_ch_proc_mgr->proc_info.advance_info_data)
+			vfree(cur_ch_proc_mgr->proc_info.advance_info_data);
+
+		memset(cur_ch_proc_mgr, 0, sizeof(struct ve_channel_proc_manager));
+	}
+}
+
+int cedar_set_proc_info(unsigned long arg)
 {
 	int ret = 0;
-	unsigned char channel_id;
-#if 0     
-    u32 lock_type = VE_LOCK_PROC_INFO;
-    struct ve_info *vi = filp->private_data;
-    
-    if (ve_debugfs_root == NULL)
-        return 0;
-    
-    mutex_lock(&vi->lock_flag_io);
-    vi->lock_flags &= (~lock_type);
-    mutex_unlock(&vi->lock_flag_io);
-#endif
-	mutex_lock(&ve_debug_proc_info.lock_proc);
-	channel_id = ve_debug_proc_info.cur_channel_id;
-	if (copy_from_user(ve_debug_proc_info.proc_buf[channel_id],
-			   (void __user *)arg,
-			   ve_debug_proc_info.proc_len[channel_id])) {
-		cedar_ve_printk(KERN_WARNING, "IOCTL_COPY_PROC_INFO copy_from_user fail\n");
-		ret = -EFAULT;
-	}
-	mutex_unlock(&ve_debug_proc_info.lock_proc);
+
+	mutex_lock(&ve_proc_mgr.lock_proc);
+	ret = setup_proc_info(arg, 0);
+	mutex_unlock(&ve_proc_mgr.lock_proc);
+	return ret;
+}
+EXPORT_SYMBOL(cedar_set_proc_info);
+
+int cedar_copy_proc_info(unsigned long arg)
+{
+	/* need implement again*/
 	return 0;
 }
 EXPORT_SYMBOL(cedar_copy_proc_info);
 
 int cedar_stop_proc_info(unsigned long arg)
 {
-	unsigned char channel_id;
+	int ret = 0;
 
-	if (ve_debugfs_root == NULL)
-		return 0;
-
-	channel_id = arg;
-
-	mutex_lock(&ve_debug_proc_info.lock_proc);
-	if (1 == ve_debug_proc_info.flag) {
-		cedar_ve_printk(KERN_INFO, "VE does not reset proc_buf, flag:%d\n", ve_debug_proc_info.flag);
-	} else {
-		ve_debug_proc_info.proc_buf[channel_id] = NULL;
-	}
-	mutex_unlock(&ve_debug_proc_info.lock_proc);
+	mutex_lock(&ve_proc_mgr.lock_proc);
+	ret = stop_proc_info((unsigned int)arg);
+	mutex_unlock(&ve_proc_mgr.lock_proc);
 	return 0;
 }
 EXPORT_SYMBOL(cedar_stop_proc_info);
 
-/*add for kernel encoder end*/
+long alloc_page_buf(unsigned long arg, int b_from_user)
+{
+	int ret = 0;
+	int i = 0;
+	unsigned int total_page_num;
+	unsigned int ext_page_num;
+	unsigned int data_page_num;
+	unsigned int header_page_num;
+	struct sg_table *sgt_0;
+	struct scatterlist *sgl_0;
+	struct phy_page_buf_mgr *page_buf_mgr = NULL;
+	struct recref_transform_mgr *tranfs_mgr = NULL;
+	unsigned long iommu_addr = 0;
+
+	page_buf_mgr = kmalloc(sizeof(struct phy_page_buf_mgr),  GFP_KERNEL|__GFP_ZERO);
+
+	if (b_from_user) {
+		if (copy_from_user(&page_buf_mgr->buf_info, (void __user *)arg, sizeof(struct page_buf_info))) {
+			VE_LOGE("%s copy_from_user failed", __func__);
+			return -EFAULT;
+		}
+	} else {
+		memcpy(&page_buf_mgr->buf_info, (struct page_buf_info *)arg, sizeof(struct page_buf_info));
+		VE_LOGD("header_size %d buf_id %d", page_buf_mgr->buf_info.header_size, page_buf_mgr->buf_info.buf_id);
+	}
+	header_page_num = (page_buf_mgr->buf_info.header_size) / PAGE_SIZE;
+	data_page_num	= (page_buf_mgr->buf_info.data_size) / PAGE_SIZE;
+	ext_page_num	= (page_buf_mgr->buf_info.ext_size) / PAGE_SIZE;
+	total_page_num	= header_page_num + data_page_num + ext_page_num;
+
+	VE_LOGI("header_page_num = %d, data_page_num = %d, ext_page_num = %d",
+			header_page_num, data_page_num, ext_page_num);
+
+	tranfs_mgr = &page_buf_mgr->recref_transf_mgr;
+
+	tranfs_mgr->header_page_num = header_page_num;
+	tranfs_mgr->data_page_num   = data_page_num;
+	tranfs_mgr->ext_page_num    = ext_page_num;
+	tranfs_mgr->total_page_num  = total_page_num;
+
+	page_buf_mgr->page = kmalloc_array(total_page_num, sizeof(struct page *), GFP_KERNEL|__GFP_ZERO);
+
+	tranfs_mgr->pre_rec_header_index = kmalloc_array(header_page_num, sizeof(unsigned int), GFP_KERNEL|__GFP_ZERO);
+	tranfs_mgr->pre_rec_data_index	= kmalloc_array(data_page_num, sizeof(unsigned int), GFP_KERNEL|__GFP_ZERO);
+	tranfs_mgr->pre_rec_ext_index	= kmalloc_array(ext_page_num, sizeof(unsigned int), GFP_KERNEL|__GFP_ZERO);
+
+	if (tranfs_mgr->pre_rec_header_index == NULL || tranfs_mgr->pre_rec_data_index == NULL || tranfs_mgr->pre_rec_ext_index == NULL) {
+		VE_LOGE("kmalloc failed");
+		return -1;
+	}
+
+	tranfs_mgr->cur_rec_header_index = kmalloc_array(header_page_num, sizeof(unsigned int), GFP_KERNEL|__GFP_ZERO);
+	tranfs_mgr->cur_rec_data_index	= kmalloc_array(data_page_num, sizeof(unsigned int), GFP_KERNEL|__GFP_ZERO);
+	tranfs_mgr->cur_rec_ext_index	= kmalloc_array(ext_page_num, sizeof(unsigned int), GFP_KERNEL|__GFP_ZERO);
+	tranfs_mgr->cur_rec_index       = kmalloc_array(total_page_num, sizeof(unsigned int), GFP_KERNEL|__GFP_ZERO);
+
+	if (tranfs_mgr->cur_rec_header_index == NULL || tranfs_mgr->cur_rec_data_index == NULL
+		|| tranfs_mgr->cur_rec_ext_index == NULL || tranfs_mgr->cur_rec_index == NULL) {
+		VE_LOGE("kmalloc failed");
+		return -1;
+	}
+
+	sgt_0 = kmalloc(sizeof(struct sg_table), GFP_KERNEL|__GFP_ZERO);
+	if (sgt_0 == NULL) {
+		VE_LOGE("kmalloc sgt failed");
+		return -1;
+	}
+
+	ret = sg_alloc_table(sgt_0, total_page_num, GFP_KERNEL);
+	if (ret != 0) {
+		VE_LOGE("sg_alloc_table failed, ret = %d", ret);
+		return -1;
+	}
+
+	for (i = 0; i < total_page_num; i++)
+		page_buf_mgr->page[i] = alloc_pages(GFP_KERNEL, 0);
+
+	sgl_0 = sgt_0->sgl;
+	for (i = 0; i < total_page_num; i++) {
+		sg_set_page(sgl_0, page_buf_mgr->page[i], PAGE_SIZE, 0);
+		sgl_0 = sg_next(sgl_0);
+	}
+
+	for (i = 0; i < header_page_num; i++)
+		tranfs_mgr->pre_rec_header_index[i] = i;
+
+	for (i = 0; i < data_page_num; i++)
+		tranfs_mgr->pre_rec_data_index[i] = i + header_page_num;
+
+	for (i = 0; i < ext_page_num; i++)
+		tranfs_mgr->pre_rec_ext_index[i] = i + header_page_num + data_page_num;
+
+	ret = dma_map_sg(cedar_devp->platform_dev, sgt_0->sgl, total_page_num, DMA_BIDIRECTIONAL);
+	if (ret != 1) {
+		VE_LOGE("dma_map_sg failed, ret = %d", ret);
+		return -1;
+	}
+
+	iommu_addr = sg_dma_address(sgt_0->sgl);
+	VE_LOGI("01 IOCTL_ALLOC_PAGES: iommu_addr = %lx", iommu_addr);
+
+	page_buf_mgr->buf_info.phy_addr_0 = (unsigned int)iommu_addr;
+
+	page_buf_mgr->sgt_0 = sgt_0;
+	page_buf_mgr->sg_free_flag = 0;
+	cedar_devp->page_buf_cnt++;
+	page_buf_mgr->buf_id = cedar_devp->page_buf_cnt;
+	page_buf_mgr->buf_info.buf_id = page_buf_mgr->buf_id;
+
+	mutex_lock(&cedar_devp->lock_mem);
+	aw_mem_list_add_tail(&page_buf_mgr->i_list, &cedar_devp->page_buf_list);
+	mutex_unlock(&cedar_devp->lock_mem);
+	if (b_from_user) {
+		if (copy_to_user((void __user *)arg, &page_buf_mgr->buf_info, sizeof(struct page_buf_info))) {
+			VE_LOGE("get csi online info: copy_to_user error\n");
+			return -EFAULT;
+		}
+	} else {
+		memcpy((struct page_buf_info *)arg, &page_buf_mgr->buf_info, sizeof(struct page_buf_info));
+		VE_LOGD("header_size %d buf_id %d", page_buf_mgr->buf_info.header_size, page_buf_mgr->buf_info.buf_id);
+	}
+	return 0;
+}
+
+long rec_page_buf(unsigned long arg, int b_from_user)
+{
+	int ret;
+	int i;
+	struct sg_table *sgt_1;
+	struct scatterlist *sgl_1;
+	unsigned int header_page_num = 0;
+	unsigned int data_page_num = 0;
+	unsigned int ext_page_num = 0;
+	unsigned int total_page_num = 0;
+	unsigned int diff_page_num = 0;
+
+	struct phy_page_buf_mgr *page_buf_mgr = NULL;
+	struct recref_transform_mgr *tranfs_mgr = NULL;
+	unsigned long iommu_addr_new = 0;
+
+	unsigned int match_page_buf_flag = 0;
+	struct page_buf_info user_page_info;
+
+	if (b_from_user) {
+		if (copy_from_user(&user_page_info, (void __user *)arg, sizeof(struct page_buf_info))) {
+			VE_LOGE("IOCTL_TRANSFORM_PAGES copy_from_user error");
+			return -EFAULT;
+		}
+	} else {
+		memcpy(&user_page_info, (struct page_buf_info *)arg, sizeof(struct page_buf_info));
+	}
+
+	mutex_lock(&cedar_devp->lock_mem);
+	aw_mem_list_for_each_entry(page_buf_mgr, &cedar_devp->page_buf_list, i_list) {
+		if (page_buf_mgr->buf_id == user_page_info.buf_id) {
+			match_page_buf_flag = 1;
+			break;
+		}
+	}
+	mutex_unlock(&cedar_devp->lock_mem);
+
+	if (match_page_buf_flag == 0) {
+		VE_LOGE("IOCTL_TRANSFORM_PAGES: cannot find match page_buf");
+		return -EFAULT;
+	}
+
+	tranfs_mgr = &page_buf_mgr->recref_transf_mgr;
+
+	header_page_num = tranfs_mgr->header_page_num;
+	data_page_num	= tranfs_mgr->data_page_num;
+	ext_page_num	= tranfs_mgr->ext_page_num;
+	total_page_num	= tranfs_mgr->total_page_num;
+	diff_page_num	= ext_page_num - header_page_num;
+
+	if (page_buf_mgr->sg_free_flag == 0) {
+		page_buf_mgr->sg_free_flag++;
+	} else {
+		dma_unmap_sg(cedar_devp->platform_dev, page_buf_mgr->sgt_0->sgl, total_page_num, DMA_BIDIRECTIONAL);
+		sg_free_table(page_buf_mgr->sgt_0);
+		kfree(page_buf_mgr->sgt_0);
+		page_buf_mgr->sgt_0 = page_buf_mgr->sgt_1;
+	}
+
+	sgt_1 = kmalloc(sizeof(struct sg_table), GFP_KERNEL|__GFP_ZERO);
+	if (sgt_1 == NULL) {
+		VE_LOGE("kmalloc sgt failed");
+		return -1;
+	}
+
+	ret = sg_alloc_table(sgt_1, total_page_num, GFP_KERNEL);
+	if (ret != 0) {
+		VE_LOGE("sg_alloc_table failed, ret = %d", ret);
+		return -1;
+	}
+
+	for (i = 0; i < header_page_num; i++)
+		tranfs_mgr->cur_rec_header_index[i] = tranfs_mgr->pre_rec_ext_index[i];
+
+	for (i = 0; i < diff_page_num; i++)
+		tranfs_mgr->cur_rec_data_index[i] = tranfs_mgr->pre_rec_ext_index[header_page_num + i];
+
+	for (i = 0; i < data_page_num - diff_page_num; i++)
+		tranfs_mgr->cur_rec_data_index[i + diff_page_num] = tranfs_mgr->pre_rec_data_index[i];
+
+	for (i = 0; i < diff_page_num; i++)
+		tranfs_mgr->cur_rec_ext_index[i] = tranfs_mgr->pre_rec_data_index[i + data_page_num - diff_page_num];
+
+	for (i = 0; i < header_page_num; i++)
+		tranfs_mgr->cur_rec_ext_index[i + diff_page_num] = tranfs_mgr->pre_rec_header_index[i];
+
+	for (i = 0; i < header_page_num; i++) {
+		tranfs_mgr->cur_rec_index[i] = tranfs_mgr->cur_rec_header_index[i];
+		tranfs_mgr->pre_rec_header_index[i] = tranfs_mgr->cur_rec_header_index[i];
+	}
+	for (i = 0; i < data_page_num; i++) {
+		tranfs_mgr->cur_rec_index[i + header_page_num] = tranfs_mgr->cur_rec_data_index[i];
+		tranfs_mgr->pre_rec_data_index[i] = tranfs_mgr->cur_rec_data_index[i];
+	}
+	for (i = 0; i < ext_page_num; i++) {
+		tranfs_mgr->cur_rec_index[i + header_page_num + data_page_num] = tranfs_mgr->cur_rec_ext_index[i];
+		tranfs_mgr->pre_rec_ext_index[i] = tranfs_mgr->cur_rec_ext_index[i];
+	}
+
+	sgl_1 = sgt_1->sgl;
+	for (i = 0; i < total_page_num; i++) {
+		sg_set_page(sgl_1, page_buf_mgr->page[tranfs_mgr->cur_rec_index[i]], PAGE_SIZE, 0);
+		sgl_1 = sg_next(sgl_1);
+	}
+
+	ret = dma_map_sg(cedar_devp->platform_dev, sgt_1->sgl, total_page_num, DMA_BIDIRECTIONAL);
+	if (ret != 1) {
+		VE_LOGE("dma_map_sg failed, ret = %d", ret);
+		return -1;
+	}
+
+	iommu_addr_new = sg_dma_address(sgt_1->sgl);
+	page_buf_mgr->buf_info.phy_addr_1 = (unsigned int)iommu_addr_new;
+
+	page_buf_mgr->sgt_1 = sgt_1;
+	if (b_from_user) {
+		if (copy_to_user((void __user *)arg, &page_buf_mgr->buf_info, sizeof(struct page_buf_info))) {
+			VE_LOGE("get csi online info: copy_to_user error\n");
+			return -EFAULT;
+		}
+	} else {
+		memcpy((struct page_buf_info *)arg, &page_buf_mgr->buf_info, sizeof(struct page_buf_info));
+		//VE_LOGD("header_size %d buf_id %d", page_buf_mgr->buf_info.header_size, page_buf_mgr->buf_info.buf_id);
+	}
+	return 0;
+}
+
+long free_page_buf(unsigned long arg, int b_from_user)
+{
+	int i;
+	unsigned int total_page_num;
+	struct phy_page_buf_mgr *page_buf_mgr = NULL;
+
+	unsigned int match_page_buf_flag = 0;
+	struct page_buf_info user_page_info;
+
+	if (b_from_user) {
+		if (copy_from_user(&user_page_info, (void __user *)arg, sizeof(struct page_buf_info))) {
+			VE_LOGE("IOCTL_TRANSFORM_PAGES copy_from_user error");
+			return -EFAULT;
+		}
+	} else {
+		memcpy(&user_page_info, (struct page_buf_info *)arg, sizeof(struct page_buf_info));
+	}
+
+	mutex_lock(&cedar_devp->lock_mem);
+	aw_mem_list_for_each_entry(page_buf_mgr, &cedar_devp->page_buf_list, i_list) {
+		if (page_buf_mgr->buf_id == user_page_info.buf_id) {
+			match_page_buf_flag = 1;
+			total_page_num = page_buf_mgr->recref_transf_mgr.total_page_num;
+
+			if (page_buf_mgr->sgt_0) {
+				dma_unmap_sg(cedar_devp->platform_dev, page_buf_mgr->sgt_0->sgl, total_page_num, DMA_BIDIRECTIONAL);
+				sg_free_table(page_buf_mgr->sgt_0);
+			}
+
+			if (page_buf_mgr->sgt_1) {
+				dma_unmap_sg(cedar_devp->platform_dev, page_buf_mgr->sgt_1->sgl, total_page_num, DMA_BIDIRECTIONAL);
+				sg_free_table(page_buf_mgr->sgt_1);
+			}
+			VE_LOGI("phy address free succeed!");
+			for (i = 0; i < total_page_num; i++)
+				__free_pages(page_buf_mgr->page[i], 0);
+
+			aw_mem_list_del(&page_buf_mgr->i_list);
+
+			kfree(page_buf_mgr->page);
+
+			kfree(page_buf_mgr->recref_transf_mgr.pre_rec_data_index);
+			kfree(page_buf_mgr->recref_transf_mgr.pre_rec_header_index);
+			kfree(page_buf_mgr->recref_transf_mgr.pre_rec_ext_index);
+
+			kfree(page_buf_mgr->recref_transf_mgr.cur_rec_data_index);
+			kfree(page_buf_mgr->recref_transf_mgr.cur_rec_header_index);
+			kfree(page_buf_mgr->recref_transf_mgr.cur_rec_ext_index);
+			kfree(page_buf_mgr->recref_transf_mgr.cur_rec_index);
+
+			kfree(page_buf_mgr);
+			break;
+		}
+	}
+	mutex_unlock(&cedar_devp->lock_mem);
+
+	if (match_page_buf_flag == 0) {
+		VE_LOGE("IOCTL_FREE_PAGES: cannot find match page_buf");
+		return -EFAULT;
+	}
+	return 0;
+}
 
 static long compat_cedardev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
@@ -1175,122 +1670,11 @@ static long compat_cedardev_ioctl(struct file *filp, unsigned int cmd, unsigned 
 		break;
 	}
 	case IOCTL_PROC_INFO_COPY: {
-		int i				 = 0;
-		struct ve_debug_info *debug_info = NULL;
-		struct debug_head_info head_info;
-
-		/* parser head info */
-		cedar_devp->debug_info_cur_index = -1;
-		if (copy_from_user(&head_info, (void __user *)arg,
-				   sizeof(struct debug_head_info))) {
-			cedar_ve_printk(KERN_WARNING, "SET_DEBUG_INFO copy_from_user fail\n");
-			return -EFAULT;
-		}
-
-		/*VE_LOGD("size of debug_head_info: %d", (int)sizeof(struct debug_head_info)); */
-		/*VE_LOGD("head_info: %d, %d, %d", head_info.pid, head_info.tid,head_info.length);*/
-
-		mutex_lock(&cedar_devp->lock_debug_info);
-		/* match debug info by pid and tid*/
-		for (i = 0; i < MAX_VE_DEBUG_INFO_NUM; i++) {
-			if (cedar_devp->debug_info[i].head_info.pid == head_info.pid && cedar_devp->debug_info[i].head_info.tid == head_info.tid)
-				break;
-		}
-
-		if (i >= MAX_VE_DEBUG_INFO_NUM) {
-			for (i = 0; i < MAX_VE_DEBUG_INFO_NUM; i++) {
-				if (cedar_devp->debug_info[i].head_info.pid == 0 && cedar_devp->debug_info[i].head_info.tid == 0)
-					break;
-			}
-
-			if (i >= MAX_VE_DEBUG_INFO_NUM) {
-				cedar_ve_printk(KERN_WARNING, "SET_DEBUG_INFO  overflow  MAX_VE_DEBUG_INFO_NUM[%d]\n",
-						MAX_VE_DEBUG_INFO_NUM);
-			} else {
-				cedar_devp->debug_info_cur_index	   = i;
-				cedar_devp->debug_info[i].head_info.pid    = head_info.pid;
-				cedar_devp->debug_info[i].head_info.tid    = head_info.tid;
-				cedar_devp->debug_info[i].head_info.length = head_info.length;
-			}
-		} else {
-			cedar_devp->debug_info_cur_index	   = i;
-			cedar_devp->debug_info[i].head_info.length = head_info.length;
-		}
-
-		if (cedar_devp->debug_info_cur_index < 0) {
-			VE_LOGE("COPY_DEBUG_INFO, cur_index[%d] is invalided\n",
-				cedar_devp->debug_info_cur_index);
-			mutex_unlock(&cedar_devp->lock_debug_info);
-			return -EFAULT;
-		}
-
-		/* copy data of debug info */
-		debug_info = &cedar_devp->debug_info[cedar_devp->debug_info_cur_index];
-
-		/*VE_LOGD("COPY_DEBUG_INFO, index = %d, pid = %d, tid = %d, len = %d, data = %p\n", */
-		/*    cedar_devp->debug_info_cur_index, debug_info->head_info.pid, */
-		/*    debug_info->head_info.tid, debug_info->head_info.length, debug_info->data);*/
-
-		if (debug_info->data)
-			vfree(debug_info->data);
-
-		debug_info->data = vmalloc(debug_info->head_info.length);
-
-		/*VE_LOGD("vmalloc: data = %p, len = %d\n",*/
-		/*    debug_info->data, debug_info->head_info.length);*/
-
-		if (debug_info->data == NULL) {
-			mutex_unlock(&cedar_devp->lock_debug_info);
-			VE_LOGE("vmalloc for debug_info->data failed");
-			return -EFAULT;
-		}
-
-		if (copy_from_user(debug_info->data, (void __user *)(arg + sizeof(struct debug_head_info)),
-				   debug_info->head_info.length)) {
-			mutex_unlock(&cedar_devp->lock_debug_info);
-			VE_LOGE("COPY_DEBUG_INFO copy_from_user fail\n");
-			return -EFAULT;
-		}
-
-		mutex_unlock(&cedar_devp->lock_debug_info);
-
+		/* no implement the cmd, please use IOCTL_SET_PROC_INFO*/
 		break;
 	}
 	case IOCTL_PROC_INFO_STOP: {
-		int i = 0;
-		struct debug_head_info head_info;
-
-		if (copy_from_user(&head_info, (void __user *)arg, sizeof(struct debug_head_info))) {
-			cedar_ve_printk(KERN_WARNING, "SET_DEBUG_INFO copy_from_user fail\n");
-			return -EFAULT;
-		}
-
-		/*VE_LOGD("STOP_DEBUG_INFO, pid = %d, tid = %d\n",*/
-		/*		head_info.pid, head_info.tid); */
-
-		mutex_lock(&cedar_devp->lock_debug_info);
-
-		for (i = 0; i < MAX_VE_DEBUG_INFO_NUM; i++) {
-			if (cedar_devp->debug_info[i].head_info.pid == head_info.pid && cedar_devp->debug_info[i].head_info.tid == head_info.tid)
-				break;
-		}
-
-		VE_LOGI("STOP_DEBUG_INFO, i = %d\n", i);
-		if (i >= MAX_VE_DEBUG_INFO_NUM) {
-			VE_LOGE("STOP_DEBUG_INFO: can not find the match pid[%d] and tid[%d]\n",
-				head_info.pid, head_info.tid);
-		} else {
-			if (cedar_devp->debug_info[i].data)
-				vfree(cedar_devp->debug_info[i].data);
-
-			cedar_devp->debug_info[i].data		   = NULL;
-			cedar_devp->debug_info[i].head_info.pid    = 0;
-			cedar_devp->debug_info[i].head_info.tid    = 0;
-			cedar_devp->debug_info[i].head_info.length = 0;
-		}
-
-		mutex_unlock(&cedar_devp->lock_debug_info);
-
+		/* no implement the cmd, please use IOCTL_STOP_PROC_INFO*/
 		break;
 	}
 	case IOCTL_ENGINE_REQ:
@@ -1587,78 +1971,22 @@ static long compat_cedardev_ioctl(struct file *filp, unsigned int cmd, unsigned 
 		return lock_ctl_ret;
 	}
 	case IOCTL_SET_PROC_INFO: {
-		struct VE_PROC_INFO proc_info;
-		unsigned char channel_id = 0;
-		u32 lock_type		 = VE_LOCK_PROC_INFO;
-		struct ve_info *vi       = filp->private_data;
-
-		if (ve_debugfs_root == NULL)
-			return 0;
-
-		if (copy_from_user(&proc_info, (void __user *)arg, sizeof(struct VE_PROC_INFO))) {
-			cedar_ve_printk(KERN_WARNING, "IOCTL_SET_PROC_INFO copy_from_user fail\n");
-			return -EFAULT;
-		}
-
-		channel_id = proc_info.channel_id;
-		if (channel_id >= VE_DEBUGFS_MAX_CHANNEL) {
-			cedar_ve_printk(KERN_WARNING, "set channel[%c] is bigger than max channel[%d]\n",
-					channel_id, VE_DEBUGFS_MAX_CHANNEL);
-			return -EFAULT;
-		}
-
-		mutex_lock(&vi->lock_flag_io);
-		vi->lock_flags |= lock_type;
-		mutex_unlock(&vi->lock_flag_io);
-
-		mutex_lock(&ve_debug_proc_info.lock_proc);
-		ve_debug_proc_info.cur_channel_id       = proc_info.channel_id;
-		ve_debug_proc_info.proc_len[channel_id] = proc_info.proc_info_len;
-		ve_debug_proc_info.proc_buf[channel_id] = ve_debug_proc_info.data +
-							  channel_id * VE_DEBUGFS_BUF_SIZE;
-		mutex_unlock(&ve_debug_proc_info.lock_proc);
-		break;
+		mutex_lock(&ve_proc_mgr.lock_proc);
+		ret = setup_proc_info(arg, 1);
+		mutex_unlock(&ve_proc_mgr.lock_proc);
+		return ret;
 	}
 	case IOCTL_COPY_PROC_INFO: {
-		unsigned char channel_id;
-		u32 lock_type      = VE_LOCK_PROC_INFO;
-		struct ve_info *vi = filp->private_data;
-
-		if (ve_debugfs_root == NULL)
-			return 0;
-
-		mutex_lock(&vi->lock_flag_io);
-		vi->lock_flags &= (~lock_type);
-		mutex_unlock(&vi->lock_flag_io);
-
-		mutex_lock(&ve_debug_proc_info.lock_proc);
-		channel_id = ve_debug_proc_info.cur_channel_id;
-		if (copy_from_user(ve_debug_proc_info.proc_buf[channel_id],
-				   (void __user *)arg,
-				   ve_debug_proc_info.proc_len[channel_id])) {
-			cedar_ve_printk(KERN_WARNING, "IOCTL_COPY_PROC_INFO copy_from_user fail\n");
-			ret = -EFAULT;
-		}
-		mutex_unlock(&ve_debug_proc_info.lock_proc);
+		VE_LOGW("no need implement the cmd, just call IOCTL_SET_PROC_INFO");
 		break;
 	}
 	case IOCTL_STOP_PROC_INFO: {
-		unsigned char channel_id;
+		unsigned int channel_id = (unsigned int)arg;
 
-		if (ve_debugfs_root == NULL)
-			return 0;
-
-		channel_id = arg;
-
-		mutex_lock(&ve_debug_proc_info.lock_proc);
-		if (1 == ve_debug_proc_info.flag) {
-			cedar_ve_printk(KERN_INFO, "VE does not reset proc_buf, flag:%d\n", ve_debug_proc_info.flag);
-		} else {
-			ve_debug_proc_info.proc_buf[channel_id] = NULL;
-		}
-		mutex_unlock(&ve_debug_proc_info.lock_proc);
-
-		break;
+		mutex_lock(&ve_proc_mgr.lock_proc);
+		ret = stop_proc_info(channel_id);
+		mutex_unlock(&ve_proc_mgr.lock_proc);
+		return ret;
 	}
 	case IOCTL_RELEASE_LOCK: {
 		int lock_ctl_ret = 0;
@@ -1693,6 +2021,22 @@ static long compat_cedardev_ioctl(struct file *filp, unsigned int cmd, unsigned 
 		} while (0);
 		return lock_ctl_ret;
 	}
+
+	case IOCTL_ALLOC_PAGES_BUF: {
+		ret = alloc_page_buf(arg, 1);
+		return ret;
+	}
+
+	case IOCTL_REC_PAGES_BUF: {
+		ret = rec_page_buf(arg, 1);
+		return ret;
+	}
+
+	case IOCTL_FREE_PAGES_BUF: {
+		ret = free_page_buf(arg, 1);
+		return ret;
+	}
+
 	case IOCTL_GET_IOMMU_ADDR: {
 		int ret, i;
 		struct sg_table *sgt, *sgt_bak;
@@ -1941,6 +2285,13 @@ static int cedardev_open(struct inode *inode, struct file *filp)
 	mutex_init(&info->lock_flag_io);
 	info->lock_flags = 0;
 
+	mutex_lock(&ve_proc_mgr.lock_proc);
+	if (ve_proc_mgr.ref_cnt == 0)
+		reset_proc_info();
+
+	ve_proc_mgr.ref_cnt++;
+	mutex_unlock(&ve_proc_mgr.lock_proc);
+
 #if SUPPORT_CSI_RESET_CALLBCAK
 	VE_LOGW("register csi_reset callbakc\n");
 	vin_isp_reset_done_callback(0, online_csi_reset_callback);
@@ -2020,9 +2371,6 @@ static int cedardev_release(struct inode *inode, struct file *filp)
 		if (info->lock_flags & VE_LOCK_04_REG)
 			mutex_unlock(&cedar_devp->lock_04_reg);
 
-		if (info->lock_flags & VE_LOCK_PROC_INFO)
-			mutex_unlock(&ve_debug_proc_info.lock_proc);
-
 		info->lock_flags = 0;
 	}
 
@@ -2052,6 +2400,10 @@ static int cedardev_release(struct inode *inode, struct file *filp)
 		cedar_devp->jpeg_irq_flag = 1;
 	}
 	up(&cedar_devp->sem);
+
+	mutex_lock(&ve_proc_mgr.lock_proc);
+	ve_proc_mgr.ref_cnt--;
+	mutex_unlock(&ve_proc_mgr.lock_proc);
 
 	kfree(info);
 	return 0;
@@ -2104,11 +2456,19 @@ static int cedardev_mmap(struct file *filp, struct vm_area_struct *vma)
 }
 
 #ifdef CONFIG_PM
+
+#if defined CONFIG_VE_SUPPORT_RPM
+static int snd_sw_cedar_suspend(struct device *dev)
+#else
 static int snd_sw_cedar_suspend(struct platform_device *pdev, pm_message_t state)
+#endif
 {
 	int ret = 0;
 
-	printk("[cedar] standby suspend\n");
+#if defined CONFIG_VE_SUPPORT_RPM
+	VE_LOGD("[cedar] standby suspend");
+	pm_runtime_put_sync(dev);
+#endif
 	ret = disable_cedar_hw_clk();
 
 #if defined CONFIG_ARCH_SUN9IW1P1
@@ -2123,11 +2483,18 @@ static int snd_sw_cedar_suspend(struct platform_device *pdev, pm_message_t state
 	return 0;
 }
 
+#if defined CONFIG_VE_SUPPORT_RPM
+static int snd_sw_cedar_resume(struct device *dev)
+#else
 static int snd_sw_cedar_resume(struct platform_device *pdev)
+#endif
 {
 	int ret = 0;
 
-	printk("[cedar] standby resume\n");
+#if defined CONFIG_VE_SUPPORT_RPM
+	VE_LOGD("[cedar] standby resume");
+	pm_runtime_get_sync(dev);
+#endif
 
 #if defined CONFIG_ARCH_SUN9IW1P1
 	clk_prepare_enable(ve_power_gating);
@@ -2144,6 +2511,9 @@ static int snd_sw_cedar_resume(struct platform_device *pdev)
 	}
 	return 0;
 }
+#if defined CONFIG_VE_SUPPORT_RPM
+static SIMPLE_DEV_PM_OPS(sunxi_cedar_pm_ops, snd_sw_cedar_suspend, snd_sw_cedar_resume);
+#endif
 #endif
 
 static const struct file_operations cedardev_fops = {
@@ -2158,115 +2528,71 @@ static const struct file_operations cedardev_fops = {
 #endif
 };
 
-static ssize_t ve_info_show(struct device *dev,
-			    struct device_attribute *attr, char *buf)
-{
-	ssize_t count  = 0;
-	int i	  = 0;
-	int nTotalSize = 0;
-
-	/* VE_LOGD("show: buf = %p\n",buf); */
-
-	count += sprintf(buf + count, "********* ve proc info **********\n");
-
-	mutex_lock(&cedar_devp->lock_debug_info);
-	for (i = 0; i < MAX_VE_DEBUG_INFO_NUM; i++) {
-		if (cedar_devp->debug_info[i].head_info.pid != 0 && cedar_devp->debug_info[i].head_info.tid != 0) {
-			nTotalSize += cedar_devp->debug_info[i].head_info.length;
-
-#if 0
-			VE_LOGD("cpy-show: i = %d, size = %d, total size = %d, data = %p, cout = %d, id = %d, %d\n",
-					i,
-					cedar_devp->debug_info[i].head_info.length,
-					nTotalSize,
-					cedar_devp->debug_info[i].data, (int)count,
-					cedar_devp->debug_info[i].head_info.pid,
-					cedar_devp->debug_info[i].head_info.tid);
-#endif
-
-			if (nTotalSize > PAGE_SIZE)
-				break;
-
-			memcpy(buf + count, cedar_devp->debug_info[i].data,
-			       cedar_devp->debug_info[i].head_info.length);
-
-			count += cedar_devp->debug_info[i].head_info.length;
-		}
-	}
-
-	mutex_unlock(&cedar_devp->lock_debug_info);
-	/*VE_LOGD("return count = %d\n",(int)count);*/
-	return count;
-}
-
-static DEVICE_ATTR(ve_info, 0664, ve_info_show, NULL);
-
-static struct attribute *ve_attributes[] = {
-	&dev_attr_ve_info.attr,
-	NULL
-};
-
-static struct attribute_group ve_attribute_group = {
-	.name  = "attr",
-	.attrs = ve_attributes
-};
 static int ve_debugfs_open(struct inode *inode, struct file *file)
 {
-	int i = 0;
-	char *pData;
-	struct ve_debugfs_proc *pVeProc;
-
-	pVeProc = kmalloc(sizeof(struct ve_debugfs_proc), GFP_KERNEL);
-	if (pVeProc == NULL) {
-		VE_LOGE("kmalloc pVeProc fail\n");
-		return -ENOMEM;
-	}
-	pVeProc->len = 0;
-	memset(pVeProc->data, 0, VE_DEBUGFS_BUF_SIZE * VE_DEBUGFS_MAX_CHANNEL);
-
-	pData = pVeProc->data;
-	mutex_lock(&ve_debug_proc_info.lock_proc);
-	for (i = 0; i < VE_DEBUGFS_MAX_CHANNEL; i++) {
-		if (ve_debug_proc_info.proc_buf[i] != NULL) {
-			memcpy(pData, ve_debug_proc_info.proc_buf[i],
-			       ve_debug_proc_info.proc_len[i]);
-			pData += ve_debug_proc_info.proc_len[i];
-			pVeProc->len += ve_debug_proc_info.proc_len[i];
-		}
-	}
-	mutex_unlock(&ve_debug_proc_info.lock_proc);
-
-	file->private_data = pVeProc;
+	/* do nothing */
 	return 0;
 }
 
 static ssize_t ve_debugfs_read(struct file *file, char __user *user_buf,
 			       size_t nbytes, loff_t *ppos)
 {
-	struct ve_debugfs_proc *pVeProc = file->private_data;
+	int i = 0;
+	int read_size = 0;
+	unsigned char *src_data = NULL;
+	unsigned int   src_size = 0;
+	unsigned int   had_proc_data = 0;
 
-	if (pVeProc->len == 0) {
-		VE_LOGD("there is no any codec working currently.\n");
-		mutex_lock(&ve_debug_proc_info.lock_proc);
-		if (0 == ve_debug_proc_info.flag) {
-			VE_LOGD("Usage: \n"
-				"[1] If you want to restore defaults, please type this cmd: \n"
-				"	 echo 0 > /sys/kernel/debug/mpp/ve \n"
-				"[2] If you want to view debugging info after app finish, please type this cmd before app start: \n"
-				"	 echo 1 > /sys/kernel/debug/mpp/ve \n"
-				"[3] TODO. \n");
-		} else if (1 == ve_debug_proc_info.flag) {
-			VE_LOGD("Please run app first. \n");
-		} else {
-			VE_LOGD("Invalid flag: %d, Future support. \n", ve_debug_proc_info.flag);
-		}
-		mutex_unlock(&ve_debug_proc_info.lock_proc);
+	VE_LOGI("***** nbytes = %d, ppos = %d", nbytes, *ppos);
+
+	if ((*ppos) > 0) {
+		VE_LOGI("**had read once, ppos = %d", *ppos);
 		return 0;
 	}
 
-	return simple_read_from_buffer(user_buf, nbytes, ppos, pVeProc->data,
-				       pVeProc->len);
+	mutex_lock(&ve_proc_mgr.lock_proc);
+	for (i = 0; i < VE_DEBUGFS_MAX_CHANNEL; i++) {
+		if (ve_proc_mgr.ch_proc_mgr[i].proc_info.base_info_data) {
+			src_data = ve_proc_mgr.ch_proc_mgr[i].proc_info.base_info_data;
+			src_size = ve_proc_mgr.ch_proc_mgr[i].proc_info.base_info_size;
+			if ((read_size + src_size) > nbytes) {
+				/* had no enought buffer to read proc_info data*/
+				VE_LOGW("read proc info: no enought buffer, max_size = %d, cur_total_size = %d",
+						(int)nbytes, (int)(read_size + src_size));
+				break;
+			}
+
+			*ppos = 0;
+			read_size += simple_read_from_buffer(user_buf + read_size, nbytes, ppos, src_data, src_size);
+			had_proc_data = 1;
+		}
+	}
+	*ppos = read_size;
+	VE_LOGI("max_size = %d, read_size = %d", nbytes, read_size);
+
+	if (had_proc_data == 0) {
+		VE_LOGD("there is no any codec working currently.\n");
+
+		if (ve_proc_mgr.flag == 0) {
+			VE_LOGD("Usage:\n"
+				"[1] If you want to restore defaults, please type this cmd:\n"
+				"	 echo 0 > /sys/kernel/debug/mpp/ve\n"
+				"[2] If you want to view debugging info after app finish, please type this cmd before app start:\n"
+				"	 echo 1 > /sys/kernel/debug/mpp/ve\n"
+				"[3] TODO.\n");
+		} else if (ve_proc_mgr.flag == 1) {
+			VE_LOGD("Please run app first.\n");
+		} else {
+			VE_LOGD("Invalid flag: %d, Future support.\n", ve_proc_mgr.flag);
+		}
+		mutex_unlock(&ve_proc_mgr.lock_proc);
+		return 0;
+	}
+	mutex_unlock(&ve_proc_mgr.lock_proc);
+
+	return read_size;
 }
+
 
 static ssize_t ve_debugfs_write(struct file *file, const char __user *user_buf,
 				size_t nbytes, loff_t *ppos)
@@ -2285,30 +2611,49 @@ static ssize_t ve_debugfs_write(struct file *file, const char __user *user_buf,
 		VE_LOGE("copy_from_user fail\n");
 		return 0;
 	}
+#if defined CONFIG_VIDEO_RT_MEDIA
+	int i = 0;
+	char *s_loglevel[LOGLEVEL_NUM] = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"};
+	char *c_loglevel = NULL;
+	if (strstr(info, "log") != NULL) {
+		for (i = 0; i < LOGLEVEL_NUM; i++) {
+			c_loglevel = strstr(info, s_loglevel[i]);
+			if (c_loglevel != NULL) {
+				ret = kstrtoint(c_loglevel, 10, &debug_fs_set_log_level);
+				if (ret) {
+					debug_fs_set_log_level = 0;
+					VE_LOGE("kstrtoint fail, ret=%d\n", ret);
+					return 0;
+				}
+				VE_LOGD("set debug_fs_set_log_level %d", debug_fs_set_log_level);
+				break;
+			}
+		}
+		if (i >= LOGLEVEL_NUM)
+			VE_LOGD("not find loglevel");
+	} else
+#endif
+	{
+		ret = kstrtoint(info, 10, &val);
+		if (ret) {
+			VE_LOGE("kstrtoint fail, ret=%d\n", ret);
+			return 0;
+		}
 
-	ret = kstrtoint(info, 10, &val);
-	if (ret) {
-		VE_LOGE("kstrtoint fail, ret=%d\n", ret);
-		return 0;
+		mutex_lock(&ve_proc_mgr.lock_proc);
+		ve_proc_mgr.flag = val;
+		VE_LOGD("debugfs write flag:%d (0:default, 1:view debugging info after app finish, other:TODO)\n",
+			ve_proc_mgr.flag);
+		mutex_unlock(&ve_proc_mgr.lock_proc);
 	}
 
-	mutex_lock(&ve_debug_proc_info.lock_proc);
-	ve_debug_proc_info.flag = val;
-	VE_LOGD("debugfs write flag:%d (0:default, 1:view debugging info after app finish, other:TODO)\n",
-		ve_debug_proc_info.flag);
-	mutex_unlock(&ve_debug_proc_info.lock_proc);
 
 	return nbytes;
 }
 
 static int ve_debugfs_release(struct inode *inode, struct file *file)
 {
-	struct ve_debugfs_proc *pVeProc = file->private_data;
-
-	kfree(pVeProc);
-	pVeProc		   = NULL;
 	file->private_data = NULL;
-
 	return 0;
 }
 
@@ -2320,6 +2665,136 @@ static const struct file_operations ve_debugfs_fops = {
 	.write   = ve_debugfs_write,
 	.release = ve_debugfs_release,
 };
+
+static int ve_debugfs_advance_open(struct inode *inode, struct file *file)
+{
+	/* do nothing */
+	return 0;
+}
+
+static ssize_t ve_debugfs_advance_read(struct file *file, char __user *user_buf,
+			       size_t nbytes, loff_t *ppos)
+{
+	int i = 0;
+	int read_size = 0;
+	unsigned char *src_data = NULL;
+	unsigned int   src_size = 0;
+	unsigned int   had_proc_data = 0;
+
+	VE_LOGI("***** nbytes = %d, ppos = %d", nbytes, *ppos);
+
+	if ((*ppos) > 0) {
+		VE_LOGI("**had read once, ppos = %d", *ppos);
+		return 0;
+	}
+
+	mutex_lock(&ve_proc_mgr.lock_proc);
+
+	for (i = 0; i < VE_DEBUGFS_MAX_CHANNEL; i++) {
+		if (ve_proc_mgr.ch_proc_mgr[i].proc_info.base_info_data) {
+
+			/*show base and advance proc info when advance_flag is 1*/
+			if (ve_proc_mgr.advance_flag == 1) {
+				src_data = ve_proc_mgr.ch_proc_mgr[i].proc_info.base_info_data;
+				src_size = ve_proc_mgr.ch_proc_mgr[i].proc_info.base_info_size;
+				if ((read_size + src_size) > nbytes) {
+					/* had no enought buffer to read proc_info data*/
+					VE_LOGW("read proc info: no enought buffer, max_size = %d, cur_total_size = %d",
+						(int)nbytes, (int)(read_size + src_size));
+					break;
+				}
+
+				*ppos = 0;
+				read_size += simple_read_from_buffer(user_buf + read_size, nbytes, ppos, src_data, src_size);
+			}
+
+			src_data = ve_proc_mgr.ch_proc_mgr[i].proc_info.advance_info_data;
+			src_size = ve_proc_mgr.ch_proc_mgr[i].proc_info.advance_info_size;
+			if ((read_size + src_size) > nbytes) {
+				/* had no enought buffer to read proc_info data*/
+				VE_LOGW("read proc info: no enought buffer, max_size = %d, cur_total_size = %d",
+						(int)nbytes, (int)(read_size + src_size));
+				break;
+			}
+
+			*ppos = 0;
+			read_size += simple_read_from_buffer(user_buf + read_size, nbytes, ppos, src_data, src_size);
+			had_proc_data = 1;
+		}
+	}
+	*ppos = read_size;
+	VE_LOGI("max_size = %d, read_size = %d", nbytes, read_size);
+
+	if (had_proc_data == 0) {
+		VE_LOGD("there is no any codec working currently.\n");
+		if (ve_proc_mgr.flag == 0) {
+			VE_LOGD("Usage:\n"
+				"[1] If you want to restore defaults, please type this cmd:\n"
+				"	 echo 0 > /sys/kernel/debug/mpp/ve\n"
+				"[2] If you want to view debugging info after app finish, please type this cmd before app start:\n"
+				"	 echo 1 > /sys/kernel/debug/mpp/ve\n"
+				"[3] TODO.\n");
+		} else if (ve_proc_mgr.flag == 1)
+			VE_LOGD("Please run app first.\n");
+		else
+			VE_LOGD("Invalid flag: %d, Future support.\n", ve_proc_mgr.flag);
+
+		mutex_unlock(&ve_proc_mgr.lock_proc);
+		return 0;
+	}
+	mutex_unlock(&ve_proc_mgr.lock_proc);
+
+	return read_size;
+}
+
+static ssize_t ve_debugfs_advance_write(struct file *file, const char __user *user_buf,
+				size_t nbytes, loff_t *ppos)
+{
+	int val;
+	int ret;
+	char info[32];
+
+	if (nbytes >= 32) {
+		VE_LOGE("invalid params, nbytes=%zu(>=32)\n", nbytes);
+		return 0;
+	}
+
+	memset(info, 0, 32);
+	if (copy_from_user(info, user_buf, nbytes)) {
+		VE_LOGE("copy_from_user fail\n");
+		return 0;
+	}
+
+	ret = kstrtoint(info, 10, &val);
+	if (ret) {
+		VE_LOGE("kstrtoint fail, ret=%d\n", ret);
+		return 0;
+	}
+
+	mutex_lock(&ve_proc_mgr.lock_proc);
+	ve_proc_mgr.advance_flag = val;
+	VE_LOGD("debugfs write advance flag:%d (when cat ve_advance, 0: just show advance info, 1: show base and advance info)\n",
+			ve_proc_mgr.advance_flag);
+	mutex_unlock(&ve_proc_mgr.lock_proc);
+
+	return nbytes;
+}
+
+static int ve_debugfs_advance_release(struct inode *inode, struct file *file)
+{
+	file->private_data = NULL;
+	return 0;
+}
+
+static const struct file_operations ve_debugfs_advance_fops = {
+	.owner   = THIS_MODULE,
+	.open    = ve_debugfs_advance_open,
+	.llseek  = no_llseek,
+	.read    = ve_debugfs_advance_read,
+	.write   = ve_debugfs_advance_write,
+	.release = ve_debugfs_advance_release,
+};
+
 
 int sunxi_ve_debug_register_driver(void)
 {
@@ -2334,8 +2809,17 @@ int sunxi_ve_debug_register_driver(void)
 		return -ENOENT;
 	}
 
-	dent = debugfs_create_file("ve", 0644, ve_debugfs_root,
+	dent = debugfs_create_file("ve_base", 0644, ve_debugfs_root,
 				   NULL, &ve_debugfs_fops);
+	if (IS_ERR_OR_NULL(dent)) {
+		VE_LOGE("Unable to create debugfs status file.\n");
+		debugfs_remove_recursive(ve_debugfs_root);
+		ve_debugfs_root = NULL;
+		return -ENODEV;
+	}
+
+	dent = debugfs_create_file("ve_advance", 0644, ve_debugfs_root,
+				   NULL, &ve_debugfs_advance_fops);
 	if (IS_ERR_OR_NULL(dent)) {
 		VE_LOGE("Unable to create debugfs status file.\n");
 		debugfs_remove_recursive(ve_debugfs_root);
@@ -2435,7 +2919,6 @@ static void set_system_register(void)
 static int cedardev_init(struct platform_device *pdev)
 {
 	int ret = 0;
-	int i   = 0;
 	int devno;
 
 #if defined(CONFIG_OF)
@@ -2473,6 +2956,8 @@ static int cedardev_init(struct platform_device *pdev)
 		return -ENOMEM;
 	}
 	memset(cedar_devp, 0, sizeof(struct cedar_dev));
+
+	AW_MEM_INIT_LIST_HEAD(&cedar_devp->page_buf_list);
 
 	cedar_devp->platform_dev = &pdev->dev;
 
@@ -2539,7 +3024,7 @@ static int cedardev_init(struct platform_device *pdev)
 	if ((!ve_parent_pll_clk) || IS_ERR(ve_parent_pll_clk))
 		cedar_ve_printk(KERN_WARNING, "get ve_parent_pll_clk fail, maybe ok!\n");
 
-#if defined(CONFIG_ARCH_SUN8IW19P1)
+#if defined(CONFIG_ARCH_SUN8IW19P1) || defined (CONFIG_ARCH_SUN8IW21P1)
 	if (clk_set_parent(ve_moduleclk, ve_parent_pll_clk))
 		cedar_ve_printk(KERN_WARNING, "set ve clk and parent clk failed;\n");
 #endif
@@ -2548,6 +3033,9 @@ static int cedardev_init(struct platform_device *pdev)
 	/*no reset ve module*/
 	sunxi_periph_reset_assert(ve_moduleclk);
 	clk_prepare(ve_moduleclk);
+	/*setup init ve freq to fix error when parent clk is big, such as 1.2 GHz*/
+	/*just set low ve freq as init, it will reset by user-caller*/
+	clk_set_rate(ve_moduleclk, CEDAR_VE_INIT_FREQ*1000000);
 
 	/* Create char device */
 	devno = MKDEV(g_dev_major, g_dev_minor);
@@ -2571,36 +3059,17 @@ static int cedardev_init(struct platform_device *pdev)
 	mutex_init(&cedar_devp->lock_04_reg);
 	mutex_init(&cedar_devp->lock_mem);
 
-	mutex_init(&cedar_devp->lock_debug_info);
-	ret = sysfs_create_group(&cedar_devp->dev->kobj,
-				 &ve_attribute_group);
 	if (ret)
 		cedar_ve_printk("ve sysfs_create_group fail!\n");
 
 	ret = sunxi_ve_debug_register_driver();
-	if (ret) {
+	if (ret)
 		VE_LOGW("sunxi ve debug register driver failed, maybe ok, please check\n");
-	} else {
-		memset(&ve_debug_proc_info, 0,
-		       sizeof(struct ve_debugfs_buffer));
-		for (i				       = 0; i < VE_DEBUGFS_MAX_CHANNEL; i++)
-			ve_debug_proc_info.proc_buf[i] = NULL;
 
-		ve_debug_proc_info.data =
-			kmalloc(VE_DEBUGFS_BUF_SIZE * VE_DEBUGFS_MAX_CHANNEL,
-				GFP_KERNEL);
-		if (!ve_debug_proc_info.data) {
-			VE_LOGE("kmalloc proc buffer failed!\n");
-			return -ENOMEM;
-		}
-		ve_debug_proc_info.flag = 1; /* default: view debugging info after app finish. */
-		mutex_init(&ve_debug_proc_info.lock_proc);
-		VE_LOGD("ve_debug_proc_info:%p, data:%p, lock:%p, flag: %d\n",
-			&ve_debug_proc_info,
-			ve_debug_proc_info.data,
-			&ve_debug_proc_info.lock_proc,
-			ve_debug_proc_info.flag);
-	}
+	memset(&ve_proc_mgr, 0, sizeof(struct ve_debugfs_proc_info_manager));
+	mutex_init(&ve_proc_mgr.lock_proc);
+	ve_proc_mgr.flag = 1; /* default: view debugging info after app finish. */
+	VE_LOGD("ve_proc_mgr: flag = %d\n", ve_proc_mgr.flag);
 
 	VE_LOGD("install end!!!\n");
 	return 0;
@@ -2637,7 +3106,7 @@ static void cedardev_exit(void)
 	}
 
 #if defined CONFIG_ARCH_SUN9IW1P1
-	regulator_put(regu);
+		regulator_put(regu);
 
 	if (NULL == ve_power_gating || IS_ERR(ve_power_gating)) {
 		cedar_ve_printk(KERN_WARNING, "ve_power_gating handle is invalid,just return!\n");
@@ -2649,30 +3118,43 @@ static void cedardev_exit(void)
 #endif
 
 	unregister_chrdev_region(dev, 1);
-	for (i = 0; i < MAX_VE_DEBUG_INFO_NUM; i++) {
-		VE_LOGW("debug_info[%d].data = %p", i, cedar_devp->debug_info[i].data);
-
-		if (cedar_devp->debug_info[i].data != NULL) {
-			VE_LOGW("vfree : debug_info[%d].data = %p", i, cedar_devp->debug_info[i].data);
-			vfree(cedar_devp->debug_info[i].data);
-		}
-	}
 	if (cedar_devp) {
 		kfree(cedar_devp);
 	}
 
 	sunxi_ve_debug_unregister_driver();
-	kfree(ve_debug_proc_info.data);
+
+	for (i = 0; i < MAX_VE_DEBUG_INFO_NUM; i++) {
+		if (ve_proc_mgr.ch_proc_mgr[i].proc_info.base_info_data != NULL)
+			vfree(ve_proc_mgr.ch_proc_mgr[i].proc_info.base_info_data);
+
+		if (ve_proc_mgr.ch_proc_mgr[i].proc_info.advance_info_data != NULL)
+			vfree(ve_proc_mgr.ch_proc_mgr[i].proc_info.advance_info_data);
+	}
+	mutex_destroy(&ve_proc_mgr.lock_proc);
+
 }
 
 static int sunxi_cedar_remove(struct platform_device *pdev)
 {
+#if defined CONFIG_VE_SUPPORT_RPM
+	VE_LOGD("sunxi_cedar_remove!!!");
+	pm_runtime_disable(&pdev->dev);
+#endif
 	cedardev_exit();
 	return 0;
 }
 
 static int sunxi_cedar_probe(struct platform_device *pdev)
 {
+#if defined CONFIG_VE_SUPPORT_RPM
+	VE_LOGD("sunxi_cedar_probe power-domain init!!!");
+	//add for R528 sleep and awaken
+	pm_runtime_set_active(&pdev->dev);
+	pm_runtime_enable(&pdev->dev);
+	pm_runtime_get_sync(&pdev->dev);
+#endif
+
 	cedardev_init(pdev);
 	return 0;
 }
@@ -2680,11 +3162,14 @@ static int sunxi_cedar_probe(struct platform_device *pdev)
 static struct platform_driver sunxi_cedar_driver = {
 	.probe  = sunxi_cedar_probe,
 	.remove = sunxi_cedar_remove,
-#if defined(CONFIG_PM)
+#if defined(CONFIG_PM) && !defined CONFIG_VE_SUPPORT_RPM
 	.suspend = snd_sw_cedar_suspend,
 	.resume  = snd_sw_cedar_resume,
 #endif
 	.driver = {
+	#if defined CONFIG_VE_SUPPORT_RPM
+		.pm	= &sunxi_cedar_pm_ops,
+	#endif
 		.name  = "sunxi-cedar",
 		.owner = THIS_MODULE,
 

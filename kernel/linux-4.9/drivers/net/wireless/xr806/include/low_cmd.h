@@ -24,4 +24,12 @@ void xradio_low_cmd_deinit(void *priv);
 int xradio_low_cmd_push(u8 *buff, u32 len);
 
 int xraido_low_cmd_dev_hand_way(void);
+
+#define KEEP_ALIVE_USE_TIMER 1
+#if KEEP_ALIVE_USE_TIMER
+void xradio_keep_alive_update_tx_status(int value);
+#endif
+typedef void (*kp_timeout_cb)(void);
+
+int xradio_keep_alive(kp_timeout_cb cb);
 #endif

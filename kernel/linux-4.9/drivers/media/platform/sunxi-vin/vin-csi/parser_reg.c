@@ -110,9 +110,24 @@ void csic_prs_ncsi_if_cfg(unsigned int sel, struct prs_ncsi_if_cfg *if_cfg)
 		PRS_NCSIC_IF_FIELD_POL_MASK,
 		if_cfg->field << PRS_NCSIC_IF_FIELD_POL);
 
+#ifndef PARSER_MULTI_CH_SRC_TYPE
 	vin_reg_clr_set(csic_prs_base[sel] + PRS_NCSIC_IF_CFG_REG_OFF,
 		PRS_NCSIC_IF_SRC_TYPE_MASK,
 		if_cfg->type << PRS_NCSIC_IF_SRC_TYPE);
+#else
+	vin_reg_clr_set(csic_prs_base[sel] + PRS_NCSIC_IF_CFG_REG_OFF,
+		PRS_NCSIC_IF_CH0_SRC_TYPE_MASK,
+		if_cfg->type << PRS_NCSIC_IF_CH0_SRC_TYPE);
+	vin_reg_clr_set(csic_prs_base[sel] + PRS_NCSIC_IF_CFG_REG_OFF,
+		PRS_NCSIC_IF_CH1_SRC_TYPE_MASK,
+		if_cfg->type << PRS_NCSIC_IF_CH1_SRC_TYPE);
+	vin_reg_clr_set(csic_prs_base[sel] + PRS_NCSIC_IF_CFG_REG_OFF,
+		PRS_NCSIC_IF_CH2_SRC_TYPE_MASK,
+		if_cfg->type << PRS_NCSIC_IF_CH2_SRC_TYPE);
+	vin_reg_clr_set(csic_prs_base[sel] + PRS_NCSIC_IF_CFG_REG_OFF,
+		PRS_NCSIC_IF_CH3_SRC_TYPE_MASK,
+		if_cfg->type << PRS_NCSIC_IF_CH3_SRC_TYPE);
+#endif
 
 	vin_reg_clr_set(csic_prs_base[sel] + PRS_NCSIC_IF_CFG_REG_OFF,
 		PRS_NCSIC_IF_DDR_SAMPLE_MODE_MASK,

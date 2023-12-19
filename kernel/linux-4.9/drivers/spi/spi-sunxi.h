@@ -262,4 +262,6 @@ enum {
 	DEBUG_INFO4   = 1U << 7,
 };
 
+void sunxi_spi_update_sample_delay_para(struct mtd_info *mtd, struct spi_device *spi);
+
 #endif

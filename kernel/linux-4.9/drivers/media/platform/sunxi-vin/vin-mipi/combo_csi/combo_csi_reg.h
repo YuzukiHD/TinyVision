@@ -12,6 +12,7 @@
 
 #include "combo_csi_reg_i.h"
 #include "../protocol.h"
+#include "../../utility/bsp_common.h"
 
 #ifndef __COMBO_CSI_REG__H__
 #define __COMBO_CSI_REG__H__
@@ -130,6 +131,7 @@ struct combo_csi_cfg {
 	struct phy_lane_cfg phy_lane_cfg;
 	enum phy_link_mode phy_link_mode;
 	enum pkt_fmt mipi_datatype[MAX_MIPI_CH];
+	enum v4l2_field field[MAX_MIPI_CH];
 	unsigned char mipi_lane[MAX_LANE_NUM];
 	unsigned int vc[MAX_MIPI_CH];
 	unsigned int lane_num;
@@ -157,7 +159,7 @@ void cmb_phy_lane_num_en(unsigned int sel, struct phy_lane_cfg phy_lane_cfg);
 void cmb_phy0_work_mode(unsigned int sel, unsigned int mode);
 void cmb_phy0_ofscal_cfg(unsigned int sel);
 void cmb_phy_deskew_en(unsigned int sel, struct phy_lane_cfg phy_lane_cfg);
-void cmb_phy_deskew1_cfg(unsigned int sel);
+void cmb_phy_deskew1_cfg(unsigned int sel, unsigned int deskew, bool deskew_lane_cfg);
 void cmb_term_ctl(unsigned int sel, struct phy_lane_cfg phy_lane_cfg);
 void cmb_hs_ctl(unsigned int sel, struct phy_lane_cfg phy_lane_cfg);
 void cmb_s2p_ctl(unsigned int sel, unsigned int dly, struct phy_lane_cfg phy_lane_cfg);
@@ -176,7 +178,9 @@ unsigned char cmb_port_set_lane_map(unsigned int phy, unsigned int ch);
 void cmb_port_lane_map(unsigned int sel, unsigned char *mipi_lane);
 void cmb_port_mipi_cfg(unsigned int sel, enum cmb_mipi_yuv_seq seq);
 void cmb_port_set_mipi_datatype(unsigned int sel, struct combo_csi_cfg *combo_csi_cfg);
-void cmb_port_mipi_ch_trigger_en(unsigned int sel, unsigned int en);
+void cmb_port_mipi_ch_trigger_en(unsigned int sel, unsigned int ch, unsigned int en);
+void cmb_port_mipi_set_field(unsigned int sel, unsigned int total_rx_ch,
+			struct combo_csi_cfg *fmt);
 void cmb_port_set_mipi_wdr(unsigned int sel, unsigned int mode, unsigned int ch);
 
 #endif /*__COMBO_CSI_REG__H__*/

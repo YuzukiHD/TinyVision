@@ -1968,8 +1968,21 @@ tx:
 				tx = 1;
 				goto data_proc;
 			}
+		} else {
+			PERF_INFO_GETTIME(&sdio_reg_time);
+			atomic_xchg(&hw_priv->bh_rx, 0);
+			xradio_bh_read_ctrl_reg(hw_priv, &ctrl_reg);
+			++reg_read;
+			++sdio_reg_cnt1;
+			PERF_INFO_STAMP(&sdio_reg_time, &sdio_reg, 4);
+			if (ctrl_reg & HIF_CTRL_NEXT_LEN_MASK) {
+				DBG_INT_ADD(fix_miss_cnt);
+				rx = 1;
+				goto data_proc;
+			} else {
+				++sdio_reg_cnt5;
+			}
 		}
-
 
 #if 0
 		/*One more to check rx if reg has not be read. */

@@ -77,4 +77,5 @@ $(obj)/lkdtm_rodata_objcopy.o: $(obj)/lkdtm_rodata.o FORCE
 	$(call if_changed,objcopy)
 
 obj-$(CONFIG_SUNXI_RFKILL)      += sunxi-rf/
+obj-$(CONFIG_SUNXI_ADDR_MGT)    += sunxi-addr/
 obj-y				+= leds/

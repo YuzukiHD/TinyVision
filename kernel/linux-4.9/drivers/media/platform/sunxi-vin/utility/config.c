@@ -300,8 +300,11 @@ static int parse_sensor_list_info(struct sensor_list *sl, char *pos)
 		return -EINVAL;
 	}
 
-	/* sprintf(sensor_list_cfg, "/system/etc/hawkview/sensor_list_cfg.ini"); */
+#if (defined CONFIG_ANDROID) && (defined CONFIG_ANDROID_BINDER_IPC)
 	sprintf(sensor_list_cfg, "/vendor/etc/hawkview/sensor_list_cfg.ini");
+#else
+	sprintf(sensor_list_cfg, "/system/etc/hawkview/sensor_list_cfg.ini");
+#endif
 	vin_log(VIN_LOG_CONFIG, "Fetch %s sensor list form\"%s\"\n", pos, sensor_list_cfg);
 
 	cfg_section_init(&section);

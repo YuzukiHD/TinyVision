@@ -519,6 +519,7 @@ static void vin_subdev_ccu_en(struct v4l2_subdev *sd, unsigned int en)
 	case VIN_GRP_ID_MIPI:
 		mipi = (struct mipi_dev *)dev;
 		csic_ccu_mcsi_combo_clk_en(mipi->id/2, en);
+		break;
 	case VIN_GRP_ID_CSI:
 		csi = (struct csi_dev *)dev;
 		csic_ccu_mcsi_parser_clk_en(csi->id, en);
@@ -561,6 +562,7 @@ static void vin_md_set_power(struct vin_md *vind, int on)
 #if defined (CONFIG_ARCH_SUN50IW10P1) || defined (CONFIG_ARCH_SUN8IW21P1)
 			cmb_phy_top_enable();
 #endif
+			vind->sensor_power_on = false;
 			return;
 		}
 	}
@@ -681,6 +683,63 @@ static void vin_gpio_release(struct vin_md *vind)
 #endif
 }
 
+static int __vin_save_sensor_info(struct vin_md *vind)
+{
+#ifdef CONFIG_VIN_INIT_MELIS
+	struct modules_config *module = NULL;
+	struct sensor_list *sensors = NULL;
+	int ret = 0;
+	unsigned int i;
+	void *vaddr = NULL;
+	struct isp_autoflash_config_s *isp_autoflash_cfg = NULL;
+	unsigned int map_addr = 0;
+	unsigned int check_sign = 0;
+	loff_t to;
+
+	for (i = 0; i < VIN_MAX_DEV; i++) {
+		module = &vind->modules[i];
+		sensors = &vind->modules[i].sensors;
+
+		if (sensors->use_sensor_list != 1)
+			continue;
+
+		if (i == 0) {
+			map_addr = VIN_SENSOR0_RESERVE_ADDR;
+			to = ISP0_THRESHOLD_PARAM_OFFSET * 512;
+			check_sign = 0xAA22AA22;
+		} else {
+			map_addr = VIN_SENSOR1_RESERVE_ADDR;
+			to = ISP1_THRESHOLD_PARAM_OFFSET * 512;
+			check_sign = 0xBB22BB22;
+		}
+
+		vaddr = vin_map_kernel(map_addr, VIN_RESERVE_SIZE + VIN_THRESHOLD_PARAM_SIZE); /* map unit is page, page is align of 4k */
+		if (vaddr == NULL) {
+			vin_err("%s:map 0x%x paddr err!!!", __func__, map_addr);
+			ret = -EFAULT;
+			return ret;
+		}
+
+		isp_autoflash_cfg = (struct isp_autoflash_config_s *)(vaddr + VIN_RESERVE_SIZE);
+
+		/* check id */
+		if (isp_autoflash_cfg->sensorlist_sign_id != check_sign) {
+			vin_warn("%s:sign is 0x%x but not 0x%x\n", __func__, isp_autoflash_cfg->sensorlist_sign_id, check_sign);
+			vin_unmap_kernel(vaddr);
+			ret = -EINVAL;
+			return ret;
+		}
+
+		isp_write_nor_flash(to, VIN_THRESHOLD_PARAM_SIZE/2, 8*4, vaddr + VIN_RESERVE_SIZE + VIN_THRESHOLD_PARAM_SIZE/2);
+
+		vin_unmap_kernel(vaddr);
+	}
+	return ret;
+#else
+	return 0;
+#endif
+}
+
 static void __vin_pattern_config(struct vin_md *vind, struct vin_core *vinc, int on)
 {
 #ifdef SUPPORT_PTN //
@@ -722,7 +781,7 @@ static void __vin_pattern_onoff(struct vin_md *vind, struct vin_core *vinc, int 
 
 static int __vin_subdev_set_power(struct v4l2_subdev *sd, unsigned int idx, int on)
 {
-	__maybe_unused struct vin_md *vind;
+	__maybe_unused struct sensor_info *info = NULL;
 	int *use_count;
 	int ret;
 
@@ -742,15 +801,12 @@ static int __vin_subdev_set_power(struct v4l2_subdev *sd, unsigned int idx, int 
 
 #if defined CONFIG_VIN_INIT_MELIS
 	if (on && idx == VIN_IND_SENSOR) {
-		vind = entity_to_vin_mdev(&sd->entity);
-		if (vind == NULL) {
-			vin_err("vin media is NULL, cannot s_power\n");
-			return -ENODEV;
-		}
-
-		if (vind->sensor_power_on) {
-			vind->sensor_power_on = false;
-			return 0;
+		info = container_of(sd, struct sensor_info, sd);
+		if (info) {
+			if (info->first_power_flag) {
+				info->first_power_flag = 0;
+				return 0;
+			}
 		}
 	}
 #endif
@@ -843,6 +899,8 @@ static int __vin_pipeline_close(struct vin_pipeline *p)
 	if (vind)
 		vin_md_set_power(vind, 0);
 
+	__vin_save_sensor_info(vind);
+
 	return ret == -ENXIO ? 0 : ret;
 }
 
@@ -889,8 +947,13 @@ static int __vin_pipeline_s_stream(struct vin_pipeline *p, int on_idx)
 		{ VIN_IND_CAPTURE, VIN_IND_TDM_RX, VIN_IND_ISP, VIN_IND_SCALER, VIN_IND_CSI,
 			VIN_IND_MIPI, VIN_IND_SENSOR },/*offline*/
 		/*open*/
+#ifndef CONFIG_TDM_ONE_BUFFER_WITH_TWORX
 		{ VIN_IND_TDM_RX, VIN_IND_MIPI, VIN_IND_ISP, VIN_IND_SCALER,
 			VIN_IND_CAPTURE, VIN_IND_CSI, VIN_IND_SENSOR},
+#else
+		{ VIN_IND_MIPI, VIN_IND_SENSOR, VIN_IND_TDM_RX, VIN_IND_ISP,
+			VIN_IND_SCALER, VIN_IND_CAPTURE, VIN_IND_CSI},
+#endif
 		{ VIN_IND_TDM_RX, VIN_IND_SENSOR, VIN_IND_MIPI, VIN_IND_ISP,
 			VIN_IND_SCALER, VIN_IND_CAPTURE, VIN_IND_CSI},
 	};
@@ -1126,8 +1189,9 @@ static int __vin_subdev_unregister(struct v4l2_subdev *sd,
 	return 0;
 }
 
-static int __vin_handle_sensor_info(struct sensor_instance *inst)
+static int __vin_handle_sensor_info(unsigned int i, struct sensor_instance *inst)
 {
+#ifndef CONFIG_VIN_INIT_MELIS
 	if (inst->cam_type == SENSOR_RAW) {
 		inst->is_bayer_raw = 1;
 		inst->is_isp_used = 1;
@@ -1139,6 +1203,46 @@ static int __vin_handle_sensor_info(struct sensor_instance *inst)
 		inst->is_isp_used = 0;
 	}
 	return 0;
+#else
+	int ret = 0;
+	void *vaddr = NULL;
+	struct isp_autoflash_config_s *isp_autoflash_cfg = NULL;
+	unsigned int map_addr = 0;
+	unsigned int check_sign = 0;
+
+	if (i == 0) {
+		map_addr = VIN_SENSOR0_RESERVE_ADDR;
+		check_sign = 0xAA22AA22;
+	} else {
+		map_addr = VIN_SENSOR1_RESERVE_ADDR;
+		check_sign = 0xBB22BB22;
+	}
+
+	vaddr = vin_map_kernel(map_addr, VIN_RESERVE_SIZE + VIN_THRESHOLD_PARAM_SIZE); /* map unit is page, page is align of 4k */
+	if (vaddr == NULL) {
+		vin_err("%s:map 0x%x paddr err!!!", __func__, map_addr);
+		ret = -EFAULT;
+		goto ekzalloc;
+	}
+
+	isp_autoflash_cfg = (struct isp_autoflash_config_s *)(vaddr + VIN_RESERVE_SIZE);
+
+	/* check id */
+	if (isp_autoflash_cfg->sensorlist_sign_id != check_sign) {
+		vin_warn("%s:sign is 0x%x but not 0x%x\n", __func__, isp_autoflash_cfg->sensorlist_sign_id, check_sign);
+		ret = -EINVAL;
+		goto unmap;
+	}
+
+	strcpy(inst->cam_name, isp_autoflash_cfg->sensor_name);
+	inst->cam_addr = isp_autoflash_cfg->sensor_twi_addr;
+	vin_print("find melis detect sensor is %s, twi addr is 0x%x\n", inst->cam_name, inst->cam_addr);
+
+unmap:
+	vin_unmap_kernel(vaddr);
+ekzalloc:
+	return ret;
+#endif
 }
 
 static struct v4l2_subdev *__vin_register_module(struct vin_md *vind,
@@ -1276,7 +1380,7 @@ static int vin_md_register_entities(struct vin_md *vind,
 		sensors->valid_idx = NO_VALID_SENSOR;
 		for (j = 0; j < sensors->detect_num; j++) {
 			if (sensors->use_sensor_list == 1)
-				__vin_handle_sensor_info(&sensors->inst[j]);
+				__vin_handle_sensor_info(i, &sensors->inst[j]);
 
 			if (__vin_register_module(vind, module, j)) {
 				sensors->valid_idx = j;
@@ -1810,25 +1914,25 @@ static int vin_probe(struct platform_device *pdev)
 	vind_irq_request(vind, 0);
 #endif
 
-#if 0
+#if 1
 	for (num = 0; num < VIN_MAX_DEV; num++) {
 #ifdef CONFIG_FLASH_MODULE
 		vind->modules[num].modules.flash.type = VIN_MODULE_TYPE_GPIO;
 #endif
-		vind->modules[num].sensors.inst[0].cam_addr = i2c_addr;
-		strcpy(vind->modules[num].sensors.inst[0].cam_name, ccm);
+		vind->modules[num].sensors.inst[0].cam_addr = i2c0_addr;
+		strcpy(vind->modules[num].sensors.inst[0].cam_name, ccm0);
 		vind->modules[num].sensors.inst[0].act_addr = act_slave;
 		strcpy(vind->modules[num].sensors.inst[0].act_name, act_name);
 		vind->modules[num].sensors.use_sensor_list = use_sensor_list;
 		for (i = 0; i < MAX_GPIO_NUM; i++)
 			vind->modules[num].sensors.gpio[i].gpio = GPIO_INDEX_INVALID;
 	}
-#endif
+#else
 	vind->modules[0].sensors.inst[0].cam_addr = i2c0_addr;
 	strcpy(vind->modules[0].sensors.inst[0].cam_name, ccm0);
 	vind->modules[1].sensors.inst[0].cam_addr = i2c1_addr;
 	strcpy(vind->modules[1].sensors.inst[0].cam_name, ccm1);
-
+#endif
 	parse_modules_from_device_tree(vind);
 
 	for (num = 0; num < VIN_MAX_DEV; num++) {
@@ -2079,6 +2183,12 @@ static int __init vin_init(void)
 	ret = sunxi_vin_debug_register_driver();
 	if (ret) {
 		vin_err("Sunxi vin debug register driver failed!\n");
+		return ret;
+	}
+
+	ret = sunxi_isp_debug_register_driver();
+	if (ret) {
+		vin_err("Sunxi isp debug register driver failed!\n");
 		return ret;
 	}
 

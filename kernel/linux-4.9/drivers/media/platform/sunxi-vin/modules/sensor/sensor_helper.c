@@ -59,6 +59,10 @@ void sensor_cfg_req(struct v4l2_subdev *sd, struct sensor_config *cfg)
 	cfg->bin_factor = info->current_wins->bin_factor;
 	cfg->intg_min = info->current_wins->intg_min;
 	cfg->intg_max = info->current_wins->intg_max;
+	cfg->intg_mid_min = info->current_wins->intg_mid_min;
+	cfg->intg_mid_max = info->current_wins->intg_mid_max;
+	cfg->intg_short_min = info->current_wins->intg_short_min;
+	cfg->intg_short_max = info->current_wins->intg_short_max;
 	cfg->gain_min = info->current_wins->gain_min;
 	cfg->gain_max = info->current_wins->gain_max;
 	cfg->mbus_code = info->fmt->mbus_code;
@@ -99,6 +103,23 @@ unsigned int sensor_get_exp(struct v4l2_subdev *sd)
 	return exp_us;
 }
 EXPORT_SYMBOL_GPL(sensor_get_exp);
+
+void sensor_check_vblank(struct v4l2_subdev *sd)
+{
+#ifdef CONFIG_TDM_ONE_BUFFER
+	struct sensor_info *info = to_state(sd);
+
+	if (info->current_wins == NULL)
+		return;
+
+	if (info->current_wins->vts > info->current_wins->height) {
+		if ((info->current_wins->vts - info->current_wins->height) < (info->current_wins->height * 20 / 100))
+			vin_warn("use tdm one buffer must ensure sensor vblank >= 20%%\n");
+	} else
+		vin_warn("use tdm one buffer must ensure sensor vblank > 0\n");
+#endif
+}
+EXPORT_SYMBOL_GPL(sensor_check_vblank);
 
 #if defined CONFIG_ARCH_SUN8IW16P1
 static unsigned int __sensor_get_parameter(struct v4l2_subdev *sd, struct v4l2_mbus_config *cfg)
@@ -193,6 +214,123 @@ unsigned int sensor_get_clk(struct v4l2_subdev *sd, struct v4l2_mbus_config *cfg
 }
 EXPORT_SYMBOL_GPL(sensor_get_clk);
 #endif
+
+void sensor_get_resolution(struct v4l2_subdev *sd, struct sensor_resolution *sensor_resolution)
+{
+	struct sensor_info *info = to_state(sd);
+	struct sensor_win_size *ws = info->win_pt;
+	unsigned long rsl = 0, rsl_min = 0xffffffff, rsl_max = 0;
+	int i;
+
+	for (i = 0; i < info->win_size_num; ++i) {
+		rsl = ws->width * ws->height;
+
+		if (rsl > rsl_max) {
+			rsl_max = rsl;
+			sensor_resolution->width_max = ws->width;
+			sensor_resolution->height_max = ws->height;
+		}
+
+		if (rsl < rsl_min) {
+			rsl_min = rsl;
+			sensor_resolution->width_min = ws->width;
+			sensor_resolution->height_min = ws->height;
+		}
+
+		++ws;
+	}
+}
+EXPORT_SYMBOL_GPL(sensor_get_resolution);
+
+#if defined CONFIG_VIN_INIT_MELIS
+static void ir_hold(unsigned long data)
+{
+	struct sensor_info *info = (struct sensor_info *)data;
+	struct v4l2_subdev *sd = &info->sd;
+
+	//vin_gpio_set_status(sd, SM_HS, 1); /* ir gpio -cut*/
+	//vin_gpio_set_status(sd, SM_VS, 1); /* ir gpio +cut*/
+
+	vin_gpio_write(sd, SM_HS, CSI_GPIO_HIGH); /*hold ir*/
+	vin_gpio_write(sd, SM_VS, CSI_GPIO_HIGH);
+}
+#endif
+
+int sensor_set_ir(struct v4l2_subdev *sd, struct ir_switch *ir_switch)
+{
+#if defined CONFIG_VIN_INIT_MELIS
+	struct sensor_info *info = to_state(sd);
+
+	if (ir_switch->ir_hold) { /* boot0 set ir, kernel hold it */
+		if (ir_switch->ir_hold == 1) {
+			vin_gpio_set_status(sd, POWER_EN, 1); /* ir led */
+			vin_gpio_write(sd, POWER_EN, CSI_GPIO_LOW); /* lr led off */
+
+			vin_gpio_set_status(sd, SM_HS, 1); /* ir gpio -cut*/
+			vin_gpio_set_status(sd, SM_VS, 1); /* ir gpio +cut*/
+
+			vin_gpio_write(sd, SM_HS, CSI_GPIO_HIGH); /*hold ir*/
+			vin_gpio_write(sd, SM_VS, CSI_GPIO_HIGH);
+
+			info->ir_state = DAY_STATE;
+		} else if (ir_switch->ir_hold == 2) {
+			vin_gpio_set_status(sd, POWER_EN, 1); /* ir led */
+			vin_gpio_write(sd, POWER_EN, CSI_GPIO_HIGH); /* lr led on */
+
+			vin_gpio_set_status(sd, SM_HS, 1); /* ir gpio -cut*/
+			vin_gpio_set_status(sd, SM_VS, 1); /* ir gpio +cut*/
+
+			vin_gpio_write(sd, SM_HS, CSI_GPIO_HIGH); /*hold ir*/
+			vin_gpio_write(sd, SM_VS, CSI_GPIO_HIGH);
+
+			info->ir_state = NIGHT_STATE;
+		}
+	} else {
+		if (ir_switch->ir_flash_on == 1) {
+			vin_gpio_set_status(sd, POWER_EN, 1); /* ir led */
+			vin_gpio_write(sd, POWER_EN, CSI_GPIO_HIGH); /* lr led on */
+		} else if (ir_switch->ir_flash_on == 0) {
+			vin_gpio_set_status(sd, POWER_EN, 1); /* ir led */
+			vin_gpio_write(sd, POWER_EN, CSI_GPIO_LOW); /* lr led off */
+		}
+
+		if (!ir_switch->ir_on && (info->ir_state == NIGHT_STATE || info->ir_state == IDLE_STATE)) {
+			vin_gpio_set_status(sd, SM_HS, 1); /* ir gpio -cut*/
+			vin_gpio_set_status(sd, SM_VS, 1); /* ir gpio +cut*/
+
+			vin_gpio_write(sd, SM_HS, CSI_GPIO_HIGH);
+			vin_gpio_write(sd, SM_VS, CSI_GPIO_LOW);
+
+			info->ir_state = DAY_STATE;
+		} else if (ir_switch->ir_on && (info->ir_state == DAY_STATE || info->ir_state == IDLE_STATE)) {
+			vin_gpio_set_status(sd, SM_HS, 1); /* ir gpio -cut*/
+			vin_gpio_set_status(sd, SM_VS, 1); /* ir gpio +cut*/
+
+			vin_gpio_write(sd, SM_HS, CSI_GPIO_LOW);
+			vin_gpio_write(sd, SM_VS, CSI_GPIO_HIGH);
+
+			info->ir_state = NIGHT_STATE;
+		} else
+			goto no_timer;
+
+		if (!info->init_timer) {
+			info->timer_for_ir.data = (unsigned long)info;
+			info->timer_for_ir.expires = jiffies + HZ / 5; /*200ms*/
+			info->timer_for_ir.function = ir_hold;
+			add_timer(&info->timer_for_ir);
+			info->init_timer = true;
+		} else {
+			mod_timer(&info->timer_for_ir, jiffies + HZ / 5);
+		}
+	}
+
+no_timer:
+	vin_print("hold:%d, flash:%d, ir:%d, ir_state:%s\n", ir_switch->ir_hold, ir_switch->ir_flash_on, ir_switch->ir_on,
+					info->ir_state == IDLE_STATE ? "idle" : (info->ir_state == DAY_STATE ? "day" : "night"));
+#endif
+	return 0;
+}
+EXPORT_SYMBOL_GPL(sensor_set_ir);
 
 int sensor_enum_mbus_code(struct v4l2_subdev *sd,
 				struct v4l2_subdev_pad_config *cfg,
@@ -427,6 +565,7 @@ static void sensor_fill_mbus_fmt(struct v4l2_subdev *sd,
 	res->res_wdr_mode = ws->wdr_mode;
 	res->res_lp_mode = ws->lp_mode;
 	res->res_time_hs = info->time_hs;
+	res->res_deskew = info->deskew;
 	if (info->isp_wdr_mode == ISP_DOL_WDR_MODE && info->wdr_time_hs)
 		res->res_time_hs = info->wdr_time_hs;
 }

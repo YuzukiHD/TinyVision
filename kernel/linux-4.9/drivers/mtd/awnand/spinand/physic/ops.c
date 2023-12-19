@@ -41,6 +41,45 @@ out:
 	return s & STATUS_BUSY ? -ETIMEDOUT : 0;
 }
 
+static int aw_spinand_chip_wait_agagin(struct aw_spinand_chip *chip,
+		unsigned char *status)
+{
+	unsigned long timeout = jiffies + msecs_to_jiffies(500 * 1000);
+	struct aw_spinand_chip_ops *ops = chip->ops;
+	unsigned char s = 0;
+	int ret;
+
+	do {
+		ret = ops->read_status(chip, &s);
+		if (ret)
+			return ret;
+
+		if (s & STATUS_BUSY)
+			continue;
+
+		ret = ops->read_status(chip, &s);
+		if (ret)
+			return ret;
+
+		if (!(s & STATUS_BUSY))
+			goto out;
+
+	} while (time_before(jiffies, timeout));
+
+	/*
+	 * Extra read, just in case the STATUS_READY bit has changed
+	 * since our last check
+	 */
+	ret = ops->read_status(chip, &s);
+	if (ret)
+		return ret;
+
+out:
+	if (status)
+		*status = s;
+	return s & STATUS_BUSY ? -ETIMEDOUT : 0;
+}
+
 static int aw_spinand_chip_reset(struct aw_spinand_chip *chip)
 {
 	int ret;
@@ -411,9 +450,16 @@ static int aw_spinand_chip_read_single_page(struct aw_spinand_chip *chip,
 	if (ret)
 		return ret;
 
-	ret = aw_spinand_chip_wait(chip, &status);
-	if (ret)
-		return ret;
+	/* Workaround for SkyHigh */
+	if (pinfo->NandID[0] == 0x01) {
+		ret = aw_spinand_chip_wait_agagin(chip, &status);
+		if (ret)
+			return ret;
+	} else {
+		ret = aw_spinand_chip_wait(chip, &status);
+		if (ret)
+			return ret;
+	}
 
 	ret = aw_spinand_chip_read_from_cache(chip, req);
 	if (ret)

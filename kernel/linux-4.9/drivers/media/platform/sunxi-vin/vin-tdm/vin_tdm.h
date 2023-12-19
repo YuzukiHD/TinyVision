@@ -139,6 +139,7 @@ struct tdm_dev {
 	enum tdm_state_t state;	/* enabling/disabling state */
 	struct mutex ioctl_lock; /* serialize private ioctl */
 	u32 stream_cnt;
+	u32 delay_init;
 #ifdef TDM_V200
 	struct tdm_work_status ws;
 	struct tdm_tx_cfg tx_cfg;

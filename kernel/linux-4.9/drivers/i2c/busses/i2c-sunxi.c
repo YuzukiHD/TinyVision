@@ -327,22 +327,18 @@ static void twi_clk_write_reg(struct sunxi_i2c *i2c, unsigned int reg_clk,
 		unsigned int mask_clk_m, unsigned int mask_clk_n)
 {
 	unsigned int reg_val = readl(i2c->base_addr + reg_clk);
-#if defined(CONFIG_ARCH_SUN50IW10)
 	unsigned int duty;
-#endif
 	dprintk(DEBUG_INFO2, "[i2c%d] reg_clk = 0x%x, clk_m = %u, clk_n = %u,"
 			"mask_clk_m = %x, mask_clk_n = %x\n", i2c->bus_num,
 			reg_clk, clk_m, clk_n, mask_clk_m, mask_clk_n);
 	if (reg_clk == TWI_DRIVER_BUSC) {
 		reg_val &= ~(mask_clk_m | mask_clk_n);
 		reg_val |= ((clk_m | (clk_n << 4)) << 8);
-#if defined(CONFIG_ARCH_SUN50IW10)
 		duty = TWI_DRV_CLK_DUTY;
 		if (sclk_freq > STANDDARD_FREQ)
 			reg_val |= duty;
 		else
 			reg_val &= ~duty;
-#endif
 		writel(reg_val, i2c->base_addr + reg_clk);
 		dprintk(DEBUG_INFO2, "[i2c%d] reg: 0x%x value: 0x%x\n",
 				i2c->bus_num, reg_clk,
@@ -350,13 +346,11 @@ static void twi_clk_write_reg(struct sunxi_i2c *i2c, unsigned int reg_clk,
 	} else {
 		reg_val &= ~(mask_clk_m | mask_clk_n);
 		reg_val |= ((clk_m  << 3) | clk_n);
-#if defined(CONFIG_ARCH_SUN50IW10)
 		duty = TWI_CLK_DUTY;
 		if (sclk_freq > STANDDARD_FREQ)
 			reg_val |= duty;
 		else
 			reg_val &= ~duty;
-#endif
 		writel(reg_val, i2c->base_addr + reg_clk);
 		dprintk(DEBUG_INFO2, "[i2c%d] reg: 0x%x value: 0x%x\n",
 				i2c->bus_num, reg_clk,
@@ -1840,6 +1834,74 @@ static int sunxi_i2c_xfer_complete(struct sunxi_i2c *i2c, int code)
 	return ret;
 }
 
+/*
+ * i2c controller soft_reset can only clear flag bit inside of ip, include the
+ * state machine parameters, counters, various flags, fifo, fifo-cnt.
+ *
+ * But the internal configurations or external register configurations of ip
+ * will not be changed.
+ */
+static inline void sunxi_i2c_soft_reset(struct sunxi_i2c *i2c)
+{
+	u32 reg_val, reg, mask;
+
+	if (i2c->twi_drv_used) {
+		reg = TWI_DRIVER_CTRL;
+		mask = SOFT_RESET;
+	} else {
+		reg = TWI_SRST_REG;
+		mask = I2C_SOFT_RST;
+	}
+
+	reg_val = readl(i2c->base_addr + reg);
+	reg_val |= mask;
+	writel(reg_val, i2c->base_addr + reg);
+
+	/*
+	 * drv-mode soft_reset bit will not clear automatically, write 0 to unreset.
+	 * The reset only takes one or two CPU clk cycle.
+	 */
+	if (i2c->twi_drv_used) {
+		usleep_range(20, 25);
+
+		reg_val &= (~mask);
+		writel(reg_val, i2c->base_addr + reg);
+	}
+}
+
+static int sunxi_i2c_get_sda(struct i2c_adapter *adap)
+{
+	struct sunxi_i2c *i2c = (struct sunxi_i2c *)adap->algo_data;
+
+	if (i2c->twi_drv_used)
+		return !!(readl(i2c->base_addr + TWI_DRIVER_BUSC) & SDA_STA);
+	else
+		return !!(readl(i2c->base_addr + TWI_LCR_REG) & TWI_LCR_SDA_STATE_MASK);
+}
+
+static int sunxi_i2c_get_bus_free(struct i2c_adapter *adap)
+{
+	return sunxi_i2c_get_sda(adap);
+}
+
+static int sunxi_i2c_bus_barrier(struct i2c_adapter *adap)
+{
+	int i, ret;
+	struct sunxi_i2c *i2c = (struct sunxi_i2c *)adap->algo_data;
+
+	for (i = 0; i < LOOP_TIMEOUT; i++) {
+		if (sunxi_i2c_get_bus_free(adap))
+			return 0;
+
+		udelay(1);
+	}
+
+	ret = i2c_recover_bus(adap);
+	sunxi_i2c_soft_reset(i2c);
+
+	return ret;
+}
+
 static int
 sunxi_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs, int num)
 {
@@ -1873,6 +1935,15 @@ sunxi_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs, int num)
 	ret = pm_runtime_get_sync(i2c->dev);
 	if (ret < 0)
 		goto out;
+
+	sunxi_i2c_soft_reset(i2c);
+
+	ret = sunxi_i2c_bus_barrier(&i2c->adap);
+	if (ret) {
+		dev_err(i2c->dev, "i2c bus barrier failed, sda is still low!\n");
+		goto out;
+	}
+
 	if (i2c->twi_drv_used) {
 		dprintk(DEBUG_INFO1, "[i2c%d] twi driver xfer\n", i2c->bus_num);
 		ret = sunxi_i2c_drv_do_xfer(i2c, msgs, num);
@@ -2067,8 +2138,15 @@ static int sunxi_i2c_clk_init(struct sunxi_i2c *i2c)
 
 	/* enable twi engine or twi driver */
 	if (i2c->twi_drv_used) {
+#ifdef CONFIG_EVB_PLATFORM
+		twi_set_clock(i2c, TWI_DRIVER_BUSC, apb_clk, i2c->bus_freq,
+				TWI_DRV_CLK_M, TWI_DRV_CLK_N);
+#else
+
 		twi_set_clock(i2c, TWI_DRIVER_BUSC, 24000000, i2c->bus_freq,
 				TWI_DRV_CLK_M, TWI_DRV_CLK_N);
+
+#endif
 		dprintk(DEBUG_INFO1, "[i2c%d] set twi driver clock\n",
 				i2c->bus_num);
 		twi_enable(i2c->base_addr, TWI_DRIVER_CTRL, TWI_DRV_EN);
@@ -2620,7 +2698,10 @@ static int sunxi_i2c_runtime_suspend(struct device *dev)
 		return 0;
 #endif
 #endif
-
+	if (i2c->no_suspend) {
+		dprintk(DEBUG_SUSPEND, "[i2c%d] have no_suspend, don't runtime suspend\n", i2c->bus_num);
+		return 0;
+	}
 #if IS_ENABLED(CONFIG_SUNXI_I2C_DELAYINIT)
 	if (!i2c->delay_init_done)
 		return 0;
@@ -2641,7 +2722,6 @@ static int sunxi_i2c_runtime_resume(struct device *dev)
 {
 	struct platform_device *pdev = to_platform_device(dev);
 	struct sunxi_i2c *i2c = platform_get_drvdata(pdev);
-
 #ifndef CONFIG_SUNXI_ARISC
 #if (!defined(CONFIG_ARCH_SUN50IW9) && !defined(CONFIG_ARCH_SUN8IW19) \
 	&& !defined(CONFIG_ARCH_SUN50IW10) && !defined(CONFIG_ARCH_SUN50IW11))
@@ -2679,11 +2759,9 @@ static int sunxi_i2c_suspend_noirq(struct device *dev)
 	struct platform_device *pdev = to_platform_device(dev);
 	struct sunxi_i2c *i2c = platform_get_drvdata(pdev);
 
-	if (i2c->twi_drv_used)
-		twi_disable(i2c->base_addr, TWI_DRIVER_CTRL, TWI_DRV_EN);
+	/* don't suspend the twi used by pmu to keep pmu tranfer success */
 	if (i2c->no_suspend) {
-		dprintk(DEBUG_SUSPEND, "[i2c%d] doesn't need to  suspend\n",
-				i2c->bus_num);
+		dprintk(DEBUG_SUSPEND, "[i2c%d] doesn't need to  suspend\n", i2c->bus_num);
 		return 0;
 	}
 
@@ -2695,21 +2773,23 @@ static int sunxi_i2c_resume_noirq(struct device *dev)
 {
 	struct platform_device *pdev = to_platform_device(dev);
 	struct sunxi_i2c *i2c = platform_get_drvdata(pdev);
+	int ret;
 
-
-	if (i2c->twi_drv_used) {
-		twi_set_clock(i2c, TWI_DRIVER_BUSC, 24000000, i2c->bus_freq,
-				TWI_DRV_CLK_M, TWI_DRV_CLK_N);
-		twi_enable(i2c->base_addr, TWI_DRIVER_CTRL, TWI_DRV_EN);
-	}
+	/*
+	 * cpus		+ normal standby	: the twi used by pmu dont close it regulator
+	 * cpus		+ supper stadby		: the twi used by pmu dont close it regulator
+	 * without cpus + normal standby	: the twi used by pmu dont close it regulator
+	 * without cpus + supper stadby		: the twi used by pmu will close it regulator
+	 * So in order to support the above four cases, we do sunxi_i2c_hw_init() for every twi
+	 * */
 	if (i2c->no_suspend) {
-		dprintk(DEBUG_SUSPEND, "[i2c%d] doesn't need to resume\n",
-				i2c->bus_num);
-		return 0;
+		dprintk(DEBUG_SUSPEND, "[i2c%d] have no_suspend need to call resume by self\n", i2c->bus_num);
+		return sunxi_i2c_runtime_resume(dev);
 	}
 
-	if (pm_runtime_force_resume(dev))
-		return -1;
+	ret = pm_runtime_force_resume(dev);
+	if( ret )
+		return ret;
 
 #if IS_ENABLED(CONFIG_I2C_SLAVE)
 	if (i2c->slave)
@@ -2776,4 +2856,4 @@ MODULE_LICENSE("GPL v2");
 MODULE_ALIAS("platform:i2c-sunxi");
 MODULE_DESCRIPTION("SUNXI I2C Bus Driver");
 MODULE_AUTHOR("pannan");
-MODULE_VERSION("1.0.3");
+MODULE_VERSION("1.0.4");

@@ -19,6 +19,7 @@
 #include <linux/cdev.h>
 #include <linux/device.h>
 #include <linux/fs.h>
+#include <linux/poll.h>
 #include <linux/idr.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -26,7 +27,6 @@
 #include <linux/list.h>
 #include <linux/mutex.h>
 #include <linux/spinlock.h>
-#include <linux/idr.h>
 #include <linux/completion.h>
 #include <linux/compat.h>
 #include <linux/mm.h>
@@ -85,6 +85,7 @@ struct rpbuf_buf_dev {
 	wait_queue_head_t recv_wq;
 
 	struct list_head list;
+	struct fasync_struct *async_queue;
 };
 
 static LIST_HEAD(__rpbuf_ctrl_devs);
@@ -136,6 +137,8 @@ static int rpbuf_buf_dev_buffer_rx_cb(struct rpbuf_buffer *buffer,
 
 	wake_up_interruptible(&buf_dev->recv_wq);
 
+	kill_fasync(&buf_dev->async_queue, SIGIO, POLLIN | POLLRDNORM);
+
 	return 0;
 }
 
@@ -145,6 +148,8 @@ static int rpbuf_buf_dev_buffer_destroyed_cb(struct rpbuf_buffer *buffer, void *
 	struct device *dev = &buf_dev->dev;
 
 	dev_dbg(dev, "%s:%d\n", __func__, __LINE__);
+
+	kill_fasync(&buf_dev->async_queue, SIGIO, POLLHUP | POLLRDNORM);
 
 	return 0;
 }
@@ -237,6 +242,9 @@ static int rpbuf_buf_dev_release(struct inode *inode, struct file *file)
 
 	atomic_inc(&buf_dev->can_be_opened);
 
+	if (buf_dev->async_queue)
+		fasync_helper(-1, file, 0, &buf_dev->async_queue);
+
 	return 0;
 err_out:
 	return ret;
@@ -283,6 +291,26 @@ static int rpbuf_buf_dev_mmap(struct file *file, struct vm_area_struct *vma)
 	mutex_unlock(&link->controller_lock);
 
 	return rpbuf_buf_dev_mmap_default(buf_dev, vma);
+}
+
+static int rpbuf_buf_dev_fasync(int fd, struct file *file, int mode)
+{
+	struct rpbuf_buf_dev *buf_dev = file->private_data;
+
+	return fasync_helper(fd, file, mode, &buf_dev->async_queue);
+}
+
+static unsigned int rpbuf_buf_dev_poll(struct file *file, struct poll_table_struct *wait)
+{
+	struct rpbuf_buf_dev *buf_dev = file->private_data;
+	unsigned int mask = 0;
+
+	poll_wait(file, &buf_dev->recv_wq, wait);
+
+	if (buf_dev->recv_data_offset > 0 && buf_dev->recv_data_len > 0)
+		mask |= POLLIN | POLLRDNORM;
+
+	return mask;
 }
 
 static int rpbuf_buf_dev_ioctl_check_avail(struct rpbuf_buf_dev *buf_dev, void __user *argp)
@@ -400,6 +428,29 @@ err_out:
 	return ret;
 }
 
+static int rpbuf_buf_dev_ioctl_set_sync_buf(struct rpbuf_buf_dev *buf_dev,
+					   void __user *argp)
+{
+	struct device *dev = &buf_dev->dev;
+	uint32_t __user *sync_user = argp;
+	uint32_t is_sync;
+	int ret = 0;
+
+	if (copy_from_user(&is_sync, sync_user, sizeof(uint32_t))) {
+		dev_err(dev, "copy_from_user uint32_t failed\n");
+		ret = -EIO;
+		goto err_out;
+	}
+
+	if (is_sync)
+		ret = rpbuf_buffer_set_sync(buf_dev->buffer, true);
+	else
+		ret = rpbuf_buffer_set_sync(buf_dev->buffer, false);
+
+err_out:
+	return ret;
+}
+
 static long rpbuf_buf_dev_ioctl(struct file *file, unsigned int cmd,
 				void __user *argp)
 {
@@ -419,6 +470,9 @@ static long rpbuf_buf_dev_ioctl(struct file *file, unsigned int cmd,
 		break;
 	case RPBUF_BUF_DEV_IOCTL_RECEIVE_BUF:
 		ret = rpbuf_buf_dev_ioctl_receive_buf(buf_dev, argp);
+		break;
+	case RPBUF_BUF_DEV_IOCTL_SET_SYNC_BUF:
+		ret = rpbuf_buf_dev_ioctl_set_sync_buf(buf_dev, argp);
 		break;
 	default:
 		dev_err(dev, "invalid rpbuf buf_dev ioctl cmd: 0x%x\n", cmd);
@@ -452,6 +506,8 @@ static const struct file_operations rpbuf_buf_dev_fops = {
 	.release = rpbuf_buf_dev_release,
 	.llseek = no_llseek,
 	.mmap = rpbuf_buf_dev_mmap,
+	.fasync = rpbuf_buf_dev_fasync,
+	.poll = rpbuf_buf_dev_poll,
 	.unlocked_ioctl = rpbuf_buf_dev_unlocked_ioctl,
 #ifdef CONFIG_COMPAT
 	.compat_ioctl = rpbuf_buf_dev_compat_ioctl,

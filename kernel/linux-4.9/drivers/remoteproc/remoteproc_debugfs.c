@@ -48,9 +48,13 @@ static ssize_t rproc_trace_read(struct file *filp, char __user *userbuf,
 				size_t count, loff_t *ppos)
 {
 	struct rproc_mem_entry *trace = filp->private_data;
+#ifndef CONFIG_SUNXI_RPROC_TRACE_DEV
 	int len = strnlen(trace->va, trace->len);
 
 	return simple_read_from_buffer(userbuf, count, ppos, trace->va, len);
+#else
+	return sunxi_rproc_trace_read_to_user(trace->va, trace->len, userbuf, count, ppos);
+#endif
 }
 
 static const struct file_operations trace_rproc_ops = {
@@ -264,6 +268,80 @@ static const struct file_operations rproc_recovery_ops = {
 	.llseek = generic_file_llseek,
 };
 
+static ssize_t rproc_carveouts_read(struct file *filp, char __user *userbuf,
+				   size_t count, loff_t *ppos)
+{
+	struct rproc_mem_entry *entry, *tmp;
+	struct rproc *rproc = filp->private_data;
+	int i = 0, index = 0;
+	char buf[2048];
+
+	list_for_each_entry_safe(entry, tmp, &rproc->carveouts, node)
+		index++;
+
+	i += scnprintf(buf + i, sizeof(buf) - i, "carveouts: %d\n", index);
+	index = 0;
+	list_for_each_entry_safe(entry, tmp, &rproc->carveouts, node) {
+		if (entry->name[0] == '\0')
+			i += scnprintf(buf + i, sizeof(buf) - i,
+							"[%d] va:0x%p pa:0x%pad da:0x%x len:0x%x\n",
+							index, entry->va, &entry->dma, entry->da,
+							entry->len);
+		else
+			i += scnprintf(buf + i, sizeof(buf) - i,
+							"[%d][%s] va:0x%p pa:0x%pad da:0x%x len:0x%x\n",
+							index, entry->name, entry->va, &entry->dma,
+							entry->da, entry->len);
+		index++;
+	}
+	i += scnprintf(buf + i, sizeof(buf) - i, "\n");
+
+	return simple_read_from_buffer(userbuf, count, ppos, buf, i);
+}
+
+static const struct file_operations rproc_carveouts_ops = {
+	.read = rproc_carveouts_read,
+	.open = simple_open,
+	.llseek	= generic_file_llseek,
+};
+
+static ssize_t rproc_mappings_read(struct file *filp, char __user *userbuf,
+				   size_t count, loff_t *ppos)
+{
+	int i = 0, index = 0;
+	char buf[2048];
+	struct rproc_mem_entry *entry, *tmp;
+	struct rproc *rproc = filp->private_data;
+
+	list_for_each_entry_safe(entry, tmp, &rproc->mappings, node)
+		index++;
+
+	i += scnprintf(buf + i, sizeof(buf) - i, "mappings: %d\n", index);
+	index = 0;
+	list_for_each_entry_safe(entry, tmp, &rproc->mappings, node) {
+		if (entry->name[0] == '\0')
+			i += scnprintf(buf + i, sizeof(buf) - i,
+							"[%d] va:0x%p pa:0x%pad da:0x%x len:0x%x\n",
+							index, entry->va, &entry->dma, entry->da,
+							entry->len);
+		else
+			i += scnprintf(buf + i, sizeof(buf) - i,
+							"[%d][%s] va:0x%p pa:0x%pad da:0x%x len:0x%x\n",
+							index, entry->name, entry->va, &entry->dma,
+							entry->da, entry->len);
+		index++;
+	}
+	i += scnprintf(buf + i, sizeof(buf) - i, "\n");
+
+	return simple_read_from_buffer(userbuf, count, ppos, buf, i);
+}
+
+static const struct file_operations rproc_mappings_ops = {
+	.read = rproc_mappings_read,
+	.open = simple_open,
+	.llseek	= generic_file_llseek,
+};
+
 void rproc_remove_trace_file(struct dentry *tfile)
 {
 	debugfs_remove(tfile);
@@ -311,6 +389,10 @@ void rproc_create_debug_dir(struct rproc *rproc)
 			    rproc, &rproc_recovery_ops);
 	debugfs_create_file("firmware", 0600, rproc->dbg_dir,
 			    rproc, &rproc_firmware_ops);
+	debugfs_create_file("carveouts", 0400, rproc->dbg_dir,
+			    rproc, &rproc_carveouts_ops);
+	debugfs_create_file("mappings", 0400, rproc->dbg_dir,
+			    rproc, &rproc_mappings_ops);
 }
 
 void __init rproc_init_debugfs(void)

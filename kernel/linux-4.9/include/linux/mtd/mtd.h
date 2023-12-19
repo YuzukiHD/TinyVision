@@ -205,6 +205,18 @@ struct mtd_pairing_scheme {
 
 struct module;	/* only needed for owner field in mtd_info */
 
+/**
+ * struct mtd_debug_info - debugging information for an MTD device.
+ *
+ * @dfs_dir: direntry object of the MTD device debugfs directory
+ */
+struct mtd_debug_info {
+	struct dentry *dfs_dir;
+
+	const char *partname;
+	const char *partid;
+};
+
 struct mtd_info {
 	u_char type;
 	uint32_t flags;
@@ -284,6 +296,7 @@ struct mtd_info {
 	 * wrappers instead.
 	 */
 	int (*_erase) (struct mtd_info *mtd, struct erase_info *instr);
+	int (*_erase_4k) (struct mtd_info *mtd, struct erase_info *instr);
 	int (*_point) (struct mtd_info *mtd, loff_t from, size_t len,
 		       size_t *retlen, void **virt, resource_size_t *phys);
 	int (*_unpoint) (struct mtd_info *mtd, loff_t from, size_t len);
@@ -349,6 +362,15 @@ struct mtd_info {
 	struct module *owner;
 	struct device dev;
 	int usecount;
+	struct mtd_debug_info dbg;
+
+	int (*_security_regiser_is_locked) (struct mtd_info *mtd, u8 sr_num);
+	int (*_security_register_lock) (struct mtd_info *mtd, u8 sr_num);
+	int (*_security_regiser_read_data) (struct mtd_info *mtd,
+					loff_t addr, loff_t len, u_char *buf);
+	int (*_security_regiser_write_data) (struct mtd_info *mtd,
+					loff_t addr, loff_t len, u_char *buf);
+	int (*_read_uid) (struct mtd_info *mtd, u_char *rx_buf);
 };
 
 int mtd_ooblayout_ecc(struct mtd_info *mtd, int section,
@@ -403,6 +425,7 @@ int mtd_pairing_info_to_wunit(struct mtd_info *mtd,
 			      const struct mtd_pairing_info *info);
 int mtd_pairing_groups(struct mtd_info *mtd);
 int mtd_erase(struct mtd_info *mtd, struct erase_info *instr);
+int mtd_erase_4k(struct mtd_info *mtd, struct erase_info *instr);
 int mtd_point(struct mtd_info *mtd, loff_t from, size_t len, size_t *retlen,
 	      void **virt, resource_size_t *phys);
 int mtd_unpoint(struct mtd_info *mtd, loff_t from, size_t len);

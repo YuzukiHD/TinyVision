@@ -159,20 +159,8 @@ static ssize_t show_phy_range(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
 #if defined(CONFIG_ARCH_SUN8IW21)
-	printk("addr:0x%x, len:0x%x, value:0x%x\n", 0x60, 0x1,
-			usbc_new_phyx_tp_read(g_sunxi_udc_io.usb_vbase, 0x60, 0x1));
-	printk("addr:0x%x, len:0x%x, value:0x%x\n", 0x30, 0x3,
-			usbc_new_phyx_tp_read(g_sunxi_udc_io.usb_vbase, 0x30, 0x3));
-	printk("addr:0x%x, len:0x%x, value:0x%x\n", 0x36, 0x3,
-			usbc_new_phyx_tp_read(g_sunxi_udc_io.usb_vbase, 0x36, 0x3));
-	printk("addr:0x%x, len:0x%x, value:0x%x\n", 0x61, 0x3,
-			usbc_new_phyx_tp_read(g_sunxi_udc_io.usb_vbase, 0x61, 0x3));
-	printk("addr:0x%x, len:0x%x, value:0x%x\n", 0x64, 0x2,
-			usbc_new_phyx_tp_read(g_sunxi_udc_io.usb_vbase, 0x64, 0x2));
-	printk("addr:0x%x, len:0x%x, value:0x%x\n", 0x44, 0x4,
-			usbc_new_phyx_tp_read(g_sunxi_udc_io.usb_vbase, 0x44, 0x4));
-
-	return 0;
+	return sprintf(buf, "rate:0x%x\n",
+			usbc_new_phyx_read(g_sunxi_udc_io.usb_vbase));
 #else
 	return sprintf(buf, "rate:0x%x\n",
 			USBC_Phyx_Read(g_sunxi_udc_io.usb_bsp_hdle));
@@ -185,61 +173,21 @@ static ssize_t udc_phy_range(struct device *dev, struct device_attribute *attr,
 	int err;
 
 #if defined(CONFIG_ARCH_SUN8IW21)
-	int mod_type, common_data, trancevie_data, preemphasis_data, resistance_data;
-	char data[20];
-	char *str = NULL;
-	char *token = NULL;
+	int val = 0;
 
-	snprintf(data, sizeof(data), "%s", buf);
-	printk("data = %s\n", data);
-
-	str = data;
-	token = strsep(&str, " ");
-
-	err = kstrtoint(token, 10, &mod_type);
+	err = kstrtoint(buf, 16, &val);
 	if (err != 0)
 		return -EINVAL;
 
-	err = kstrtoint(strsep(&str, " "), 16, &common_data);
-	if (err != 0)
-		return -EINVAL;
+	if ((val >= 0x0) && (val <= 0x3ff)) {
+		usbc_new_phyx_write(g_sunxi_udc_io.usb_vbase, val);
+	} else {
+		DMSG_PANIC("adjust PHY's paraments 0x%x is fail! value:0x0~0x3ff\n", val);
+		return count;
+	}
 
-	err = kstrtoint(strsep(&str, " "), 16, &trancevie_data);
-	if (err != 0)
-		return -EINVAL;
-
-	err = kstrtoint(strsep(&str, " "), 16, &preemphasis_data);
-	if (err != 0)
-		return -EINVAL;
-
-	err = kstrtoint(strsep(&str, " "), 16, &resistance_data);
-	if (err != 0)
-		return -EINVAL;
-
-	/* Already calibrate completely, don't have to distinguish iref mode and vref mode */
-	printk("already calibrate completely, don't have to distinguish iref mode and vref mode!\n");
-
-	/* common data */
-	printk("don't support adjust common region range!\n");
-
-	/* tranceive data */
-	usbc_new_phyx_tp_write(g_sunxi_udc_io.usb_vbase, 0x60, trancevie_data, 0x4);
-	printk("write to trancevie data: 0x%x\n", trancevie_data);
-
-	usbc_new_phyx_tp_write(g_sunxi_udc_io.usb_vbase, 0x64, preemphasis_data, 0x2);
-	printk("write to preemphasis data: 0x%x", preemphasis_data);
-
-	usbc_new_phyx_tp_write(g_sunxi_udc_io.usb_vbase, 0x43, 0x0, 0x1);
-
-	usbc_new_phyx_tp_write(g_sunxi_udc_io.usb_vbase, 0x41, 0x0, 0x1);
-
-	usbc_new_phyx_tp_write(g_sunxi_udc_io.usb_vbase, 0x40, 0x0, 0x1);
-
-	usbc_new_phyx_tp_write(g_sunxi_udc_io.usb_vbase, 0x44, resistance_data, 0x4);
-	printk("write to resistance data: 0x%x\n", resistance_data);
-
-	usbc_new_phyx_tp_write(g_sunxi_udc_io.usb_vbase, 0x43, 0x1, 0x1);
-
+	DMSG_INFO("adjust succeed, PHY's paraments:0x%x.\n",
+			  usbc_new_phyx_read(g_sunxi_udc_io.usb_vbase));
 #else
 	int val = 0;
 

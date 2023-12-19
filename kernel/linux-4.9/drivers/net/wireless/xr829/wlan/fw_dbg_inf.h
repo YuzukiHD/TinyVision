@@ -556,44 +556,44 @@ struct fwd_epta_time_line_cfg {
 };
 
 
-#define FWD_EPTA_RF_STAT_RECORD_ORIGIN_DATA                                    0
-#define FWD_EPTA_RF_STAT_RECORD_PARSED_DATA                                    1
+#define FWD_EPTA_RF_STAT_RECORD_ORIGIN_DATA		0
+#define FWD_EPTA_RF_STAT_RECORD_PARSED_DATA		1
 
-#define FWD_EPTA_RF_STAT_POINT_NUM                                                      65
-#define FWD_EPTA_RF_STAT_INFO_NUM                                                          6
-#define FWD_EPTA_RF_HEAD_BUF_LEN                                                       1500
-#define FWD_EPTA_RF_DATA_BUF_LEN      (150 * FWD_EPTA_RF_STAT_POINT_NUM)
-#define FWD_EPTA_RF_STAT_FILE_MAX_SIZE                   (1024 * 1024 * 1024)
-#define FWD_EPTA_RF_STAT_BT_TX_TYPE_NUM                                            40
+#define FWD_EPTA_RF_STAT_POINT_NUM			65
+#define FWD_EPTA_RF_STAT_INFO_NUM			6
+#define FWD_EPTA_RF_HEAD_BUF_LEN			1500
+#define FWD_EPTA_RF_DATA_BUF_LEN			(150 * FWD_EPTA_RF_STAT_POINT_NUM)
+#define FWD_EPTA_RF_STAT_FILE_MAX_SIZE			(1024 * 1024 * 1024)
+#define FWD_EPTA_RF_STAT_BT_TX_TYPE_NUM			40
 
-#define FWD_EPTA_RF_STAT_GET_DURATION(a, b)    (((a) <= (b)) ? ((b) - (a)) \
+#define FWD_EPTA_RF_STAT_GET_DURATION(a, b)		(((a) <= (b)) ? ((b) - (a)) \
 											 : (((0xffffffff) - (a)) + (b)))
-#define FWD_EPTA_RF_STAT_GET_BT_TYPE(bt_type)   ((bt_type) ? ("tx") : ("rx"))
+#define FWD_EPTA_RF_STAT_GET_BT_TYPE(bt_type)		((bt_type) ? ("tx") : ("rx"))
 
-#define FWD_EPTA_RF_STAT_WLAN2BT_NOW_BT                  (1)
-#define FWD_EPTA_RF_STAT_WLAN2BT_NOW_WLAN             (2)
-#define FWD_EPTA_RF_STAT_BT2WLAN_NOW_WLAN             (3)
-#define FWD_EPTA_RF_STAT_BT2WLAN_NOW_BT                  (4)
-#define FWD_EPTA_RF_STAT_MISS_INFO                                (5)
-#define FWD_EPTA_RF_STAT_WLAN_DUR_TXRX_INFO           (6)
+#define FWD_EPTA_RF_STAT_WLAN2BT_NOW_BT			(1)
+#define FWD_EPTA_RF_STAT_WLAN2BT_NOW_WLAN		(2)
+#define FWD_EPTA_RF_STAT_BT2WLAN_NOW_WLAN		(3)
+#define FWD_EPTA_RF_STAT_BT2WLAN_NOW_BT			(4)
+#define FWD_EPTA_RF_STAT_MISS_INFO			(5)
+#define FWD_EPTA_RF_STAT_WLAN_DUR_TXRX_INFO		(6)
 
-#define FWD_EPTA_RF_STAT_SUB_JUST_BT2WLAN                (0)
-#define FWD_EPTA_RF_STAT_SUB_WLAN_ACTIVE                  (1)
-#define FWD_EPTA_RF_STAT_SUB_WLAN_INACTIVE              (2)
-#define FWD_EPTA_RF_STAT_SUB_BT_REQ_NUM                    (3)
+#define FWD_EPTA_RF_STAT_SUB_JUST_BT2WLAN		(0)
+#define FWD_EPTA_RF_STAT_SUB_WLAN_ACTIVE		(1)
+#define FWD_EPTA_RF_STAT_SUB_WLAN_INACTIVE		(2)
+#define FWD_EPTA_RF_STAT_SUB_BT_REQ_NUM			(3)
 
-#define FWD_EPTA_RF_STAT_MISS_DBG_IRQ                         (1)
-#define FWD_EPTA_RF_STAT_MISS_DBG_IRQ_STATUS           (2)
-#define FWD_EPTA_RF_STAT_MISS_HIF_SEND                        (3)
+#define FWD_EPTA_RF_STAT_MISS_DBG_IRQ			(1)
+#define FWD_EPTA_RF_STAT_MISS_DBG_IRQ_STATUS		(2)
+#define FWD_EPTA_RF_STAT_MISS_HIF_SEND			(3)
 
-#define FWD_EPTA_RF_STAT_WLAN_DUR			   (1)
-#define FWD_EPTA_RF_STAT_IDLE_DUR				   (2)
+#define FWD_EPTA_RF_STAT_WLAN_DUR			(1)
+#define FWD_EPTA_RF_STAT_IDLE_DUR			(2)
 
-#define FWD_EPTA_RF_STAT_CFG_OPERATION_READ	        (0x0)
-#define FWD_EPTA_RF_STAT_CFG_OPERATION_WRITE	 (0x1)
+#define FWD_EPTA_RF_STAT_CFG_OPERATION_READ		(0x0)
+#define FWD_EPTA_RF_STAT_CFG_OPERATION_WRITE		(0x1)
 
-#define FWD_EPTA_RF_STAT_CFG_CMD_START_INFO	    (0x0001)
-#define FWD_EPTA_RF_STAT_CFG_CMD_RESET_FILE	    (0xffff)
+#define FWD_EPTA_RF_STAT_CFG_CMD_START_INFO		(0x0001)
+#define FWD_EPTA_RF_STAT_CFG_CMD_RESET_FILE		(0xffff)
 
 
 struct fwd_epta_rf_stat_cfg {

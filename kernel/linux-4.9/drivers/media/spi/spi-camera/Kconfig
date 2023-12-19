@@ -1,0 +1,21 @@
+#
+# SPI Camera Device Configuration
+#
+
+config SPI_CAMERA
+	tristate "spi camera framework"
+	depends on SPI
+	select VIDEOBUF2_DMA_CONTIG
+	help
+		This is the base framework for SPI camera.
+		Say Y when you need to support SPI camera.
+		Also SPI need to be selected and
+		VIDEOBUF2_DMA_CONTIG will be selected
+
+config SPI_GC032A
+	tristate "spi camera gc032a"
+	depends on I2C && SPI_CAMERA
+	help
+		GC032A is a SPI camera.
+		Select this  when you need to drive this device
+		and SPI_CAMERA also need to be selected.

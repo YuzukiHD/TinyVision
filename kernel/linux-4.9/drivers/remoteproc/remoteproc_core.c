@@ -43,7 +43,7 @@
 #include <linux/virtio_ring.h>
 #include <asm/byteorder.h>
 
-#include "sunxi_rproc_internal.h"
+#include "sunxi_remoteproc_internal.h"
 
 static DEFINE_MUTEX(rproc_list_mutex);
 static LIST_HEAD(rproc_list);
@@ -637,15 +637,22 @@ static int rproc_handle_carveout(struct rproc *rproc,
 	dev_dbg(dev, "carveout rsc: name: %s, da 0x%x, pa 0x%x, len 0x%x, flags 0x%x\n",
 		rsc->name, rsc->da, rsc->pa, rsc->len, rsc->flags);
 
-	carveout = kzalloc(sizeof(*carveout), GFP_KERNEL);
-	if (!carveout)
-		return -ENOMEM;
-
-	tmp = rproc_find_carveout_by_name(rproc, "vdev0buffer");
+	tmp = rproc_find_carveout_by_name(rproc, rsc->name);
 	if (tmp) {
 		va = tmp->va;
 		dma = tmp->dma;
+		if (tmp->len < rsc->len) {
+			dev_warn(dev, "%s small than resource table require!\n", rsc->name);
+			rsc->len = tmp->len;
+		}
+
+		dev_dbg(dev, "Find carveout va %p, dma %p, len 0x%x\n",
+			va, &dma, rsc->len);
 	} else {
+		carveout = kzalloc(sizeof(*carveout), GFP_KERNEL);
+		if (!carveout)
+			return -ENOMEM;
+
 		va = dma_alloc_coherent(dev->parent, rsc->len, &dma, GFP_KERNEL);
 		if (!va) {
 			dev_err(dev->parent,
@@ -653,10 +660,10 @@ static int rproc_handle_carveout(struct rproc *rproc,
 			ret = -ENOMEM;
 			goto free_carv;
 		}
-	}
 
-	dev_dbg(dev, "carveout va %p, dma %p, len 0x%x\n",
-		va, &dma, rsc->len);
+		dev_dbg(dev, "Create carveout va %p, dma %p, len 0x%x\n",
+			va, &dma, rsc->len);
+	}
 
 	/*
 	 * Ok, this is non-standard.
@@ -726,13 +733,18 @@ static int rproc_handle_carveout(struct rproc *rproc,
 	 */
 	rsc->pa = dma;
 
-	carveout->name[0] = '\0';
-	carveout->va = va;
-	carveout->len = rsc->len;
-	carveout->dma = dma;
-	carveout->da = rsc->da;
+	if (!tmp) {
+		carveout->name[0] = '\0';
+		carveout->va = va;
+		carveout->len = rsc->len;
+		carveout->dma = dma;
+		carveout->da = rsc->da;
 
-	list_add_tail(&carveout->node, &rproc->carveouts);
+		list_add_tail(&carveout->node, &rproc->carveouts);
+	} else {
+		tmp->da = rsc->da;
+		tmp->len = rsc->len;
+	}
 
 	return 0;
 
@@ -958,13 +970,11 @@ static int rproc_fw_boot(struct rproc *rproc, const struct firmware *fw)
 		rproc->table_ptr = loaded_table;
 	}
 
-	if (power == 1) {
-		/* power up the remote processor */
-		ret = rproc->ops->start(rproc);
-		if (ret) {
-			dev_err(dev, "can't start rproc %s: %d\n", rproc->name, ret);
-			goto clean_up_resources;
-		}
+	/* power up the remote processor */
+	ret = rproc->ops->start(rproc);
+	if (ret) {
+		dev_err(dev, "can't start rproc %s: %d\n", rproc->name, ret);
+		goto clean_up_resources;
 	}
 
 	rproc->state = RPROC_RUNNING;
@@ -1009,13 +1019,15 @@ static void rproc_fw_config_virtio(const struct firmware *fw, void *context)
 
 static int rproc_add_virtio_devices(struct rproc *rproc)
 {
-	int ret;
+	int ret = 0;
 
+#ifdef CONFIG_SUNXI_RPROC_BOOT_PACKAGE
 	/* try to find firmware from boot_package */
 	ret = sunxi_request_firmware_nowait(rproc->firmware, &rproc->dev,
 					GFP_KERNEL, rproc, rproc_fw_config_virtio);
 	if (ret < 0)
 		dev_err(&rproc->dev, "sunxi_request_firmware_nowait err: %d\n", ret);
+#endif
 
 	/*
 	 * it may be that this functional was called early.
@@ -1117,7 +1129,7 @@ static int __rproc_boot(struct rproc *rproc)
 {
 	const struct firmware *firmware_p;
 	struct device *dev;
-	int ret;
+	int ret, power;
 
 	if (!rproc) {
 		pr_err("invalid rproc handle\n");
@@ -1132,21 +1144,32 @@ static int __rproc_boot(struct rproc *rproc)
 		return ret;
 	}
 
+	power = atomic_read(&rproc->power);
+	if (power > 0 && rproc->state != RPROC_EARLY_BOOT) {
+		dev_warn(dev, "%s already power up.\n", rproc->name);
+		goto out;
+	}
+
 	atomic_inc(&rproc->power);
 
 	dev_info(dev, "powering up %s\n", rproc->name);
 
+#ifdef CONFIG_SUNXI_RPROC_BOOT_PACKAGE
 	/* try to find firmware from boot_package */
 	ret = sunxi_request_firmware(&firmware_p, rproc->firmware, dev);
+	if (!ret)
+		goto find;
+	dev_info(dev, "request_firmware failed from boot_package: %d\n", ret);
+#endif
+	/* try to load firmware from file system */
+	ret = request_firmware(&firmware_p, rproc->firmware, dev);
 	if (ret < 0) {
-		dev_info(dev, "request_firmware failed from boot_package: %d\n", ret);
-		/* try to load firmware from file system */
-		ret = request_firmware(&firmware_p, rproc->firmware, dev);
-		if (ret < 0) {
-			dev_err(dev, "request_firmware failed: %d\n", ret);
-			goto downref_rproc;
-		}
+		dev_err(dev, "request_firmware failed: %d\n", ret);
+		goto downref_rproc;
 	}
+#ifdef CONFIG_SUNXI_RPROC_BOOT_PACKAGE
+find:
+#endif
 
 	ret = rproc_fw_boot(rproc, firmware_p);
 
@@ -1155,6 +1178,7 @@ static int __rproc_boot(struct rproc *rproc)
 downref_rproc:
 	if (ret)
 		atomic_dec(&rproc->power);
+out:
 	mutex_unlock(&rproc->lock);
 	return ret;
 }
@@ -1425,6 +1449,8 @@ struct rproc *rproc_alloc(struct device *dev, const char *name,
 	device_initialize(&rproc->dev);
 	rproc->dev.parent = dev;
 	rproc->dev.type = &rproc_type;
+	rproc->dev.class = &rproc_class;
+	rproc->dev.driver_data = rproc;
 
 	/* Assign a unique device index and name */
 	rproc->index = ida_simple_get(&rproc_dev_index, 0, 0, GFP_KERNEL);
@@ -1599,6 +1625,7 @@ EXPORT_SYMBOL(rproc_clean_mem_entry);
 
 static int __init remoteproc_init(void)
 {
+	rproc_init_sysfs();
 	rproc_init_debugfs();
 
 	return 0;
@@ -1610,6 +1637,7 @@ static void __exit remoteproc_exit(void)
 	ida_destroy(&rproc_dev_index);
 
 	rproc_exit_debugfs();
+	rproc_exit_sysfs();
 }
 module_exit(remoteproc_exit);
 

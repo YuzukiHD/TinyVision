@@ -30,10 +30,10 @@ static struct wireless_dev *ieee80211_add_iface(struct wiphy *wiphy,
 {
 	struct ieee80211_local *local = wiphy_priv(wiphy);
 	struct net_device *dev;
-	struct wireless_dev *wdev;
+	static struct wireless_dev *wdev;
 	struct ieee80211_sub_if_data *sdata;
 	int err;
-	(void)dev; //clean the build warning.
+	(void)dev;
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 4, 0))
 	err = mac80211_if_add(local, name, name_assign_type, &wdev, type, params);
@@ -47,6 +47,7 @@ static struct wireless_dev *ieee80211_add_iface(struct wiphy *wiphy,
 	sdata = IEEE80211_DEV_TO_SUB_IF(dev);
 	wdev = &sdata->wdev;
 #endif
+
 	if (type == NL80211_IFTYPE_MONITOR && flags) {
 		sdata->u.mntr_flags = *flags;
 	}

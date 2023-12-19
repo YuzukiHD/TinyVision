@@ -725,6 +725,15 @@ config I2C_SUNXI
 	  This driver can also be built as a module. If so, the module
 	  will be called i2c-sunxi.
 
+config I2C_SUNXI_NG
+	tristate "SUNXI I2C-NG controller"
+	depends on ARCH_SUNXI
+	default y if MACH_SUNXI
+	help
+	  This driver is a refactored version of i2c-sunxi.c.
+	  Please use this driver first if you adapt to new platforms or
+	  encounter stability problems with old codes.
+
 config SUNXI_I2C_DELAYINIT
 	bool "SUNXI I2C hardware init delay"
 	depends on I2C_SUNXI

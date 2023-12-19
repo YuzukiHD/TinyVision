@@ -217,7 +217,6 @@ do {								\
  * Get expsign and mantissa as 16 bit and 64 bit ints from an 80 bit long
  * double.
  */
-
 #define	EXTRACT_LDBL80_WORDS(ix0,ix1,d)				\
 do {								\
   union IEEEl2bits ew_u;					\
@@ -285,6 +284,9 @@ do {								\
   se_u.xbits.expsign = (v);					\
   (d) = se_u.e;							\
 } while (0)
+
+
+double	__kernel_tan(double, double, int);
 
 #define nan_mix(x, y)		(nan_mix_op((x), (y), +))
 #define nan_mix_op(x, y, op)	(((x) + 0.0L) op ((y) + 0))

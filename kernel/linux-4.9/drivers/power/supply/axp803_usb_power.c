@@ -430,10 +430,21 @@ static void axp803_usb_virq_dts_set(struct axp803_usb_power *usb_power, bool ena
 				enable);
 }
 
+static void axp803_usb_shutdown(struct platform_device *pdev)
+{
+	struct axp803_usb_power *usb_power = platform_get_drvdata(pdev);
+
+	cancel_delayed_work_sync(&usb_power->usb_supply_mon);
+	cancel_delayed_work_sync(&usb_power->usb_chg_state);
+
+}
+
 static int axp803_usb_power_suspend(struct platform_device *pdev, pm_message_t state)
 {
 	struct axp803_usb_power *usb_power = platform_get_drvdata(pdev);
 
+	cancel_delayed_work_sync(&usb_power->usb_supply_mon);
+	cancel_delayed_work_sync(&usb_power->usb_chg_state);
 	axp803_usb_virq_dts_set(usb_power, false);
 
 	return 0;
@@ -443,6 +454,8 @@ static int axp803_usb_power_resume(struct platform_device *pdev)
 {
 	struct axp803_usb_power *usb_power = platform_get_drvdata(pdev);
 
+	schedule_delayed_work(&usb_power->usb_supply_mon, 0);
+	schedule_delayed_work(&usb_power->usb_chg_state, 0);
 	axp803_usb_virq_dts_set(usb_power, true);
 
 	return 0;
@@ -463,6 +476,7 @@ static struct platform_driver axp803_usb_power_driver = {
 	},
 	.probe = axp803_usb_power_probe,
 	.remove = axp803_usb_power_remove,
+	.shutdown = axp803_usb_shutdown,
 	.suspend = axp803_usb_power_suspend,
 	.resume = axp803_usb_power_resume,
 };

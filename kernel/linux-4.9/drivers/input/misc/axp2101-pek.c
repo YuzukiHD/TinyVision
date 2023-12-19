@@ -665,6 +665,47 @@ static int axp806_config_set(struct axp20x_pek *axp20x_pek)
 	return 0;
 }
 
+static int axp1530_config_set(struct axp20x_pek *axp20x_pek)
+{
+	struct axp20x_dev *axp20x_dev = axp20x_pek->axp20x;
+	struct regmap *regmap = axp20x_dev->regmap;
+	struct pk_dts *pk_dts = &axp20x_pek->pk_dts;
+	unsigned int val;
+
+	/* pek offlevel poweroff en set*/
+	if (pk_dts->pmu_powkey_off_en)
+		pk_dts->pmu_powkey_off_en = 1;
+	else
+		pk_dts->pmu_powkey_off_en = 0;
+
+	regmap_read(regmap, AXP1530_PWROK_SET, &val);
+	val &= 0xFD;
+	val |= (pk_dts->pmu_powkey_off_en << 1);
+	regmap_write(regmap, AXP1530_PWROK_SET, val);
+
+	/*Init offlevel restart or not */
+	if (pk_dts->pmu_powkey_off_func)
+		regmap_update_bits(regmap, AXP1530_PWROK_SET, 0x01,
+				   0x01); /* restart */
+	else
+		regmap_update_bits(regmap, AXP1530_PWROK_SET, 0x01,
+				   0x00); /* power off */
+
+	/* pek offlevel time set */
+	if (pk_dts->pmu_powkey_off_time < 10000)
+		pk_dts->pmu_powkey_off_time = 0;
+	else
+		pk_dts->pmu_powkey_off_time = 1;
+
+	regmap_read(regmap, AXP1530_POK_CONRTOL, &val);
+	val &= 0xFD;
+	val |= (pk_dts->pmu_powkey_off_time << 1);
+	regmap_write(regmap, AXP1530_POK_CONRTOL, val);
+
+	return 0;
+}
+
+
 static void axp20x_dts_param_set(struct axp20x_pek *axp20x_pek)
 {
 	struct axp20x_dev *axp20x_dev = axp20x_pek->axp20x;
@@ -689,6 +730,9 @@ static void axp20x_dts_param_set(struct axp20x_pek *axp20x_pek)
 			break;
 		case AXP806_ID:
 			axp806_config_set(axp20x_pek);
+			break;
+		case AXP1530_ID:
+			axp1530_config_set(axp20x_pek);
 			break;
 		default:
 			pr_warn("Setting power key for unsupported AXP variant\n");

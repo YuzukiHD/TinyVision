@@ -381,9 +381,20 @@ static void axp2585_usb_virq_dts_set(struct axp2585_usb_power *usb_power, bool e
 				enable);
 }
 
+static void axp2585_usb_shutdown(struct platform_device *pdev)
+{
+	struct axp2585_usb_power *usb_power = platform_get_drvdata(pdev);
+
+	cancel_delayed_work_sync(&usb_power->usb_supply_mon);
+	cancel_delayed_work_sync(&usb_power->usb_chg_state);
+}
+
 static int axp2585_usb_power_suspend(struct platform_device *pdev, pm_message_t state)
 {
 	struct axp2585_usb_power *usb_power = platform_get_drvdata(pdev);
+
+	cancel_delayed_work_sync(&usb_power->usb_supply_mon);
+	cancel_delayed_work_sync(&usb_power->usb_chg_state);
 
 	axp2585_usb_virq_dts_set(usb_power, false);
 
@@ -393,6 +404,9 @@ static int axp2585_usb_power_suspend(struct platform_device *pdev, pm_message_t 
 static int axp2585_usb_power_resume(struct platform_device *pdev)
 {
 	struct axp2585_usb_power *usb_power = platform_get_drvdata(pdev);
+
+	schedule_delayed_work(&usb_power->usb_supply_mon, 0);
+	schedule_delayed_work(&usb_power->usb_chg_state, 0);
 
 	axp2585_usb_virq_dts_set(usb_power, true);
 
@@ -414,6 +428,7 @@ static struct platform_driver axp2585_usb_power_driver = {
 	},
 	.probe = axp2585_usb_power_probe,
 	.remove = axp2585_usb_power_remove,
+	.shutdown = axp2585_usb_shutdown,
 	.suspend = axp2585_usb_power_suspend,
 	.resume = axp2585_usb_power_resume,
 };

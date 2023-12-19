@@ -80,6 +80,14 @@ struct rpbuf_buffer_ops {
 struct rpbuf_controller *rpbuf_get_controller_by_of_node(const struct device_node *np, int index);
 
 /**
+ * rpbuf_wait_controller_ready - wait rpbuf controller ready
+ * @controller: rpbuf controller
+ * @timeout: wait time (ms)
+ *
+ * Return 0 if success, otherwise negative number.
+ */
+int rpbuf_wait_controller_ready(struct rpbuf_controller *controller, int timeout);
+/**
  * rpbuf_alloc_buffer - allocate a rpbuf buffer
  * @controller: rpbuf controller
  * @name: buffer name
@@ -167,5 +175,12 @@ void rpbuf_buffer_set_pa(struct rpbuf_buffer *buffer, phys_addr_t pa);
  * Set the device address of rpbuf buffer.
  */
 void rpbuf_buffer_set_da(struct rpbuf_buffer *buffer, u64 da);
+/*
+ * Set whether the buffer is sent synchronously.
+ * if sent sync, it will block until the remoteproc complete 'rx_cb'
+ * if send async, this function doesn't care about remoteproc
+ * default is async transmit.
+ */
+int rpbuf_buffer_set_sync(struct rpbuf_buffer *buffer, bool sync);
 
 #endif

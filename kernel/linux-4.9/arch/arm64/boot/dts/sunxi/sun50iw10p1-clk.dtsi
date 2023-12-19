@@ -1,3 +1,5 @@
+#include <dt-bindings/clock/sunxi-clk.h>
+
 /{
 clocks {
 	compatible = "allwinner,clk-init";
@@ -8,8 +10,21 @@ clocks {
 	reg = <0x0 0x03001000 0x0 0x1000>,	/*cpux space*/
 	      <0x0 0x07010000 0x0 0x400>,	/*cpus space*/
 	      <0x0 0x07000000 0x0 0x4>;
+	/*
+	* sdm info:
+	* for example:
+	pll_npux4 {
+		sdm-enable = <1>;
+		sdm-factor = <4>;
+		freq-mod   = <TR_N>;
+		sdm-freq   = <FREQ_32>;
+	};
+	*/
+	/* list all clk which can set sdm */
+	sdm_info: sdm_info {
+	};
 
-/* register fixed rate clock*/
+		/* register fixed rate clock */
 		clk_losc: losc {
 			#clock-cells = <0>;
 			compatible = "allwinner,fixed-clock";
@@ -53,7 +68,7 @@ clocks {
 			clock-output-names = "pll_periph0div25m";
 		};
 
-/* register allwinner,pll-clock */
+		/* register allwinner,pll-clock */
 		clk_pll_cpu: pll_cpu {
 			#clock-cells = <0>;
 			compatible = "allwinner,pll-clock";
@@ -139,7 +154,7 @@ clocks {
 			clock-output-names = "pll_audiox4";
 		};
 
-/* register fixed factor clock*/
+		/* register fixed factor clock */
 		clk_pll_periph0x2: pll_periph0x2 {
 			#clock-cells = <0>;
 			compatible = "allwinner,fixed-factor-clock";
@@ -294,7 +309,7 @@ clocks {
 			clock-output-names = "pll_periph0d6";
 		};
 
-/* register allwinner,periph-clock */
+		/* register allwinner,periph-clock */
 		clk_cpu: cpu {
 			#clock-cells = <0>;
 			compatible = "allwinner,cpu-clock";
@@ -810,7 +825,7 @@ clocks {
 			clock-output-names = "ledc";
 		};
 
-/*cpus space clocks from PRCM-SPEC*/
+		/* cpus space clocks from PRCM-SPEC */
 		clk_cpurcir: cpurcir {
 			#clock-cells = <0>;
 			compatible = "allwinner,periph-cpus-clock";

@@ -104,6 +104,7 @@ extern unsigned int vin_log_mask;
 #define vin_err(x, arg...) pr_err("[VIN_ERR]"x, ##arg)
 #define vin_warn(x, arg...) pr_warn("[VIN_WARN]"x, ##arg)
 #define vin_print(x, arg...) pr_info("[VIN]"x, ##arg)
+#define vin_debug(x, arg...) pr_info("\033[41m[VIN_DEBUG]:"x"\033[0m\n", ##arg)
 
 struct vin_mm {
 	size_t size;
@@ -118,5 +119,6 @@ extern int os_gpio_set(struct gpio_config *gpio_list);
 extern int os_gpio_write(u32 gpio, __u32 out_value, int force_value_flag);
 extern int os_mem_alloc(struct device *dev, struct vin_mm *mem_man);
 extern void os_mem_free(struct device *dev, struct vin_mm *mem_man);
+extern void vin_iommu_en(unsigned int mester_id, bool en);
 
 #endif	/*__VIN__OS__H__*/

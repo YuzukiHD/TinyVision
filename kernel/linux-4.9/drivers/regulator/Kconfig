@@ -164,6 +164,10 @@ config REGULATOR_AXP2101
 	  This driver provides support for the voltage regulators on the
 	  AXP2101 PMIC.
 
+config REGULATOR_PMU_EXT
+	tristate "PMU_EXT Power regulator"
+	depends on MFD_PMU_EXT
+
 config REGULATOR_SUNXI_PMC
 	tristate "X-POWERS SUNXI PMC PMIC Regulators"
 	depends on MFD_PMC

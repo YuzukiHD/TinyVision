@@ -234,9 +234,9 @@ int usb_phyx_tp_write(struct sunxi_hci_hcd *sunxi_hci,
 }
 EXPORT_SYMBOL(usb_phyx_tp_write);
 
-#if defined(CONFIG_ARCH_SUN50IW11) || defined(CONFIG_ARCH_SUN8IW21)
+#if defined(CONFIG_ARCH_SUN8IW21)
 /*for new phy*/
-int usb_new_phyx_tp_write(struct sunxi_hci_hcd *sunxi_hci,
+static int usb_new_phyx_tp_write(struct sunxi_hci_hcd *sunxi_hci,
 		int addr, int data, int len)
 {
 	int temp = 0;
@@ -293,9 +293,8 @@ int usb_new_phyx_tp_write(struct sunxi_hci_hcd *sunxi_hci,
 
 	return 0;
 }
-EXPORT_SYMBOL(usb_new_phyx_tp_write);
 
-int usb_new_phyx_tp_read(struct sunxi_hci_hcd *sunxi_hci, int addr, int len)
+static int usb_new_phyx_tp_read(struct sunxi_hci_hcd *sunxi_hci, int addr, int len)
 {
 	int temp = 0;
 	int i = 0;
@@ -341,7 +340,57 @@ int usb_new_phyx_tp_read(struct sunxi_hci_hcd *sunxi_hci, int addr, int len)
 
 	return ret;
 }
-EXPORT_SYMBOL(usb_new_phyx_tp_read);
+
+void usb_new_phyx_write(struct sunxi_hci_hcd *sunxi_hci, u32 data)
+{
+	u32 temp = 0, ptmp = 0, rtmp = 0;
+
+	temp = data & PHY_RANGE_TRAN_MASK;
+	temp >>= (2 + 4);
+	ptmp = data & PHY_RANGE_PREE_MASK;
+	ptmp >>= 4;
+	rtmp = data & PHY_RANGE_RESI_MASK;
+
+	/* tranceive data */
+	usb_new_phyx_tp_write(sunxi_hci, 0x60, temp, 0x4);
+	DMSG_INFO("write to trancevie data: 0x%x\n", temp);
+
+	usb_new_phyx_tp_write(sunxi_hci, 0x64, ptmp, 0x2);
+	DMSG_INFO("write to preemphasis data: 0x%x\n", ptmp);
+
+	usb_new_phyx_tp_write(sunxi_hci, 0x43, 0x0, 0x1);
+
+	usb_new_phyx_tp_write(sunxi_hci, 0x41, 0x0, 0x1);
+
+	usb_new_phyx_tp_write(sunxi_hci, 0x40, 0x0, 0x1);
+
+	usb_new_phyx_tp_write(sunxi_hci, 0x44, rtmp, 0x4);
+	DMSG_INFO("write to resistance data: 0x%x\n", rtmp);
+
+	usb_new_phyx_tp_write(sunxi_hci, 0x43, 0x1, 0x1);
+}
+EXPORT_SYMBOL(usb_new_phyx_write);
+
+int usb_new_phyx_read(struct sunxi_hci_hcd *sunxi_hci)
+{
+	u32 temp = 0, ptmp = 0, rtmp = 0, ret = 0;
+
+	temp = usb_new_phyx_tp_read(sunxi_hci, 0x60, 0x4);
+
+	ptmp = usb_new_phyx_tp_read(sunxi_hci, 0x64, 0x2);
+
+	rtmp = usb_new_phyx_tp_read(sunxi_hci, 0x44, 0x4);
+
+	DMSG_INFO("trancevie[9:6]:0x%x, preemphasis[5:4]:0x%x, resistance[3:0]:0x%x\n",
+			  temp, ptmp, rtmp);
+
+	temp <<= (2 + 4);
+	ptmp <<= 4;
+	ret = temp | ptmp | rtmp;
+
+	return ret;
+}
+EXPORT_SYMBOL(usb_new_phyx_read);
 
 static void usb_new_phy_init(struct sunxi_hci_hcd *sunxi_hci)
 {
@@ -382,7 +431,7 @@ static void usb_new_phy_init(struct sunxi_hci_hcd *sunxi_hci)
 
 		switch (sunxi_hci->usbc_no) {
 		case 0:
-			value = (efuse_val & SUNXI_HCI_PHY_EFUSE_USB0TX) >> 5;
+			value = (efuse_val & SUNXI_HCI_PHY_EFUSE_USB0TX) >> 9;
 			usb_new_phyx_tp_write(sunxi_hci, 0x60, value, 0x04);
 			break;
 
@@ -885,8 +934,8 @@ static int open_clock(struct sunxi_hci_hcd *sunxi_hci, u32 ohci)
 	usb_phyx_tp_write(sunxi_hci, 0x2a, 3, 2);
 #endif
 
-#if defined(CONFIG_ARCH_SUN50IW11) || defined(CONFIG_ARCH_SUN8IW21)
-		usb_new_phy_init(sunxi_hci);
+#if defined(CONFIG_ARCH_SUN8IW21)
+	usb_new_phy_init(sunxi_hci);
 #endif
 
 	mutex_unlock(&usb_clock_lock);
@@ -1710,7 +1759,7 @@ static int sunxi_get_hci_irq_no(struct platform_device *pdev,
 static int hci_wakeup_source_init(struct platform_device *pdev,
 		struct sunxi_hci_hcd *sunxi_hci)
 {
-	if (sunxi_hci->wakeup_source_flag) {
+	if (sunxi_hci->wakeup_source_flag && sunxi_hci->wakeup_suspend) {
 		device_init_wakeup(&pdev->dev, true);
 		dev_pm_set_wake_irq(&pdev->dev, sunxi_hci->irq_no);
 	} else {

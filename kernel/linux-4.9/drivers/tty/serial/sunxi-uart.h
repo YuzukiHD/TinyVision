@@ -111,6 +111,7 @@ struct sw_uart_port {
 	struct serial_rs485 rs485conf;
 	bool card_print;
 	bool throttled;
+	bool loopback;
 };
 
 /* register offset define */
@@ -230,7 +231,7 @@ struct sw_uart_port {
 #define SUNXI_UART_USR_TFNF       (BIT(1))
 #define SUNXI_UART_USR_BUSY       (BIT(0))
 /* Halt Register */
-#define SUNXI_UART_HALT_PTE       (BIT(7))
+#define SUNXI_UART_HALT_PTE       (BIT(6))
 #define SUNXI_UART_HALT_LCRUP     (BIT(2))
 #define SUNXI_UART_HALT_FORCECFG  (BIT(1))
 #define SUNXI_UART_HALT_HTX       (BIT(0))
@@ -281,6 +282,7 @@ struct sw_uart_port {
 #if defined(CONFIG_ARCH_SUN8IW11) \
 	|| defined(CONFIG_ARCH_SUN50IW10)
 #define SUNXI_UART_NUM			8
+#define SUNXI_UART_PE_ERRATA
 #endif
 
 #if defined(CONFIG_ARCH_SUN8IW10) \
@@ -288,6 +290,9 @@ struct sw_uart_port {
 	|| defined(CONFIG_ARCH_SUN8IW16) \
 	|| defined(CONFIG_ARCH_SUN50IW9)
 #define SUNXI_UART_NUM			6
+#ifdef CONFIG_ARCH_SUN50IW9
+#define SUNXI_UART_PE_ERRATA
+#endif
 #endif
 
 #if defined(CONFIG_ARCH_SUN8IW12) \

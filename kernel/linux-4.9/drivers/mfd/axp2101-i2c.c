@@ -60,6 +60,15 @@ static int axp20x_i2c_remove(struct i2c_client *i2c)
 	return axp20x_device_remove(axp20x);
 }
 
+static void axp20x_i2c_shutdown(struct i2c_client *i2c)
+{
+	struct axp20x_dev *axp20x = i2c_get_clientdata(i2c);
+
+	axp20x_device_shutdown(axp20x);
+
+	return;
+}
+
 static const struct of_device_id axp20x_i2c_of_match[] = {
 	{ .compatible = "x-powers,axp152", .data = (void *)AXP152_ID },
 	{ .compatible = "x-powers,axp202", .data = (void *)AXP202_ID },
@@ -102,6 +111,7 @@ static struct i2c_driver axp2101_i2c_driver = {
 	},
 	.probe		= axp20x_i2c_probe,
 	.remove		= axp20x_i2c_remove,
+	.shutdown	= axp20x_i2c_shutdown,
 	.id_table	= axp20x_i2c_id,
 };
 

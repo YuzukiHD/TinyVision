@@ -38,7 +38,6 @@ void mac80211_tx_status_irqsafe(struct ieee80211_hw *hw,
 	}
 	tasklet_schedule(&local->tasklet);
 }
-EXPORT_SYMBOL(mac80211_tx_status_irqsafe);
 
 static void ieee80211_handle_filtered_frame(struct ieee80211_local *local,
 					    struct sta_info *sta,
@@ -554,6 +553,7 @@ void mac80211_tx_status(struct ieee80211_hw *hw, struct sk_buff *skb)
 
 	if (info->flags & IEEE80211_TX_INTFL_NL80211_FRAME_TX) {
 		u64 cookie = (unsigned long)skb;
+		acked = !!(info->flags & IEEE80211_TX_STAT_ACK);
 		/*
 		printk(KERN_ERR "%s, sdata1=%p, &sdata->wdev1=%p\n", __func__,
 			IEEE80211_DEV_TO_SUB_IF(skb->dev), &(IEEE80211_DEV_TO_SUB_IF(skb->dev))->wdev);
@@ -643,4 +643,3 @@ void mac80211_report_low_ack(struct ieee80211_sta *pubsta, u32 num_packets)
 	cfg80211_cqm_pktloss_notify(sta->sdata->dev, sta->sta.addr,
 				    num_packets, GFP_ATOMIC);
 }
-EXPORT_SYMBOL(mac80211_report_low_ack);

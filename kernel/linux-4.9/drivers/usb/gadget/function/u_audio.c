@@ -89,7 +89,7 @@ static void u_audio_iso_complete(struct usb_ep *ep, struct usb_request *req)
 	struct snd_uac_chip *uac = prm->uac;
 
 	/* i/f shutting down */
-	if (!prm->ep_enabled || req->status == -ESHUTDOWN)
+	if (!prm->ep_enabled || req->status == -ESHUTDOWN || req->status == -ECONNRESET)
 		return;
 
 	/*

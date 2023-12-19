@@ -67,6 +67,7 @@ disp-$(CONFIG_LCD_SUPPORT_T050K589) += lcd/t050k589.o
 disp-$(CONFIG_LCD_SUPPORT_KD080D24) += lcd/kd080d24.o
 disp-$(CONFIG_LCD_SUPPORT_JD9161Z_MIPI) += lcd/jd9161z_mipi.o
 disp-$(CONFIG_LCD_SUPPORT_ICN6202) += lcd/icn6202.o
+disp-$(CONFIG_LCD_SUPPORT_ICN6202_2LANE) += lcd/icn6202_2lane.o
 disp-$(CONFIG_LCD_SUPPORT_NT35510_MIPI) += lcd/nt35510.o
 disp-y += lcd/super_lcd_driver.o
 

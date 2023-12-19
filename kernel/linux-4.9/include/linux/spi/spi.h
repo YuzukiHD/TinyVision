@@ -28,6 +28,7 @@ struct dma_chan;
 struct spi_master;
 struct spi_transfer;
 struct spi_flash_read_message;
+struct spi_controller_mem_ops;
 
 /*
  * INTERFACES between SPI master-side drivers and SPI infrastructure.
@@ -194,6 +195,8 @@ struct spi_device {
 #define	SPI_TX_QUAD	0x200			/* transmit with 4 wires */
 #define	SPI_RX_DUAL	0x400			/* receive with 2 wires */
 #define	SPI_RX_QUAD	0x800			/* receive with 4 wires */
+#define	SPI_TX_OCTAL	0x1000			/* transmit with 8 wires */
+#define	SPI_RX_OCTAL	0x2000			/* receive with 8 wires */
 	enum dbi_src_seq	dbi_src_sequence;
 	enum dbi_out_seq	dbi_out_sequence;
 	char dbi_rgb_bit_order;
@@ -623,8 +626,13 @@ struct spi_master {
 	void (*set_cs)(struct spi_device *spi, bool enable);
 	int (*transfer_one)(struct spi_master *master, struct spi_device *spi,
 			    struct spi_transfer *transfer);
+	int (*transfer_two)(struct spi_master *master, struct spi_device *spi,
+			    struct spi_transfer *transfer, struct spi_transfer *transfer2);
 	void (*handle_err)(struct spi_master *master,
 			   struct spi_message *message);
+
+	/* Optimized handlers for SPI memory-like operations. */
+	const struct spi_controller_mem_ops *mem_ops;
 
 	/* gpio chip select */
 	int			*cs_gpios;

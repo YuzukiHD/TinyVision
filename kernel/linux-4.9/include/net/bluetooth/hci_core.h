@@ -1167,6 +1167,10 @@ void hci_conn_del_sysfs(struct hci_conn *conn);
 /* ----- HCI protocols ----- */
 #define HCI_PROTO_DEFER             0x01
 
+/* ----- aw bt flag manager ----- */
+extern u8 aw_bt_flag;
+#define aw_acl_mult_conn_capable    (aw_bt_flag & 0x01)
+
 static inline int hci_proto_connect_ind(struct hci_dev *hdev, bdaddr_t *bdaddr,
 					__u8 type, __u8 *flags)
 {

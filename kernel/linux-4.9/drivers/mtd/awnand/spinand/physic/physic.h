@@ -13,6 +13,7 @@
 
 #define SECTOR_SHIFT 9
 
+
 /* spinand cmd num */
 #define SPI_NAND_WREN		0x06
 #define SPI_NAND_WRDI		0x04
@@ -73,7 +74,10 @@ enum ecc_limit_err {
 	ECC_TYPE_ERR = 0,
 	BIT3_LIMIT2_TO_6_ERR7,
 	BIT2_LIMIT1_ERR2,
+	BIT2_LIMIT1_ERR2_TO_ERR3,
+	BIT2_LIMIT2_ERR3,
 	BIT2_LIMIT1_ERR2_LIMIT3,
+	BIT2_ERR2_LIMIT3,
 	BIT4_LIMIT3_TO_4_ERR15,
 	BIT3_LIMIT3_TO_4_ERR7,
 	BIT3_LIMIT5_ERR2,
@@ -120,6 +124,7 @@ struct aw_spinand_phy_info {
 #define SPINAND_QUAD_READ			BIT(1)
 #define SPINAND_QUAD_PROGRAM			BIT(2)
 #define SPINAND_QUAD_NO_NEED_ENABLE		BIT(3)
+#define SPINAND_TWO_PLANE_SELECT                BIT(7)
 #define SPINAND_ONEDUMMY_AFTER_RANDOMREAD	BIT(8)
 	int OperationOpt;
 	int MaxEraseTimes;

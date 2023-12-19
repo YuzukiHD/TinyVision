@@ -28,7 +28,8 @@
 				     <GIC_SPI 81 IRQ_TYPE_LEVEL_HIGH>,
 				     <GIC_SPI 83 IRQ_TYPE_LEVEL_HIGH>;
 			device_type = "pio";
-			clocks = <&clk_apb0>;
+			clocks = <&clk_apb0>, <&clk_losc>, <&clk_hosc>;
+			clock-names = "apb", "losc", "hosc";
 			gpio-controller;
 			interrupt-controller;
 			#interrupt-cells = <3>;

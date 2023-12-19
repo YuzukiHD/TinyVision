@@ -12,4 +12,5 @@ config VIDEO_GS1662
 
 endmenu
 
+source "drivers/media/spi/spi-camera/Kconfig"
 endif
