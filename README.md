@@ -37,7 +37,7 @@ Enjoy immersive video experiences with TinyVision's H.264/H.265 decoding capabil
 
 For reliable real-time operating system support, TinyVision harnesses the power of the RISC-V E907 RTOS based on RT-Thread + RTOS-HAL, ensuring optimal performance and stability.
 
-Whether you prefer a Linux environment or real-time control, TinyVision has got you covered.  It supports Linux releases such as OpenWrt 23.05, Buildroot, and Mainline Linux 6.7, catering to diverse software needs.  For real-time control enthusiasts, the RISC-V E907 RTOS support, based on RT-Thread + RTOS-HAL, offers fast and reliable performance.
+Whether you prefer a Linux environment or real-time control, TinyVision has got you covered.  It supports GNU/Linux releases such as OpenWrt 23.05, Buildroot, and Mainline Linux 6.7, catering to diverse software needs.  For real-time control enthusiasts, the RISC-V E907 RTOS support, based on RT-Thread + RTOS-HAL, offers fast and reliable performance.
 
 Unlock endless possibilities with TinyVision, the compact yet powerful solution for your Linux board, IPC, server, router, and beyond. Experience unrivaled performance, enhanced capabilities, and seamless integration. Choose TinyVision and transform the way you innovate.
 
@@ -67,7 +67,7 @@ Unlock endless possibilities with TinyVision, the compact yet powerful solution 
 
 TinyVision supports a variety of kernels to choose from, and the following is a list of support options:
 
-### Linux Release
+### GNU/Linux Release
 
 - OpenWrt 23.05
 - Buildroot
