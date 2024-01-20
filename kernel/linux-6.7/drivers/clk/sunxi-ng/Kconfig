@@ -98,11 +98,6 @@ config SUN8I_V3S_CCU
 	default y
 	depends on MACH_SUN8I || COMPILE_TEST
 
-config SUN8I_V851SE_CCU
-	tristate "Support for the Allwinner V851se CCU"
-	default y
-	depends on MACH_SUN8I || COMPILE_TEST
-
 config SUN8I_DE2_CCU
 	tristate "Support for the Allwinner SoCs DE2 CCU"
 	default y
