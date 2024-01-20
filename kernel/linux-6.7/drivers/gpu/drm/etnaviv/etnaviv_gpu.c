@@ -1883,8 +1883,15 @@ static int etnaviv_gpu_platform_probe(struct platform_device *pdev)
 		return PTR_ERR(gpu->clk_shader);
 	gpu->base_rate_shader = clk_get_rate(gpu->clk_shader);
 
+	gpu->reset = devm_reset_control_get_optional(&pdev->dev, NULL);
+        if (IS_ERR(gpu->reset))
+                return PTR_ERR(gpu->reset);
+                
 	/* TODO: figure out max mapped size */
 	dev_set_drvdata(dev, gpu);
+
+	if (gpu->reset)
+	    reset_control_deassert(gpu->reset);
 
 	/*
 	 * We treat the device as initially suspended.  The runtime PM

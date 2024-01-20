@@ -326,6 +326,13 @@ config STM32_RPROC
 
 	  This can be either built-in or a loadable module.
 
+config SUN8I_V853_REMOTEPROC
+	tristate "Allwinner sun8i v853 remoteproc support"
+	depends on ARCH_SUNXI || COMPILE_TEST
+	help
+	  Say y here to support the RISC_V mcu in V853/V851s/V851SE SoCs
+	  via the remote processor framework.
+
 config TI_K3_DSP_REMOTEPROC
 	tristate "TI K3 DSP remoteproc support"
 	depends on ARCH_K3

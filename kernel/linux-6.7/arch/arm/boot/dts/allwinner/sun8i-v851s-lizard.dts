@@ -8,17 +8,24 @@
 #include "sun8i-v851s.dtsi"
 
 / {
-	model = "TinyVision";
-	compatible = "allwinner,sun8i-v851se", "allwinner,sun8i";
+	model = "Yuzuki-lizard";
+	compatible = "allwinner,sun8i-v853", "allwinner,sun8i";
 
 	aliases {
 		serial0 = &uart0;
+		serial2 = &uart2;
 	};
 
-	chosen {
-		stdout-path = "serial0:115200n8"; 
-		bootargs = "mem=64M cma=4M root=/dev/mmcblk0p2 init=/sbin/init console=ttyS0,115200 earlyprintk=sunxi-uart,0x02500000 rootwait clk_ignore_unused";
-	};
+        chosen {
+		stdout-path = "serial0:115200n8";
+/*
+                bootargs = "mem=64M cma=4M root=/dev/mmcblk0p2 init=/sbin/init console=ttyS2,115200 earlyprintk=sunxi-uart,0x02500800 rootwait clk_ignore_unused drm.debug=0x3";
+*/
+                bootargs = "mem=64M cma=8M init=/sbin/init console=ttyS2,115200 rootfstype=ubifs ubi.mtd=3 root=ubi0:rootfs rw rootwait drm.debug=0x3";
+/*
+                bootargs = "mem=64M cma=2M init=/sbin/init console=ttyS2,115200 root=/dev/mmcblk0p2 rw rootwait";
+*/
+        };
 
 	reg_vcc: vcc {
 		compatible = "regulator-fixed";
@@ -58,11 +65,22 @@
 		vin-supply = <&reg_vcc>;
 	};
 
-	/* A (B) C D E F (G) H I */
-    wifi_pwrseq: wifi-pwrseq {
-        compatible = "mmc-pwrseq-simple";
-        reset-gpios = <&pio 4 6 GPIO_ACTIVE_LOW>; /* PE6 */
-    };
+/* A (B) C D E F (G) H I */
+
+        leds {
+                compatible = "gpio-leds";
+
+                status_led {
+			linux,default-trigger = "heartbeat";
+                        label = "led:red";
+                        gpios = <&pio 5 6 GPIO_ACTIVE_HIGH>;
+                };
+        };
+
+        wifi_pwrseq: wifi-pwrseq {
+                compatible = "mmc-pwrseq-simple";
+                reset-gpios = <&pio 4 6 GPIO_ACTIVE_LOW>; /* PE6 */
+        };
 };
 
 
@@ -88,20 +106,20 @@
 
 &uart2 {
 	pinctrl-0 = <&uart2_pe12_pins>;
-    rs485-rts-delay = <0 0>;
-    rts-gpios = <&pio 4 10 GPIO_ACTIVE_LOW>;
+        rs485-rts-delay = <0 0>;
+        rts-gpios = <&pio 4 10 GPIO_ACTIVE_LOW>;
 	pinctrl-names = "default";
 	status = "okay";
 };
 
 &wdt {
-    status = "okay";
+        status = "okay";
 };
 
 &spi0 {
         pinctrl-0 = <&spi0_pins>;
         pinctrl-names = "default";
-        status = "disabled";
+        status = "okay";
 
         flash@0 {
                 compatible = "spi-nand";
@@ -150,7 +168,6 @@
 
 &mmc0 {
 	bus-width = <4>;
-	cd-gpios = <&pio 5 6 (GPIO_ACTIVE_LOW)>;
 	disable-wp;
 	vmmc-supply = <&reg_vcc_3v3>;
 	vqmmc-supply = <&reg_vcc_3v3>;
@@ -167,12 +184,19 @@
 	vqmmc-supply = <&reg_vcc_3v3>;
 	pinctrl-0 = <&mmc1_pins>;
 	pinctrl-names = "default";
-	status = "disabled";
+	status = "okay";
+
+        xr829: wifi@1 {
+                reg = <1>;
+		interrupt-parent = <&pio>;
+		interrupts = <4 7 IRQ_TYPE_LEVEL_HIGH>; /* PE7 */
+		interrupt-names = "host-wake";
+        };
 };
 
 &usb_otg {
 	dr_mode = "peripheral"; 
-	/* dr_mode = "otg"; */
+/*	dr_mode = "otg"; */
 	status = "okay";
 };
 
@@ -190,14 +214,14 @@
 };
 
 &gpadc {
-    status = "okay";
+        status = "okay";
 
-    #address-cells = <1>;
-    #size-cells = <0>;
+        #address-cells = <1>;
+        #size-cells = <0>;
 
-    channel@0 {
-        reg = <0>;
-    };
+        channel@0 {
+            reg = <0>;
+        };
 };
 
 &mdio {

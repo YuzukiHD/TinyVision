@@ -12,8 +12,8 @@
 struct ccu_reset_map {
 	u16	reg;
 	u32	bit;
+	u32	features;
 };
-
 
 struct ccu_reset {
 	void __iomem			*base;

@@ -12,6 +12,16 @@ config SUNIV_F1C100S_CCU
 	default y
 	depends on MACH_SUNIV || COMPILE_TEST
 
+config SUN8I_V853_CCU
+	tristate "Support for the Allwinner V853/V851s/V851SE CCU"
+	default MACH_SUN8I
+	depends on MACH_SUN8I || COMPILE_TEST
+
+config SUN8I_V853_R_CCU
+	tristate "Support for the Allwinner V853/V851s/V851SE PRCM CCU"
+	default MACH_SUN8I
+	depends on MACH_SUN8I || COMPILE_TEST
+
 config SUN20I_D1_CCU
 	tristate "Support for the Allwinner D1/R528/T113 CCU"
 	default y

@@ -9,6 +9,9 @@
 #include <linux/reset-controller.h>
 
 #include "ccu_reset.h"
+#include "ccu_common.h"
+
+#define CCU_RST_KEY_VALUE		0x16aa0000
 
 static int ccu_reset_assert(struct reset_controller_dev *rcdev,
 			    unsigned long id)
@@ -21,6 +24,9 @@ static int ccu_reset_assert(struct reset_controller_dev *rcdev,
 	spin_lock_irqsave(ccu->lock, flags);
 
 	reg = readl(ccu->base + map->reg);
+	if (map->features & CCU_FEATURE_KEY_FIELD)
+	    reg |= CCU_RST_KEY_VALUE;
+
 	writel(reg & ~map->bit, ccu->base + map->reg);
 
 	spin_unlock_irqrestore(ccu->lock, flags);
@@ -39,6 +45,9 @@ static int ccu_reset_deassert(struct reset_controller_dev *rcdev,
 	spin_lock_irqsave(ccu->lock, flags);
 
 	reg = readl(ccu->base + map->reg);
+	if (map->features & CCU_FEATURE_KEY_FIELD)
+	    reg |= CCU_RST_KEY_VALUE;
+
 	writel(reg | map->bit, ccu->base + map->reg);
 
 	spin_unlock_irqrestore(ccu->lock, flags);

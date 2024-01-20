@@ -867,6 +867,8 @@ static const struct of_device_id sun6i_rtc_dt_ids[] = {
 		.data = (void *)RTC_LINEAR_DAY },
 	{ .compatible = "allwinner,sun50i-r329-rtc",
 		.data = (void *)RTC_LINEAR_DAY },
+	{ .compatible = "allwinner,sun8i-v853-rtc",
+		.data = (void *)RTC_LINEAR_DAY },
 	{ /* sentinel */ },
 };
 MODULE_DEVICE_TABLE(of, sun6i_rtc_dt_ids);

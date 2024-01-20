@@ -25,6 +25,8 @@ sunxi-ccu-y			+= ccu_mp.o
 
 # SoC support
 obj-$(CONFIG_SUNIV_F1C100S_CCU)	+= suniv-f1c100s-ccu.o
+obj-$(CONFIG_SUN8I_V853_CCU)	+= sun8i-v853-ccu.o
+obj-$(CONFIG_SUN8I_V853_R_CCU)	+= sun8i-v853-r-ccu.o
 obj-$(CONFIG_SUN20I_D1_CCU)	+= sun20i-d1-ccu.o
 obj-$(CONFIG_SUN20I_D1_R_CCU)	+= sun20i-d1-r-ccu.o
 obj-$(CONFIG_SUN50I_A64_CCU)	+= sun50i-a64-ccu.o
@@ -50,6 +52,8 @@ obj-$(CONFIG_SUN9I_A80_CCU)	+= sun9i-a80-de-ccu.o
 obj-$(CONFIG_SUN9I_A80_CCU)	+= sun9i-a80-usb-ccu.o
 
 suniv-f1c100s-ccu-y		+= ccu-suniv-f1c100s.o
+sun8i-v853-ccu-y		+= ccu-sun8i-v853.o
+sun8i-v853-r-ccu-y		+= ccu-sun8i-v853-r.o
 sun20i-d1-ccu-y			+= ccu-sun20i-d1.o
 sun20i-d1-r-ccu-y		+= ccu-sun20i-d1-r.o
 sun50i-a64-ccu-y		+= ccu-sun50i-a64.o
