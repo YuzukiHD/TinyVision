@@ -39,15 +39,15 @@
 		clock-output-names = "ext-32k";
 	};
 
-        cpus {
-                #address-cells = <1>;
-                #size-cells = <0>;
+    cpus {
+        #address-cells = <1>;
+        #size-cells = <0>;
 
-        	cpu0: cpu@0 {
-                        device_type = "cpu";
-                        compatible = "arm,cortex-a7";
-                        reg = <0>;
-                        clocks = <&ccu CLK_CPU>;
+        cpu0: cpu@0 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a7";
+			reg = <0>;
+			clocks = <&ccu CLK_CPU>;
 			clock-names = "cpu";
 			clock-frequency = <1200000000>;
 			clock-latency = <2000000>;
@@ -55,23 +55,23 @@
 			cooling-max-level = <0>;
 			#cooling-cells = <2>; /* min followed by max */
 			dynamic-power-coefficient = <142>;
-                };
         };
+    };
 
 	memory {
 	    reg = <0x40000000 0x4000000>;
 	};
 
-        reserved-memory {
-                #address-cells = <1>;
-                #size-cells = <1>;
-                ranges;
+    reserved-memory {
+        #address-cells = <1>;
+        #size-cells = <1>;
+        ranges;
 /*
-                vip_reserve {
-                        reg = <0x43afd000 0x400000>;
-                        no-map;
-                        status = "okay";
-                };
+        vip_reserve {
+            reg = <0x43afd000 0x400000>;
+            no-map;
+            status = "okay";
+        };
 */
 		riscv_vring0: riscv_vring0@43efd000 {
 			no-map;
@@ -88,12 +88,12 @@
 			reg = <0x43eff000 0x1000>;
 		};
 
-                riscv_reserved: riscv0@43f00000 {
+        riscv_reserved: riscv0@43f00000 {
 			compatible = "shared-dma-pool";
-                        reg = <0x43f00000 0x100000>;
+            reg = <0x43f00000 0x100000>;
 			no-map;
-                };
         };
+    };
 
 	timer {
 		compatible = "arm,armv7-timer";
@@ -348,55 +348,53 @@
 			#iommu-cells = <1>;
 		};
 
-                ppu: power-controller@7001000 {
-                        compatible = "allwinner,sun8i-v853-ppu";
-                        reg = <0x7001000 0x400>;
-                        clocks = <&r_ccu CLK_R_PPU>;
-                        resets = <&r_ccu RST_BUS_R_PPU>;
-                        #power-domain-cells = <1>;
-                };
+        ppu: power-controller@7001000 {
+            compatible = "allwinner,sun8i-v853-ppu";
+            reg = <0x7001000 0x400>;
+            clocks = <&r_ccu CLK_R_PPU>;
+            resets = <&r_ccu RST_BUS_R_PPU>;
+            #power-domain-cells = <1>;
+        };
 /*
-                npu: npu@3050000 {
-                        compatible = "allwinner,npu";
-                        reg = <0x03050000 0x1000>;
+        npu: npu@3050000 {
+            compatible = "allwinner,npu";
+            reg = <0x03050000 0x1000>;
 			device_type = "npu";
 			dev_name = "npu";
-                        interrupts = <GIC_SPI 65 IRQ_TYPE_LEVEL_HIGH>;
-                        interrupt-names = "npu";
-                        clocks = <&ccu CLK_NPU>, <&ccu CLK_PLL_NPU_4X>, <&ccu CLK_BUS_NPU>;
+            interrupts = <GIC_SPI 65 IRQ_TYPE_LEVEL_HIGH>;
+            interrupt-names = "npu";
+            clocks = <&ccu CLK_NPU>, <&ccu CLK_PLL_NPU_4X>, <&ccu CLK_BUS_NPU>;
 			clock-names = "core", "pll", "bus";
-                        clock-frequency = <504000000>;
+            clock-frequency = <504000000>;
 			resets = <&ccu RST_BUS_NPU>;
-
-                        iommus = <&iommu 6>;
-
-                        power-domains = <&ppu PD_NPU>;
-                };
+            iommus = <&iommu 6>;
+            power-domains = <&ppu PD_NPU>;
+        };
 */
-                npu: npu@3050000 {
-                        compatible = "vivante,gc";
-                        reg = <0x03050000 0x1000>;
-                        interrupts = <GIC_SPI 65 IRQ_TYPE_LEVEL_HIGH>;
-                        interrupt-names = "npu";
-                        clocks = <&ccu CLK_BUS_NPU>, <&ccu CLK_NPU>, <&ccu CLK_PLL_NPU_4X>;
-                        clock-names = "bus", "core", "reg";
-                        clock-frequency = <504000000>;
-                        resets = <&ccu RST_BUS_NPU>;
-/*
-                        iommus = <&iommu 6>;
-*/
-                        power-domains = <&ppu PD_NPU>;
-                };
+        npu: npu@3050000 {
+            compatible = "vivante,gc";
+            reg = <0x03050000 0x1000>;
+            interrupts = <GIC_SPI 65 IRQ_TYPE_LEVEL_HIGH>;
+            interrupt-names = "npu";
+            clocks = <&ccu CLK_BUS_NPU>, <&ccu CLK_NPU>, <&ccu CLK_PLL_NPU_4X>;
+            clock-names = "bus", "core", "reg";
+            clock-frequency = <504000000>;
+            resets = <&ccu RST_BUS_NPU>;
+			/*
+            iommus = <&iommu 6>;
+			*/
+            power-domains = <&ppu PD_NPU>;
+        };
 
-    		nmi_intc: intc-nmi@7010320 {
-            		compatible = "allwinner,sun9i-a80-nmi";
-            		interrupt-parent = <&gic>;
-            		#interrupt-cells = <2>;
-            		#address-cells = <0>;
-            		interrupt-controller;
-            		reg = <0x07010320 0xc>;
-            		interrupts = <GIC_SPI 136 IRQ_TYPE_LEVEL_HIGH>;
-    		};
+    	nmi_intc: intc-nmi@7010320 {
+            compatible = "allwinner,sun9i-a80-nmi";
+            interrupt-parent = <&gic>;
+            #interrupt-cells = <2>;
+            #address-cells = <0>;
+            interrupt-controller;
+            reg = <0x07010320 0xc>;
+            interrupts = <GIC_SPI 136 IRQ_TYPE_LEVEL_HIGH>;
+    	};
 
 		msgbox: mailbox@3003000 {
         		compatible = "allwinner,sun8i-h3-msgbox",
@@ -441,7 +439,7 @@
 			nvmem-cell-names = "calibration";
 			#thermal-sensor-cells = <1>;
 		};
-/*
+		/*
 		crypto: crypto@3040000 {
 			compatible = "allwinner,sun8i-v853-crypto";
 			reg = <0x3040000 0x800>;
@@ -453,7 +451,7 @@
 			clock-names = "bus", "mod", "ram", "trng";
 			resets = <&ccu RST_BUS_CE>;
 		};
-*/
+		*/
 		timer: timer@2050000 {
 			compatible = "allwinner,sun20i-d1-timer",
 				     "allwinner,sun8i-a23-timer";
@@ -849,48 +847,48 @@
 			};
 		};
 
-                wdt: watchdog@20500a0 {
-                        compatible = "allwinner,sun20i-d1-wdt-reset",
-                                     "allwinner,sun20i-d1-wdt";
-                        reg = <0x20500a0 0x20>;
-                        interrupts = <GIC_SPI 63 IRQ_TYPE_LEVEL_HIGH>;
-                        clocks = <&osc24M>, <&rtc CLK_OSC32K>;
-                        clock-names = "hosc", "losc";
-                        status = "reserved";
-                };
+        wdt: watchdog@20500a0 {
+            compatible = "allwinner,sun20i-d1-wdt-reset",
+                         "allwinner,sun20i-d1-wdt";
+            reg = <0x20500a0 0x20>;
+            interrupts = <GIC_SPI 63 IRQ_TYPE_LEVEL_HIGH>;
+            clocks = <&osc24M>, <&rtc CLK_OSC32K>;
+            clock-names = "hosc", "losc";
+            status = "reserved";
+        };
 
-                gic: interrupt-controller@3021000 {
-                        compatible = "arm,gic-400";
-                        reg = <0x03021000 0x1000>,
-                              <0x03022000 0x2000>,
-                              <0x03024000 0x2000>,
-                              <0x03026000 0x2000>;
-                        interrupts = <GIC_PPI 9 (GIC_CPU_MASK_SIMPLE(2) | IRQ_TYPE_LEVEL_HIGH)>;
-                        interrupt-controller;
-                        #interrupt-cells = <3>;
-                };
+        gic: interrupt-controller@3021000 {
+            compatible = "arm,gic-400";
+            reg = <0x03021000 0x1000>,
+                  <0x03022000 0x2000>,
+                  <0x03024000 0x2000>,
+                  <0x03026000 0x2000>;
+            interrupts = <GIC_PPI 9 (GIC_CPU_MASK_SIMPLE(2) | IRQ_TYPE_LEVEL_HIGH)>;
+            interrupt-controller;
+            #interrupt-cells = <3>;
+        };
 
-                gpadc: adc@2009000 {
-                        compatible = "allwinner,sun20i-d1-gpadc";
-                        reg = <0x2009000 0x0400>;
-                        clocks = <&ccu CLK_BUS_GPADC>;
-                        resets = <&ccu RST_BUS_GPADC>;
-                        interrupts = <GIC_SPI 57 IRQ_TYPE_LEVEL_HIGH>;
-                        status = "disabled";
-                        #io-channel-cells = <1>;
-                };
+    	gpadc: adc@2009000 {
+            compatible = "allwinner,sun20i-d1-gpadc";
+            reg = <0x2009000 0x0400>;
+            clocks = <&ccu CLK_BUS_GPADC>;
+            resets = <&ccu RST_BUS_GPADC>;
+            interrupts = <GIC_SPI 57 IRQ_TYPE_LEVEL_HIGH>;
+            status = "disabled";
+            #io-channel-cells = <1>;
+        };
 
-                hstimer@3008000 {
-                        compatible = "allwinner,sun7i-a20-hstimer";
-                        reg = <0x03008000 0x1000>;
-                        interrupts = <GIC_SPI 55 IRQ_TYPE_LEVEL_HIGH>,
-                                     <GIC_SPI 56 IRQ_TYPE_LEVEL_HIGH>;
-                        clocks = <&ccu CLK_BUS_HSTIMER>;
-                };
+        hstimer@3008000 {
+            compatible = "allwinner,sun7i-a20-hstimer";
+            reg = <0x03008000 0x1000>;
+            interrupts = <GIC_SPI 55 IRQ_TYPE_LEVEL_HIGH>,
+                         <GIC_SPI 56 IRQ_TYPE_LEVEL_HIGH>;
+            clocks = <&ccu CLK_BUS_HSTIMER>;
+        };
 
-                remoteproc: rproc@6010000 {
-                        compatible = "allwinner,sun8i-v853-rproc";
-                        reg = <0x06010000 0x1000>;
+        remoteproc: rproc@6010000 {
+            compatible = "allwinner,sun8i-v853-rproc";
+            reg = <0x06010000 0x1000>;
 			reg-names = "config";
 			memory-region = <&riscv_reserved>, <&vdev0buffer>;
                         clock-frequency = <600000000>;
@@ -902,13 +900,13 @@
 				 <&ccu RST_RISCV_CFG>,
 				 <&ccu RST_RISCV_CLK>;
 			reset-names = "dbg", "soft", "cfg", "clk_gate";
-/*
+			/*
 			iommus = <&iommu 5>;
-*/
-                        power-domains = <&ppu PD_RISCV>;
+			*/
+            power-domains = <&ppu PD_RISCV>;
 			mbox-names = "rx", "tx";
 			mboxes = <&msgbox 0>, <&msgbox 1>;
-                };
+        };
 
 		display_clocks: clock-controller@5000000 {
 			compatible = "allwinner,sun20i-d1-de2-clk",
@@ -930,9 +928,9 @@
 					 <&display_clocks CLK_MIXER0>;
 			clock-names = "bus", "mod";
 			resets = <&display_clocks RST_MIXER0>;
-/*
+			/*
 			iommus = <&iommu 2>;
-*/
+			*/
 			ports {
 				#address-cells = <1>;
 				#size-cells = <0>;
@@ -1061,7 +1059,7 @@
 
 			};
 		};
-/*
+		/*
 		codec: codec@2030000 {
 			#sound-dai-cells = <0>;
 			compatible = "allwinner,sun20i-d1-codec";
@@ -1083,19 +1081,19 @@
 			reg = <0x02030300 0xd00>;
 			status = "disabled";
 		};
-*/
-                dmic: dmic@2031000 {
-                        compatible = "allwinner,sun50i-h6-dmic";
-                        reg = <0x2031000 0x400>;
-                        interrupts = <GIC_SPI 56 IRQ_TYPE_LEVEL_HIGH>;
-                        clocks = <&ccu CLK_BUS_DMIC>,
-                                 <&ccu CLK_DMIC>;
-                        clock-names = "bus", "mod";
-                        resets = <&ccu RST_BUS_DMIC>;
-                        dmas = <&dma 8>;
-                        dma-names = "rx";
-                        status = "disabled";
-                        #sound-dai-cells = <0>;
-                };
+		*/
+        dmic: dmic@2031000 {
+            compatible = "allwinner,sun50i-h6-dmic";
+            reg = <0x2031000 0x400>;
+            interrupts = <GIC_SPI 56 IRQ_TYPE_LEVEL_HIGH>;
+            clocks = <&ccu CLK_BUS_DMIC>,
+                     <&ccu CLK_DMIC>;
+            clock-names = "bus", "mod";
+            resets = <&ccu RST_BUS_DMIC>;
+            dmas = <&dma 8>;
+            dma-names = "rx";
+            status = "disabled";
+            #sound-dai-cells = <0>;
+        };
 	};
 };
