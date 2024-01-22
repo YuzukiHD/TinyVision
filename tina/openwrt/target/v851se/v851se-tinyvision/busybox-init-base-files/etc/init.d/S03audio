@@ -1,0 +1,59 @@
+#!/bin/sh
+#
+# Start audio
+#
+
+
+start() {
+	printf "Starting audio: "
+	if [ -d "/home/res/audio" ];then
+		if [ -f "/usr/bin/tinyplay" ];then
+			tinymix set 'LINEOUT Switch' 1
+			tinymix set 'SPK Switch' 1
+			tinymix set 'LINEOUT volume' 31
+			tinyplay /home/res/audio/startup.wav & 
+		else 
+			echo "no tinyplay tool"
+		fi
+
+		echo "Successfully play boot music"
+	else
+		echo "no /home/res/audio director"
+	fi
+}
+
+stop() {
+	printf "Stopping audio: "
+	if [ -d "/home/res/audio" ];then
+		if [ -f "/usr/bin/tinyplay" ];then
+			tinymix set 'LINEOUT Switch' 1
+			tinymix set 'SPK Switch' 1
+			tinymix set 'LINEOUT volume' 31
+			tinyplay /home/res/audio/shutdown.wav 
+		else 
+			echo "no tinyplay tool"
+		fi
+
+		echo "Successfully play shutdown music"
+	else
+		echo "no /home/res/audio director"
+	fi
+}
+
+case "$1" in
+  start)
+	start
+	;;
+  stop)
+	stop
+	;;
+  restart|reload)
+	stop
+	start
+	;;
+  *)
+	echo "Usage: $0 {start|stop|restart}"
+	exit 1
+esac
+
+exit $?

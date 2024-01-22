@@ -1,0 +1,43 @@
+#!/bin/sh
+
+MODULES_DIR="/lib/modules/`uname -r`"
+
+start() {
+    echo "enable android usb"
+
+    insmod $MODULES_DIR/sunxi_usb_udc.ko
+    insmod $MODULES_DIR/sunxi_usbc.ko
+
+    setusbconfig adb
+    adbd > /dev/null &
+}
+
+stop() {
+    echo "disable android usb"
+
+    killall adbd 2>/dev/null
+
+    setusbconfig none
+
+    rmmod $MODULES_DIR/sunxi_usbc.ko
+    rmmod $MODULES_DIR/sunxi_usb_udc.ko
+}
+
+case "$1" in
+    start)
+        start
+        ;;
+    stop)
+        # stop
+        ;;
+    restart|reload)
+        stop
+        start
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+esac
+
+exit $?
+

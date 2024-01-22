@@ -1,0 +1,2 @@
+#!/bin/sh
+echo "------run rc.modules file-----"
