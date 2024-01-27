@@ -141,11 +141,11 @@ TinyVision V851se支持多种不同的系统，有主线，有原厂BSP，有RTO
 默认情况下系统会自动安装串口设备驱动，如果没有自动安装，可以使用驱动精灵来自动安装。
 
 * 对于Windows系统
-  此时Windows设备管理器 在 端口(COM和LPT) 处会多出一个串口设备，一般是以 `USB-Enhanced-SERIAL CH9102`开头，您需要留意一下后面的具体COM编号，用于后续连接使用。
+  此时Windows设备管理器 在 端口(COM和LPT) 处会多出一个串口设备，一般是以 `USB-SERIAL CH340`开头，您需要留意一下后面的具体COM编号，用于后续连接使用。
 
-![QuickStart-01](assets/post/README/QuickStart-01.png)
+![image-20240127154715951](assets/post/README/image-20240127154715951.png)
 
-如上图，COM号是96，我们接下来连接所使用的串口号就是96。
+如上图，COM号是14，我们接下来连接所使用的串口号就是14。
 
 * 对于Linux系统
   可以查看是否多出一个/dev/tty 设备,一般情况设备节点为 /dev/ttyACM0  。
