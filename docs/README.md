@@ -41,12 +41,12 @@
 
 ## 不同型号芯片的区别
 
-| 芯片型号 | 内存       | 内置网络PHY | 显示接口                                        |
-| -------- | ---------- | ----------- | ----------------------------------------------- |
-| V851s    | 64M DDR2   | 无          | 2-lane MIPI + RGB + MIPI DBI TypeC, 1280x720@60 |
-| V851se   | 64M DDR2   | 10/100M     | MIPI DBI TypeC, 320x240@30                      |
-| V851s3   | 128M DDR3L | 无          | 2-lane MIPI + RGB + MIPI DBI TypeC, 1280x720@60 |
-| V851s4   | 256M DDR3L | 无          | 2-lane MIPI + RGB + MIPI DBI TypeC, 1280x720@60 |
+| 芯片型号 | 内存       | 内置网络PHY | 显示接口                                        | 发布状态                            |
+| -------- | ---------- | ----------- | ----------------------------------------------- | ----------------------------------- |
+| V851s    | 64M DDR2   | 无          | 2-lane MIPI + RGB + MIPI DBI TypeC, 1280x720@60 | Yuzukilizard 开发板，已发布         |
+| V851se   | 64M DDR2   | 10/100M     | MIPI DBI TypeC, 320x240@30                      | TinyVision 开发板，已发布           |
+| V851s3   | 128M DDR3L | 无          | 2-lane MIPI + RGB + MIPI DBI TypeC, 1280x720@60 | TinyVision 开发板销量达到1k开始计划 |
+| V851s4   | 256M DDR3L | 无          | 2-lane MIPI + RGB + MIPI DBI TypeC, 1280x720@60 | TinyVision 开发板销量达到3k开始计划 |
 
 ## 配套模块
 
