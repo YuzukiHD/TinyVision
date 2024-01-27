@@ -2979,7 +2979,1365 @@ int main(int argc, char *argv[])
 
 ![image-20240126200516520](assets/post/README/image-20240126200516520.png)
 
+# LCD 模组驱动
 
+TinyVision 配套 LCD 模组使用 ST7789V 作为主控，模组大小为1.4寸。
+
+## Linux 5.15 内核适配
+
+### 驱动勾选
+
+由于使用的是 SPI0，所以 TinyVision 的 LCD 模块并不支持使用MIPI-DBI进行驱动，这里我们使用普通的SPI模拟时序。
+
+### 勾选 SPI 驱动
+
+这里我们使用 SPI-NG 驱动，勾选 `<*> SPI NG Driver Support for Allwinner SoCs`
+
+![image-20240117100904335](assets/post/README/image-20240117100904335.png)
+
+### 勾选 Linux FrameBuffer 驱动
+
+前往如下地址，勾选驱动
+
+```
+Device Drivers  --->
+	Graphics support  --->
+		Frame buffer Devices  --->
+			<*> Support for frame buffer devices
+		Console display driver support  --->
+			[*] Framebuffer Console support
+			[*]   Map the console to the primary display device
+	[*] Staging drivers  --->
+		<*>   Support for small TFT LCD display modules  --->
+		<*>   FB driver for the ST7789V LCD Controller
+```
+
+### 适配 FBTFT 的设备树接口
+
+进入内核文件夹，找到 `kernel/linux-5.15/drivers/staging/fbtft/fbtft-core.c`
+
+添加头文件
+
+```c
+#include <linux/gpio.h>
+#include <linux/of_gpio.h>
+```
+
+修改 `fbtft_request_one_gpio` 函数，如下
+
+```c
+static int fbtft_request_one_gpio(struct fbtft_par *par,
+                  const char *name, int index,
+                  struct gpio_desc **gpiop)
+{
+    struct device *dev = par->info->device;
+    struct device_node *node = dev->of_node;
+    int gpio, flags, ret = 0;
+    enum of_gpio_flags of_flags;
+
+    if (of_find_property(node, name, NULL)) {
+        gpio = of_get_named_gpio_flags(node, name, index, &of_flags);
+        if (gpio == -ENOENT)
+            return 0;
+        if (gpio == -EPROBE_DEFER)
+            return gpio;
+        if (gpio < 0) {
+            dev_err(dev,
+                "failed to get '%s' from DT\n", name);
+            return gpio;
+        }
+        flags = (of_flags & OF_GPIO_ACTIVE_LOW) ? GPIOF_OUT_INIT_LOW :
+                            GPIOF_OUT_INIT_HIGH;
+        ret = devm_gpio_request_one(dev, gpio, flags,
+                        dev->driver->name);
+        if (ret) {
+            dev_err(dev,
+                "gpio_request_one('%s'=%d) failed with %d\n",
+                name, gpio, ret);
+            return ret;
+        }
+
+        *gpiop = gpio_to_desc(gpio);
+        fbtft_par_dbg(DEBUG_REQUEST_GPIOS, par, "%s: '%s' = GPIO%d\n",
+                            __func__, name, gpio);
+    }
+
+    return ret;
+}
+```
+
+### 编写配套屏幕 ST7789v 驱动
+
+进入内核文件夹，找到 `kernel/linux-5.15/drivers/staging/fbtft/fb_st7789v.c` 修改文件如下：
+
+```c
+// SPDX-License-Identifier: GPL-2.0+
+/*
+ * FB driver for the ST7789V LCD Controller
+ *
+ * Copyright (C) 2015 Dennis Menschel
+ */
+
+#include <linux/bitops.h>
+#include <linux/delay.h>
+#include <linux/gpio/consumer.h>
+#include <linux/init.h>
+#include <linux/kernel.h>
+#include <linux/interrupt.h>
+#include <linux/completion.h>
+#include <linux/module.h>
+
+#include <video/mipi_display.h>
+
+#include "fbtft.h"
+
+#define DRVNAME "fb_st7789v"
+
+#define DEFAULT_GAMMA \
+	"70 2C 2E 15 10 09 48 33 53 0B 19 18 20 25\n" \
+	"70 2C 2E 15 10 09 48 33 53 0B 19 18 20 25"
+
+#define HSD20_IPS_GAMMA \
+	"D0 05 0A 09 08 05 2E 44 45 0F 17 16 2B 33\n" \
+	"D0 05 0A 09 08 05 2E 43 45 0F 16 16 2B 33"
+
+#define HSD20_IPS 1
+
+/**
+ * enum st7789v_command - ST7789V display controller commands
+ *
+ * @PORCTRL: porch setting
+ * @GCTRL: gate control
+ * @VCOMS: VCOM setting
+ * @VDVVRHEN: VDV and VRH command enable
+ * @VRHS: VRH set
+ * @VDVS: VDV set
+ * @VCMOFSET: VCOM offset set
+ * @PWCTRL1: power control 1
+ * @PVGAMCTRL: positive voltage gamma control
+ * @NVGAMCTRL: negative voltage gamma control
+ *
+ * The command names are the same as those found in the datasheet to ease
+ * looking up their semantics and usage.
+ *
+ * Note that the ST7789V display controller offers quite a few more commands
+ * which have been omitted from this list as they are not used at the moment.
+ * Furthermore, commands that are compliant with the MIPI DCS have been left
+ * out as well to avoid duplicate entries.
+ */
+enum st7789v_command {
+	PORCTRL = 0xB2,
+	GCTRL = 0xB7,
+	VCOMS = 0xBB,
+	VDVVRHEN = 0xC2,
+	VRHS = 0xC3,
+	VDVS = 0xC4,
+	VCMOFSET = 0xC5,
+	PWCTRL1 = 0xD0,
+	PVGAMCTRL = 0xE0,
+	NVGAMCTRL = 0xE1,
+};
+
+#define MADCTL_BGR BIT(3) /* bitmask for RGB/BGR order */
+#define MADCTL_MV BIT(5) /* bitmask for page/column order */
+#define MADCTL_MX BIT(6) /* bitmask for column address order */
+#define MADCTL_MY BIT(7) /* bitmask for page address order */
+
+/* 60Hz for 16.6ms, configured as 2*16.6ms */
+#define PANEL_TE_TIMEOUT_MS  33
+
+static struct completion panel_te; /* completion for panel TE line */
+static int irq_te; /* Linux IRQ for LCD TE line */
+
+static irqreturn_t panel_te_handler(int irq, void *data)
+{
+	complete(&panel_te);
+	return IRQ_HANDLED;
+}
+
+/**
+ * init_display() - initialize the display controller
+ *
+ * @par: FBTFT parameter object
+ *
+ * Most of the commands in this init function set their parameters to the
+ * same default values which are already in place after the display has been
+ * powered up. (The main exception to this rule is the pixel format which
+ * would default to 18 instead of 16 bit per pixel.)
+ * Nonetheless, this sequence can be used as a template for concrete
+ * displays which usually need some adjustments.
+ *
+ * Return: 0 on success, < 0 if error occurred.
+ */
+static int init_display(struct fbtft_par *par)
+{
+    par->fbtftops.reset(par);
+    mdelay(50);
+    write_reg(par,0x36,0x00);
+    write_reg(par,0x3A,0x05);
+    write_reg(par,0xB2,0x1F,0x1F,0x00,0x33,0x33);
+    write_reg(par,0xB7,0x35);
+    write_reg(par,0xBB,0x20);
+    write_reg(par,0xC0,0x2C);
+    write_reg(par,0xC2,0x01);
+    write_reg(par,0xC3,0x01);
+    write_reg(par,0xC4,0x18);
+    write_reg(par,0xC6,0x13);
+    write_reg(par,0xD0,0xA4,0xA1);
+    write_reg(par,0xE0,0xF0,0x04,0x07,0x04,0x04,0x04,0x25,0x33,0x3C,0x36,0x14,0x12,0x29,0x30);
+    write_reg(par,0xE1,0xF0,0x02,0x04,0x05,0x05,0x21,0x25,0x32,0x3B,0x38,0x12,0x14,0x27,0x31);
+    write_reg(par,0xE4,0x1D,0x00,0x00);
+	write_reg(par,0x21);
+    write_reg(par,0x11);
+    mdelay(50);
+    write_reg(par,0x29);
+    mdelay(200);
+    return 0;
+}
+
+/*
+ * write_vmem() - write data to display.
+ * @par: FBTFT parameter object.
+ * @offset: offset from screen_buffer.
+ * @len: the length of data to be writte.
+ *
+ * Return: 0 on success, or a negative error code otherwise.
+ */
+static int write_vmem(struct fbtft_par *par, size_t offset, size_t len)
+{
+	struct device *dev = par->info->device;
+	int ret;
+
+	if (irq_te) {
+		enable_irq(irq_te);
+		reinit_completion(&panel_te);
+		ret = wait_for_completion_timeout(&panel_te,
+						  msecs_to_jiffies(PANEL_TE_TIMEOUT_MS));
+		if (ret == 0)
+			dev_err(dev, "wait panel TE timeout\n");
+
+		disable_irq(irq_te);
+	}
+
+	switch (par->pdata->display.buswidth) {
+	case 8:
+		ret = fbtft_write_vmem16_bus8(par, offset, len);
+		break;
+	case 9:
+		ret = fbtft_write_vmem16_bus9(par, offset, len);
+		break;
+	case 16:
+		ret = fbtft_write_vmem16_bus16(par, offset, len);
+		break;
+	default:
+		dev_err(dev, "Unsupported buswidth %d\n",
+			par->pdata->display.buswidth);
+		ret = 0;
+		break;
+	}
+
+	return ret;
+}
+
+/**
+ * set_var() - apply LCD properties like rotation and BGR mode
+ *
+ * @par: FBTFT parameter object
+ *
+ * Return: 0 on success, < 0 if error occurred.
+ */
+static int set_var(struct fbtft_par *par)
+{
+	u8 madctl_par = 0;
+
+	if (par->bgr)
+		madctl_par |= MADCTL_BGR;
+	switch (par->info->var.rotate) {
+	case 0:
+		break;
+	case 90:
+		madctl_par |= (MADCTL_MV | MADCTL_MY);
+		break;
+	case 180:
+		madctl_par |= (MADCTL_MX | MADCTL_MY);
+		break;
+	case 270:
+		madctl_par |= (MADCTL_MV | MADCTL_MX);
+		break;
+	default:
+		return -EINVAL;
+	}
+	write_reg(par, MIPI_DCS_SET_ADDRESS_MODE, madctl_par);
+	return 0;
+}
+
+/**
+ * set_gamma() - set gamma curves
+ *
+ * @par: FBTFT parameter object
+ * @curves: gamma curves
+ *
+ * Before the gamma curves are applied, they are preprocessed with a bitmask
+ * to ensure syntactically correct input for the display controller.
+ * This implies that the curves input parameter might be changed by this
+ * function and that illegal gamma values are auto-corrected and not
+ * reported as errors.
+ *
+ * Return: 0 on success, < 0 if error occurred.
+ */
+static int set_gamma(struct fbtft_par *par, u32 *curves)
+{
+	int i;
+	int j;
+	int c; /* curve index offset */
+
+	/*
+	 * Bitmasks for gamma curve command parameters.
+	 * The masks are the same for both positive and negative voltage
+	 * gamma curves.
+	 */
+	static const u8 gamma_par_mask[] = {
+		0xFF, /* V63[3:0], V0[3:0]*/
+		0x3F, /* V1[5:0] */
+		0x3F, /* V2[5:0] */
+		0x1F, /* V4[4:0] */
+		0x1F, /* V6[4:0] */
+		0x3F, /* J0[1:0], V13[3:0] */
+		0x7F, /* V20[6:0] */
+		0x77, /* V36[2:0], V27[2:0] */
+		0x7F, /* V43[6:0] */
+		0x3F, /* J1[1:0], V50[3:0] */
+		0x1F, /* V57[4:0] */
+		0x1F, /* V59[4:0] */
+		0x3F, /* V61[5:0] */
+		0x3F, /* V62[5:0] */
+	};
+
+	for (i = 0; i < par->gamma.num_curves; i++) {
+		c = i * par->gamma.num_values;
+		for (j = 0; j < par->gamma.num_values; j++)
+			curves[c + j] &= gamma_par_mask[j];
+		write_reg(par, PVGAMCTRL + i,
+			  curves[c + 0],  curves[c + 1],  curves[c + 2],
+			  curves[c + 3],  curves[c + 4],  curves[c + 5],
+			  curves[c + 6],  curves[c + 7],  curves[c + 8],
+			  curves[c + 9],  curves[c + 10], curves[c + 11],
+			  curves[c + 12], curves[c + 13]);
+	}
+	return 0;
+}
+
+/**
+ * blank() - blank the display
+ *
+ * @par: FBTFT parameter object
+ * @on: whether to enable or disable blanking the display
+ *
+ * Return: 0 on success, < 0 if error occurred.
+ */
+static int blank(struct fbtft_par *par, bool on)
+{
+	if (on)
+		write_reg(par, MIPI_DCS_SET_DISPLAY_OFF);
+	else
+		write_reg(par, MIPI_DCS_SET_DISPLAY_ON);
+	return 0;
+}
+
+static void set_addr_win(struct fbtft_par *par, int xs, int ys, int xe, int ye)
+{
+	switch(par->info->var.rotate)
+	{
+		case   0: 
+			break;
+ 		case  90: 
+			xs+=80;xe+=80;
+			break;
+	 	case 180:
+	 		break;
+	 	case 270: 
+			xs+=80;xe+=80;
+	 		break;
+	 	default :
+			break;
+	}
+	write_reg(par, MIPI_DCS_SET_COLUMN_ADDRESS,
+		  (xs >> 8) & 0xFF, xs & 0xFF, (xe >> 8) & 0xFF, xe & 0xFF);
+
+	write_reg(par, MIPI_DCS_SET_PAGE_ADDRESS,
+		  (ys >> 8) & 0xFF, ys & 0xFF, (ye >> 8) & 0xFF, ye & 0xFF);
+
+	write_reg(par, MIPI_DCS_WRITE_MEMORY_START);
+}
+
+static void reset(struct fbtft_par *par)
+{
+    if (!par->gpio.reset)
+        return;
+    gpiod_set_value_cansleep(par->gpio.reset, 1);
+    msleep(10);
+    gpiod_set_value_cansleep(par->gpio.reset, 0);
+    msleep(200);
+    gpiod_set_value_cansleep(par->gpio.reset, 1);
+    msleep(10);
+	gpiod_set_value_cansleep(par->gpio.cs, 1);  /* Activate chip */
+}
+
+static struct fbtft_display display = {
+	.regwidth = 8,
+	.width = 240,
+	.height = 240,
+	.gamma_num = 2,
+	.gamma_len = 14,
+	.gamma = HSD20_IPS_GAMMA,
+	.fbtftops = {
+		.init_display = init_display,
+		.set_addr_win = set_addr_win,
+		.write_vmem = write_vmem,
+		.set_var = set_var,
+		.set_gamma = set_gamma,
+		.blank = blank,
+		.reset = reset,
+	},
+};
+
+FBTFT_REGISTER_DRIVER(DRVNAME, "sitronix,st7789v", &display);
+
+MODULE_ALIAS("spi:" DRVNAME);
+MODULE_ALIAS("platform:" DRVNAME);
+MODULE_ALIAS("spi:st7789v");
+MODULE_ALIAS("platform:st7789v");
+
+MODULE_DESCRIPTION("FB driver for the ST7789V LCD Controller");
+MODULE_AUTHOR("Dennis Menschel");
+MODULE_LICENSE("GPL");
+```
+
+### 编写设备树
+
+```
+&pio {
+	spi0_pins_default: spi0@0 {
+		pins = "PC0", "PC2", "PC3"; /* clk, mosi, miso */
+		function = "spi0";
+		drive-strength = <10>;
+	};
+
+	spi0_pins_cs: spi0@1 {
+		pins = "PC1", "PC4", "PC5"; /* cs, wp, hold */
+		function = "spi0";
+		drive-strength = <10>;
+		bias-pull-up;
+	};
+
+	spi0_pins_lcd: spi0@2 {
+		pins = "PC0", "PC2"; /* clk, mosi */
+		function = "spi0";
+		drive-strength = <10>;
+	};
+
+	spi0_pins_lcd_cs: spi0@3 {
+		pins = "PC1"; /* cs */
+		function = "spi0";
+		drive-strength = <10>;
+	};
+
+	spi0_pins_sleep: spi0@4 {
+		pins = "PC0", "PC2", "PC3", "PC1", "PC4", "PC5";
+		function = "gpio_in";
+		drive-strength = <10>;
+	};
+};
+
+&spi0 {
+	pinctrl-0 = <&spi0_pins_lcd &spi0_pins_lcd_cs>;
+	pinctrl-1 = <&spi0_pins_sleep>;
+	pinctrl-names = "default", "sleep";
+	sunxi,spi-bus-mode = <SUNXI_SPI_BUS_MASTER>;
+	sunxi,spi-cs-mode = <SUNXI_SPI_CS_AUTO>;
+	status = "okay";
+
+	st7789v@0 {
+    	status = "okay";
+    	compatible = "sitronix,st7789v";
+		reg = <0>;
+		spi-max-frequency = <30000000>;
+		rotate = <0>;
+		bgr;
+		fps = <30>;
+		buswidth = <8>;
+		reset = <&pio PC 5 GPIO_ACTIVE_LOW>;
+		dc = <&pio PC 4 GPIO_ACTIVE_LOW>;
+		debug = <1>;
+	};
+};
+```
+
+## Linux 4.9 内核适配
+
+### 驱动勾选
+
+由于使用的是 SPI0，所以 TinyVision 的 LCD 模块并不支持使用MIPI-DBI进行驱动，这里我们使用普通的SPI模拟时序。
+
+### 勾选 SPI 驱动
+
+这里我们使用 SPI-NG 驱动，勾选 `<*> SPI NG Driver Support for Allwinner SoCs`
+
+![image-20240117100904335](assets/post/README/image-20240117100904335.png)
+
+### 勾选 Linux FrameBuffer 驱动
+
+前往如下地址，勾选驱动
+
+```
+Device Drivers  --->
+	Graphics support  --->
+		Frame buffer Devices  --->
+			<*> Support for frame buffer devices
+		Console display driver support  --->
+			[*] Framebuffer Console support
+			[*]   Map the console to the primary display device
+	[*] Staging drivers  --->
+		<*>   Support for small TFT LCD display modules  --->
+		<*>   FB driver for the ST7789V LCD Controller
+```
+
+###  适配 FBTFT 的设备树接口
+
+进入内核文件夹，找到 `lichee/linux-4.9/drivers/staging/fbtft/fbtft-core.c`
+
+添加头文件
+
+```
+#include <linux/sunxi-gpio.h>
+```
+
+修改驱动注册接口
+
+```c
+static int fbtft_request_one_gpio(struct fbtft_par *par,
+				  const char *name, int index, int *gpiop)
+{
+	struct device *dev = par->info->device;
+	struct device_node *node = dev->of_node;
+	int gpio, flags, ret = 0;
+	struct gpio_config gpio_of_flags;
+
+	if (of_find_property(node, name, NULL)) {
+		gpio = of_get_named_gpio_flags(node, name, index, (enum of_gpio_flags *)&gpio_of_flags);
+		if (gpio == -ENOENT)
+			return 0;
+		if (gpio == -EPROBE_DEFER)
+			return gpio;
+		if (gpio < 0) {
+			dev_err(dev,
+				"failed to get '%s' from DT\n", name);
+			return gpio;
+		}
+
+		/* active low translates to initially low */
+		flags = (gpio_of_flags.data & OF_GPIO_ACTIVE_LOW) ? GPIOF_OUT_INIT_LOW :
+							GPIOF_OUT_INIT_HIGH;
+		ret = devm_gpio_request_one(dev, gpio, flags,
+						dev->driver->name);
+		if (ret) {
+			dev_err(dev,
+				"gpio_request_one('%s'=%d) failed with %d\n",
+				name, gpio, ret);
+			return ret;
+		}
+		if (gpiop)
+			*gpiop = gpio;
+		fbtft_par_dbg(DEBUG_REQUEST_GPIOS, par, "%s: '%s' = GPIO%d\n",
+							__func__, name, gpio);
+	}
+	return ret;
+}
+
+static int fbtft_request_gpios_dt(struct fbtft_par *par)
+{
+	int i;
+	int ret;
+
+	if (!par->info->device->of_node)
+		return -EINVAL;
+
+	ret = fbtft_request_one_gpio(par, "reset", 0, &par->gpio.reset);
+	if (ret)
+		return ret;
+	ret = fbtft_request_one_gpio(par, "dc", 0, &par->gpio.dc);
+	if (ret)
+		return ret;
+	ret = fbtft_request_one_gpio(par, "rd", 0, &par->gpio.rd);
+	if (ret)
+		return ret;
+	ret = fbtft_request_one_gpio(par, "wr", 0, &par->gpio.wr);
+	if (ret)
+		return ret;
+	ret = fbtft_request_one_gpio(par, "cs", 0, &par->gpio.cs);
+	if (ret)
+		return ret;
+	ret = fbtft_request_one_gpio(par, "latch", 0, &par->gpio.latch);
+	if (ret)
+		return ret;
+	for (i = 0; i < 16; i++) {
+		ret = fbtft_request_one_gpio(par, "db", i,
+						&par->gpio.db[i]);
+		if (ret)
+			return ret;
+		ret = fbtft_request_one_gpio(par, "led", i,
+						&par->gpio.led[i]);
+		if (ret)
+			return ret;
+		ret = fbtft_request_one_gpio(par, "aux", i,
+						&par->gpio.aux[i]);
+		if (ret)
+			return ret;
+	}
+
+	return 0;
+}
+```
+
+### 编写配套屏幕 ST7789v 驱动
+
+```c
+/*
+ * FB driver for the ST7789V LCD Controller
+ *
+ * Copyright (C) 2015 Dennis Menschel
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+#include <linux/bitops.h>
+#include <linux/delay.h>
+#include <linux/init.h>
+#include <linux/kernel.h>
+#include <linux/module.h>
+#include <linux/gpio.h>
+#include <video/mipi_display.h>
+
+#include "fbtft.h"
+
+#define DRVNAME "fb_st7789v"
+
+#define DEFAULT_GAMMA \
+	"70 2C 2E 15 10 09 48 33 53 0B 19 18 20 25\n" \
+	"70 2C 2E 15 10 09 48 33 53 0B 19 18 20 25"
+
+#define HSD20_IPS_GAMMA \
+	"D0 05 0A 09 08 05 2E 44 45 0F 17 16 2B 33\n" \
+	"D0 05 0A 09 08 05 2E 43 45 0F 16 16 2B 33"
+
+/**
+ * enum st7789v_command - ST7789V display controller commands
+ *
+ * @PORCTRL: porch setting
+ * @GCTRL: gate control
+ * @VCOMS: VCOM setting
+ * @VDVVRHEN: VDV and VRH command enable
+ * @VRHS: VRH set
+ * @VDVS: VDV set
+ * @VCMOFSET: VCOM offset set
+ * @PWCTRL1: power control 1
+ * @PVGAMCTRL: positive voltage gamma control
+ * @NVGAMCTRL: negative voltage gamma control
+ *
+ * The command names are the same as those found in the datasheet to ease
+ * looking up their semantics and usage.
+ *
+ * Note that the ST7789V display controller offers quite a few more commands
+ * which have been omitted from this list as they are not used at the moment.
+ * Furthermore, commands that are compliant with the MIPI DCS have been left
+ * out as well to avoid duplicate entries.
+ */
+enum st7789v_command {
+	PORCTRL = 0xB2,
+	GCTRL = 0xB7,
+	VCOMS = 0xBB,
+	VDVVRHEN = 0xC2,
+	VRHS = 0xC3,
+	VDVS = 0xC4,
+	VCMOFSET = 0xC5,
+	PWCTRL1 = 0xD0,
+	PVGAMCTRL = 0xE0,
+	NVGAMCTRL = 0xE1,
+};
+
+#define MADCTL_BGR BIT(3) /* bitmask for RGB/BGR order */
+#define MADCTL_MV BIT(5) /* bitmask for page/column order */
+#define MADCTL_MX BIT(6) /* bitmask for column address order */
+#define MADCTL_MY BIT(7) /* bitmask for page address order */
+
+/**
+ * init_display() - initialize the display controller
+ *
+ * @par: FBTFT parameter object
+ *
+ * Most of the commands in this init function set their parameters to the
+ * same default values which are already in place after the display has been
+ * powered up. (The main exception to this rule is the pixel format which
+ * would default to 18 instead of 16 bit per pixel.)
+ * Nonetheless, this sequence can be used as a template for concrete
+ * displays which usually need some adjustments.
+ *
+ * Return: 0 on success, < 0 if error occurred.
+ */
+static int init_display(struct fbtft_par *par)
+{
+    par->fbtftops.reset(par);
+    mdelay(50);
+    write_reg(par,0x36,0x00);
+    write_reg(par,0x3A,0x05);
+    write_reg(par,0xB2,0x1F,0x1F,0x00,0x33,0x33);
+    write_reg(par,0xB7,0x35);
+    write_reg(par,0xBB,0x20);
+    write_reg(par,0xC0,0x2C);
+    write_reg(par,0xC2,0x01);
+    write_reg(par,0xC3,0x01);
+    write_reg(par,0xC4,0x18);
+    write_reg(par,0xC6,0x13);
+    write_reg(par,0xD0,0xA4,0xA1);
+    write_reg(par,0xE0,0xF0,0x04,0x07,0x04,0x04,0x04,0x25,0x33,0x3C,0x36,0x14,0x12,0x29,0x30);
+    write_reg(par,0xE1,0xF0,0x02,0x04,0x05,0x05,0x21,0x25,0x32,0x3B,0x38,0x12,0x14,0x27,0x31);
+    write_reg(par,0xE4,0x1D,0x00,0x00);
+	write_reg(par,0x21);
+    write_reg(par,0x11);
+    mdelay(50);
+    write_reg(par,0x29);
+    mdelay(200);
+    return 0;
+	return 0;
+}
+
+/**
+ * set_var() - apply LCD properties like rotation and BGR mode
+ *
+ * @par: FBTFT parameter object
+ *
+ * Return: 0 on success, < 0 if error occurred.
+ */
+static int set_var(struct fbtft_par *par)
+{
+	u8 madctl_par = 0;
+
+	if (par->bgr)
+		madctl_par |= MADCTL_BGR;
+	switch (par->info->var.rotate) {
+	case 0:
+		break;
+	case 90:
+		madctl_par |= (MADCTL_MV | MADCTL_MY);
+		break;
+	case 180:
+		madctl_par |= (MADCTL_MX | MADCTL_MY);
+		break;
+	case 270:
+		madctl_par |= (MADCTL_MV | MADCTL_MX);
+		break;
+	default:
+		return -EINVAL;
+	}
+	write_reg(par, MIPI_DCS_SET_ADDRESS_MODE, madctl_par);
+	return 0;
+}
+
+/**
+ * set_gamma() - set gamma curves
+ *
+ * @par: FBTFT parameter object
+ * @curves: gamma curves
+ *
+ * Before the gamma curves are applied, they are preprocessed with a bitmask
+ * to ensure syntactically correct input for the display controller.
+ * This implies that the curves input parameter might be changed by this
+ * function and that illegal gamma values are auto-corrected and not
+ * reported as errors.
+ *
+ * Return: 0 on success, < 0 if error occurred.
+ */
+static int set_gamma(struct fbtft_par *par, unsigned long *curves)
+{
+	int i;
+	int j;
+	int c; /* curve index offset */
+
+	/*
+	 * Bitmasks for gamma curve command parameters.
+	 * The masks are the same for both positive and negative voltage
+	 * gamma curves.
+	 */
+	const u8 gamma_par_mask[] = {
+		0xFF, /* V63[3:0], V0[3:0]*/
+		0x3F, /* V1[5:0] */
+		0x3F, /* V2[5:0] */
+		0x1F, /* V4[4:0] */
+		0x1F, /* V6[4:0] */
+		0x3F, /* J0[1:0], V13[3:0] */
+		0x7F, /* V20[6:0] */
+		0x77, /* V36[2:0], V27[2:0] */
+		0x7F, /* V43[6:0] */
+		0x3F, /* J1[1:0], V50[3:0] */
+		0x1F, /* V57[4:0] */
+		0x1F, /* V59[4:0] */
+		0x3F, /* V61[5:0] */
+		0x3F, /* V62[5:0] */
+	};
+
+	for (i = 0; i < par->gamma.num_curves; i++) {
+		c = i * par->gamma.num_values;
+		for (j = 0; j < par->gamma.num_values; j++)
+			curves[c + j] &= gamma_par_mask[j];
+		write_reg(
+			par, PVGAMCTRL + i,
+			curves[c + 0], curves[c + 1], curves[c + 2],
+			curves[c + 3], curves[c + 4], curves[c + 5],
+			curves[c + 6], curves[c + 7], curves[c + 8],
+			curves[c + 9], curves[c + 10], curves[c + 11],
+			curves[c + 12], curves[c + 13]);
+	}
+	return 0;
+}
+
+/**
+ * blank() - blank the display
+ *
+ * @par: FBTFT parameter object
+ * @on: whether to enable or disable blanking the display
+ *
+ * Return: 0 on success, < 0 if error occurred.
+ */
+static int blank(struct fbtft_par *par, bool on)
+{
+	if (on)
+		write_reg(par, MIPI_DCS_SET_DISPLAY_OFF);
+	else
+		write_reg(par, MIPI_DCS_SET_DISPLAY_ON);
+	return 0;
+}
+
+static void set_addr_win(struct fbtft_par *par, int xs, int ys, int xe, int ye)
+{
+	switch(par->info->var.rotate)
+	{
+		case   0: 
+			break;
+ 		case  90: 
+			xs+=80;xe+=80;
+			break;
+	 	case 180:
+	 		break;
+	 	case 270: 
+			xs+=80;xe+=80;
+	 		break;
+	 	default :
+			break;
+	}
+	write_reg(par, MIPI_DCS_SET_COLUMN_ADDRESS,
+		  (xs >> 8) & 0xFF, xs & 0xFF, (xe >> 8) & 0xFF, xe & 0xFF);
+
+	write_reg(par, MIPI_DCS_SET_PAGE_ADDRESS,
+		  (ys >> 8) & 0xFF, ys & 0xFF, (ye >> 8) & 0xFF, ye & 0xFF);
+
+	write_reg(par, MIPI_DCS_WRITE_MEMORY_START);
+}
+
+static void reset(struct fbtft_par *par)
+{
+	if (par->gpio.reset == -1)
+		return;
+	fbtft_par_dbg(DEBUG_RESET, par, "%s()\n", __func__);
+	gpio_set_value(par->gpio.reset, 1);
+	mdelay(20);
+	gpio_set_value(par->gpio.reset, 0);
+	mdelay(20);
+	gpio_set_value(par->gpio.reset, 1);
+	mdelay(120);
+}
+
+static struct fbtft_display display = {
+	.regwidth = 8,
+	.width = 240,
+	.height = 240,
+	.gamma_num = 2,
+	.gamma_len = 14,
+	.gamma = HSD20_IPS_GAMMA,
+	.fbtftops = {
+		.init_display = init_display,
+		.set_addr_win = set_addr_win,
+		.set_var = set_var,
+		.set_gamma = set_gamma,
+		.blank = blank,
+		.reset = reset,
+	},
+};
+
+FBTFT_REGISTER_DRIVER(DRVNAME, "sitronix,st7789v", &display);
+
+MODULE_ALIAS("spi:" DRVNAME);
+MODULE_ALIAS("platform:" DRVNAME);
+MODULE_ALIAS("spi:st7789v");
+MODULE_ALIAS("platform:st7789v");
+
+MODULE_DESCRIPTION("FB driver for the ST7789V LCD Controller");
+MODULE_AUTHOR("Dennis Menschel");
+MODULE_LICENSE("GPL");
+```
+
+### 编写设备树
+
+```
+&pio {
+	spi0_pins_a: spi0@0 {
+		allwinner,pins = "PC0", "PC2", "PC3";
+		allwinner,pname = "spi0_sclk", "spi0_mosi", "spi0_miso";
+		allwinner,function = "spi0";
+		allwinner,muxsel = <4>;
+		allwinner,drive = <1>;
+		allwinner,pull = <0>;
+	};
+
+	spi0_pins_b: spi0@1 {
+		allwinner,pins = "PC1", "PC5", "PC4";
+		allwinner,pname = "spi0_cs0", "spi0_hold", "spi0_wp";
+		allwinner,function = "spi0";
+		allwinner,muxsel = <4>;
+		allwinner,drive = <1>;
+		allwinner,pull = <1>;   // only CS should be pulled up
+	};
+
+	spi0_pins_c: spi0@2 {
+		allwinner,pins = "PC0", "PC1", "PC2", "PC3", "PC4", "PC5";
+		allwinner,function = "io_disabled";
+		allwinner,muxsel = <7>;
+		allwinner,drive = <1>;
+		allwinner,pull = <0>;
+	};
+
+	spi0_pins_lcd: spi0@3 {
+		allwinner,pins = "PC0", "PC2"; /* clk, mosi */
+		allwinner,function = "spi0";
+		allwinner,muxsel = <4>;
+		allwinner,drive = <1>;
+		allwinner,pull = <0>;
+	};
+
+	spi0_pins_lcd_cs: spi0@4 {
+		allwinner,pins = "PC1"; /* cs */
+		allwinner,function = "spi0";
+		allwinner,muxsel = <4>;
+		allwinner,pull = <1>;
+		allwinner,drive = <1>;
+	};
+};
+
+&spi0 {
+	clock-frequency = <100000000>;
+	pinctrl-0 = <&spi0_pins_lcd &spi0_pins_lcd_cs>;
+	pinctrl-1 = <&spi0_pins_c>;
+	pinctrl-names = "default", "sleep";
+	spi_slave_mode = <0>;
+	spi_dbi_enable = <0>;
+	spi0_cs_number = <1>;
+	status = "okay";
+
+	st7789v@0 {
+    	status = "okay";
+    	compatible = "sitronix,st7789v";
+		reg = <0>;
+		spi-max-frequency = <30000000>;
+		rotate = <0>;
+		bgr;
+		fps = <30>;
+		buswidth = <8>;
+		reset = <&pio PC 5 1 1 2 1>;
+		dc = <&pio PC 4 1 1 2 0>;
+		debug = <1>;
+	};
+};
+```
+
+## 显示 Linux 终端
+
+前往驱动勾选如下选项
+
+```
+Device Drivers  --->
+	Graphics support  --->
+		Frame buffer Devices  --->
+			<*> Support for frame buffer devices
+		Console display driver support  --->
+			[*] Framebuffer Console support
+			[*]   Map the console to the primary display device
+```
+
+![image-20240117101158050](assets/post/README/image-20240117101158050.png)
+
+然后在 `bootargs` 添加一行 `console=tty0` 即可显示。
+
+# WIFI 驱动
+
+TinyVision 使用GPIO引出WIFI模块，配套的WIFI模块主控芯片为 AIC8800D80
+
+文章中的资源下下载地址：https://github.com/YuzukiHD/YuzukiHD.github.io/releases/tag/20240112
+
+## Linux 4.9 内核驱动移植
+
+### Linux 4.9 BSP 内核驱动
+
+下载驱动后获得驱动的 `tar.gz` 压缩包
+
+![image-20240115145222134](assets/post/README/image-20240115145222134.png)
+
+解压后找到如下驱动与文件夹
+
+![image-20240115145406939](assets/post/README/image-20240115145406939.png)
+
+进入内核，找到 `linux-4.9/drivers/net/wireless` 文件夹中，新建文件夹`aic8800` 并且把上面的驱动与文件夹放入刚刚创建好的 `aic8800` 中。
+
+![image-20240115145530599](assets/post/README/image-20240115145530599.png)
+
+修改 `linux-4.9/drivers/net/wireless/Kconfig` ，增加一行
+
+```c
+source "drivers/net/wireless/aic8800/Kconfig"
+```
+
+![image-20240115145601334](assets/post/README/image-20240115145601334.png)
+
+修改 `linux-4.9/drivers/net/wireless/Makefile` ，增加一行
+
+```c
+obj-$(CONFIG_AIC_WLAN_SUPPORT) += aic8800/
+```
+
+![image-20240115145650592](assets/post/README/image-20240115145650592.png)
+
+进入内核配置页，找到并勾选如下选项。
+
+```
+Device Drivers  --->
+	[*] Network device support  --->
+		[*]   Wireless LAN  --->
+			[*]   AIC wireless Support
+				  Enable Chip Interface (SDIO interface support)  --->
+			<M>   AIC8800 wlan Support
+			<M>   AIC8800 bluetooth Support (UART)
+```
+
+![image-20240115150856511](assets/post/README/image-20240115150856511.png)
+
+编译后可以找到对应的驱动程序
+
+![image-20240115150831849](assets/post/README/image-20240115150831849.png)
+
+其加载顺序是
+
+```
+insmod aic8800_bsp.ko
+insmod aic8800_fdrv.ko
+insmod aic8800_btlpm.ko
+```
+
+### Linux 4.9 BSP 内核设备树
+
+设备树配置如下，参考电路原理图，REG_ON 为 PE6，HOSTWAKE 为 PE7
+
+```dts
+wlan: wlan@0 {
+	compatible    = "allwinner,sunxi-wlan";
+	pinctrl-names = "default";
+	clock-names   = "32k-fanout0";
+	clocks        = <&clk_fanout0>;
+	wlan_busnum   = <0x1>;
+	wlan_regon    = <&pio PE 6 1 0x1 0x2 0>;
+	wlan_hostwake = <&pio PE 7 14 0x1 0x2 0>;
+	chip_en;
+	power_en;
+	status        = "okay";
+	wakeup-source;
+};
+```
+
+![image-20240115151211548](assets/post/README/image-20240115151211548.png)
+
+### Tina SDK 移植
+
+Tina SDK 基于OpenWrt 提供了一些自动化方案，可以参考 OpenWrt 的方法来移植这些驱动。
+
+#### WIFI 固件移植
+
+下载得到 `aic8800-firmware.tar.gz` 这里面包含着 WIFI 使用的固件
+
+![image-20240115151604351](assets/post/README/image-20240115151604351.png)
+
+解压后拷贝到 `package/firmware/linux-firmware/aic8800` 即可
+
+![image-20240115151709361](assets/post/README/image-20240115151709361.png)
+
+然后找到 `target/allwinner/v851se-common/modules.mk` 文件，在末尾添加如下内容
+
+```makefile
+define KernelPackage/net-aic8800
+  SUBMENU:=$(WIRELESS_MENU)
+  TITLE:=aic8800 support (staging)
+  DEPENDS:=+@IPV6 +@USES_AICSEMI
+  KCONFIG:=\
+    CONFIG_AIC8800_BTLPM_SUPPORT=m \
+    CONFIG_AIC8800_WLAN_SUPPORT=m \
+    CONFIG_AIC_WLAN_SUPPORT=m \
+    CONFIG_PM=y \
+    CONFIG_RFKILL=y \
+    CONFIG_RFKILL_PM=y \
+    CONFIG_RFKILL_GPIO=y
+
+  FILES+=$(LINUX_DIR)/drivers/net/wireless/aic8800/aic8800_bsp/aic8800_bsp.ko
+  FILES+=$(LINUX_DIR)/drivers/net/wireless/aic8800/aic8800_btlpm/aic8800_btlpm.ko
+  FILES+=$(LINUX_DIR)/drivers/net/wireless/aic8800/aic8800_fdrv/aic8800_fdrv.ko
+  AUTOLOAD:=$(call AutoProbe,aic8800_bsp aic8800_btlpm aic8800_fdrv)
+endef
+
+define KernelPackage/net-aic8800/description
+ Kernel modules for aic8800 support
+endef
+
+$(eval $(call KernelPackage,net-aic8800))
+```
+
+通过这些内容可以使 Tina 自动去内核文件夹将 ko 打包进文件系统。
+
+![image-20240115151917530](assets/post/README/image-20240115151917530.png)
+
+#### 配置自动装载模块
+
+修改文件：`target/allwinner/v851se-tinyvision/busybox-init-base-files/etc/init.d/rc.modules` 增加如下内容，每次开机的时候就会自动装载模块
+
+```c
+#!/bin/sh
+insmod /lib/modules/4.9.191/aic8800_bsp.ko
+insmod /lib/modules/4.9.191/aic8800_fdrv.ko
+insmod /lib/modules/4.9.191/aic8800_btlpm.ko
+```
+
+#### 配置网络进程
+
+新建文件 `target/allwinner/v851se-tinyvision/busybox-init-base-files/etc/init.d/S50wifidaemon` 写入如下内容，每次开机装载模块后便初始化WIFI和配置WIFI模式
+
+```
+#!/bin/sh
+#
+# Start wifi_daemon....
+#
+
+start() {
+      printf "Starting wifi_daemon....: "
+	  wifi_daemon
+	  sleep 2
+	  wifi -o sta
+}
+
+stop() {
+	printf "Stopping wifi_daemon: "
+}
+
+case "$1" in
+    start)
+	start
+	;;
+    stop)
+	stop
+	;;
+    restart|reload)
+	stop
+	start
+	;;
+  *)
+	echo "Usage: $0 {start|stop|restart}"
+	exit 1
+esac
+
+exit $?
+```
+
+#### 配置 WIFI 固件
+
+进入 Tina 配置页面，打开如下功能
+
+```
+Allwinner  --->
+	Wireless  --->
+		<*> wifimanager-v2.0................................... Tina wifimanager-v2.0
+		-*- wirelesscommon............................. Allwinner Wi-Fi/BT Public lib
+
+Firmware  ---> 
+	<*> aic8800-firmware.................................... AIC aic8800 firmware
+
+Kernel modules  --->
+	Wireless Drivers  --->
+		<*> kmod-net-aic8800............................... aic8800 support (staging)
+```
+
+### 测试
+
+上电启动，可以看到 LOG 正常挂载 WIFI
+
+![image-20240115152521341](assets/post/README/image-20240115152521341.png)
+
+可以看到正常初始化进程
+
+![image-20240115152554437](assets/post/README/image-20240115152554437.png)
+
+## Linux 5.15 内核驱动移植
+
+### Linux 5.15 内核驱动
+
+下载驱动后获得驱动的 `tar.gz` 压缩包
+
+![image-20240115145222134](assets/post/README/image-20240115145222134.png)
+
+解压后找到如下驱动与文件夹
+
+![image-20240115145406939](assets/post/README/image-20240115145406939.png)
+
+由于 Linux 5.15 需要保证内核的主线化，不可将非主线的第三方驱动放置于内核文件夹中，所以将驱动放置于 `bsp` 文件夹中。
+
+进入`bsp`，找到 `bsp/drivers/net/wireless` 文件夹中，新建文件夹`aic8800` 并且把上面的驱动与文件夹放入刚刚创建好的 `aic8800` 中。
+
+![image-20240115161401833](assets/post/README/image-20240115161401833.png)
+
+修改 `bsp/drivers/net/wireless/Kconfig` ，增加一行
+
+```c
+source "bsp/drivers/net/wireless/aic8800/Kconfig"
+```
+
+![image-20240115163522102](assets/post/README/image-20240115163522102.png)
+
+修改 `bsp/drivers/net/wireless/Makefile` ，增加一行
+
+```c
+obj-$(CONFIG_AIC_WLAN_SUPPORT) += aic8800/
+```
+
+![image-20240115145650592](assets/post/README/image-20240115145650592.png)
+
+ 修改 `bsp/drivers/net/wireless/aic8800/Kconfig`，修改为 `bsp` 的索引
+
+![image-20240115163428151](assets/post/README/image-20240115163428151.png)
+
+```
+if AIC_WLAN_SUPPORT
+source "bsp/drivers/net/wireless/aic8800/aic8800_fdrv/Kconfig"
+source "bsp/drivers/net/wireless/aic8800/aic8800_btlpm/Kconfig"
+endif
+
+if AIC_INTF_USB
+source "bsp/drivers/net/wireless/aic8800/aic8800_btusb/Kconfig"
+endif
+```
+
+进入内核配置页，找到并勾选如下选项。
+
+```
+[*] Networking support  --->
+	<*>   Bluetooth subsystem support  --->
+		[*]   Bluetooth Classic (BR/EDR) features (NEW)
+		<*>     RFCOMM protocol support
+		[*]       RFCOMM TTY support
+		[*]   Bluetooth Low Energy (LE) features
+		[*]   Export Bluetooth internals in debugfs
+			  Bluetooth device drivers  --->
+				  <*> HCI UART driver
+				  [*]   UART (H4) protocol support
+	-*-   Wireless  --->
+		<*>   cfg80211 - wireless configuration API
+		[ ]     nl80211 testmode command
+		[ ]     enable developer warnings
+		[ ]     cfg80211 certification onus
+		[*]     enable powersave by default
+		[ ]     cfg80211 DebugFS entries
+		[*]     support CRDA
+		[*]     cfg80211 wireless extensions compatibility 
+		<*>   Generic IEEE 802.11 Networking Stack (mac80211)
+	<*>   RF switch subsystem support  --->
+		[*]   RF switch input support
+		<*>   GPIO RFKILL driver
+
+Device Drivers  --->
+	Network device support  --->
+		[*]   Wireless LAN  --->
+			[*]   AIC wireless Support
+				  Enable Chip Interface (SDIO interface support)  --->
+			<M>   AIC8800 wlan Support
+			<M>   AIC8800 bluetooth Support (UART)
+	Misc Devices Drivers  --->
+		<*> Allwinner rfkill driver
+		<*> Allwinner Network MAC Addess Manager
+```
+
+### Linux 5.15 内核设备树
+
+```
+&rfkill {
+	compatible = "allwinner,sunxi-rfkill";
+	chip_en;
+	power_en;
+	pinctrl-0;
+	pinctrl-names;
+	status = "okay";
+
+	/* wlan session */
+	wlan {
+		compatible    = "allwinner,sunxi-wlan";
+		wlan_busnum   = <0x1>;
+		wlan_regon    = <&pio PE 6 GPIO_ACTIVE_HIGH>;
+		wlan_hostwake = <&pio PE 7 GPIO_ACTIVE_HIGH>;
+		wakeup-source;
+	};
+
+	/* bt session */
+	bt {
+		compatible    = "allwinner,sunxi-bt";
+		bt_rst_n      = <&pio PE 8 GPIO_ACTIVE_LOW>;
+	};
+};
+
+&addr_mgt {
+	compatible     = "allwinner,sunxi-addr_mgt";
+	type_addr_wifi = <0x0>;
+	type_addr_bt   = <0x0>;
+	type_addr_eth  = <0x0>;
+	status         = "okay";
+};
+
+&btlpm {
+	compatible  = "allwinner,sunxi-btlpm";
+	uart_index  = <0x2>;
+	bt_wake     = <&pio PE 9 GPIO_ACTIVE_HIGH>;
+	bt_hostwake = <&pio PE 10 GPIO_ACTIVE_HIGH>; /* unused */
+	wakeup-source;
+	status      = "okay";
+};
+```
+
+编译时可以看到生成的对应的 ko 模块
+
+![image-20240115164630796](assets/post/README/image-20240115164630796.png)
+
+### 测试
+
+由于 Linux 5.15 不绑定 Tina，所以这里直接使用现成的 `debian rootfs` 来做测试。
+
+使用上面编译出来的内核与ko驱动，并且将固件放置于 rootfs 对应的 `/lib/firmware/` 文件夹中
 
 # 内核驱动支持情况
 
@@ -3006,6 +4364,7 @@ int main(int argc, char *argv[])
 | MIPI CSI        | ✅             | ❌          | ❌         | 🚫                   | 🚫               |
 | GPADC           | ✅             | ✅          | ✅         | 🚫                   | 🚫               |
 | Audio           | ✅             | ❌          | ❌         | 🚫                   | 🚫               |
+| WIFI            | ✅             | ✅          | ✅         | 🚫                   | 🚫               |
 
 # 相关文档
 
