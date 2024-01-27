@@ -2363,7 +2363,7 @@ chmod 777 genimage.sh
 
 TinyVision V851s 使用 OpenCV + NPU 实现 Mobilenet v2 物体识别。上一篇已经介绍了如何使用 TinyVision 与 OpenCV 开摄像头，本篇将使用已经训练完成并且转换后的模型来介绍对接 NPU 实现物体识别的功能。
 
-# MobileNet V2 
+## MobileNet V2 
 
 MobileNet V2是一种轻量级的卷积神经网络（CNN）架构，专门设计用于在移动设备和嵌入式设备上进行计算资源受限的实时图像分类和目标检测任务。
 
@@ -2379,11 +2379,11 @@ MobileNet V2是一种轻量级的卷积神经网络（CNN）架构，专门设�
 
 总体而言，MobileNet V2通过深度可分离卷积、倒残差结构和宽度乘数等技术，实现了较高的模型轻量化程度和计算效率，使其成为在资源受限的移动设备上进行实时图像分类和目标检测的理想选择。
 
-# NPU
+## NPU
 
 V851s 芯片内置一颗 NPU，其处理性能为最大 0.5 TOPS 并有 128KB 内部高速缓存用于高速数据交换
 
-## NPU 系统架构
+### NPU 系统架构
 
 NPU 的系统架构如下图所示：
 
@@ -2399,7 +2399,7 @@ NPU包括三个部分：可编程引擎（Programmable Engines，PPU）、神经
 
 NPU 支持 UINT8，INT8，INT16 三种数据格式。
 
-## NPU 模型转换
+### NPU 模型转换
 
 NPU 使用的模型是 NPU 自定义的一类模型结构，不能直接将网络训练出的模型直接导入 NPU 进行计算。这就需要将网络训练出的转换模型到 NPU 的模型上。
 
@@ -2409,7 +2409,7 @@ NPU 的模型转换步骤如下图所示：
 
 NPU 模型转换包括准备阶段、量化阶段与验证阶段。
 
-### 准备阶段
+#### 准备阶段
 
 首先我们把准备好模型使用工具导入，并创建配置文件。
 
@@ -2417,7 +2417,7 @@ NPU 模型转换包括准备阶段、量化阶段与验证阶段。
 
 配置文件用于对网络的输入和输出的参数进行描述以及配置。这些参数包括输入/输出 tensor 的形状、归一化系数 (均值/零点)、图像格式、tensor 的输出格式、后处理方式等等。
 
-### 量化阶段
+#### 量化阶段
 
 由于训练好的神经网络对数据精度以及噪声的不敏感，因此可以通过量化将参数从浮点数转换为定点数。这样做有两个优点：
 
@@ -2437,7 +2437,7 @@ NPU 模型转换包括准备阶段、量化阶段与验证阶段。
 
 另外选择的数据集不一定要把所有训练数据全部加入量化，通常我们选择几百张能够代表所有场景的输入数据就即可。理论上说，量化数据放入得越多，量化后精度可能更好，但是到达一定阈值后效果增长将会非常缓慢甚至不再增长。
 
-### 验证阶段
+#### 验证阶段
 
 由于上一阶段对模型进行了量化导致了精度的丢失，就需要对每个阶段的模型进行验证，对比结果是否一致。
 
@@ -2447,17 +2447,17 @@ NPU 模型转换包括准备阶段、量化阶段与验证阶段。
 
 此时测试同样会输出 tensor 数据，对比这一次输出的每一层的 tensor 与 Golden tensor 的差别，差别不大即可集成到 APP 中了。
 
-## NPU 的开发流程
+### NPU 的开发流程
 
 NPU 开发完整的流程如下图所示:
 
 ![image-20240126194601436](assets/post/README/image-20240126194601436.png)
 
-### 模型训练
+#### 模型训练
 
 在模型训练阶段，用户根据需求和实际情况选择合适的框架（如Caffe、TensorFlow 等）使用数据集进行训练得到符合需求的模型，此模型可称为预训练模型。也可直接使用已经训练好的模型。V851s 的 NPU 支持包括分类、检测、跟踪、人脸、姿态估计、分割、深度、语音、像素处理等各个场景90 多个公开模型。
 
-### 模型转换
+#### 模型转换
 
 在模型转化阶段，通过Acuity Toolkit 把预训练模型和少量训练数据转换为NPU 可用的模型NBG文件。
 一般步骤如下：
@@ -2467,15 +2467,15 @@ NPU 开发完整的流程如下图所示:
 3. 仿真推理，可逐一对比float 和其他量化精度的仿真结果的相似度，评估量化后的精度是否满足要求。
 4. 模型导出，生成端侧代码和*.nb 文件，可编辑输出描述文件的配置，配置是否添加后处理节点等。
 
-### 模型部署及应用开发
+#### 模型部署及应用开发
 
 在模型部署阶段，就是基于VIPLite API 开发应用程序实现业务逻辑。
 
-# 源码解析
+## OpenCV + NPU 源码解析
 
 完整的代码已经上传Github开源，前往以下地址：https://github.com/YuzukiHD/TinyVision/tree/main/tina/openwrt/package/thirdparty/vision/opencv_camera_mobilenet_v2_ssd/src
 
-## Mobilenet v2 前处理
+### Mobilenet v2 前处理
 
 ```c
 void get_input_data(const cv::Mat& sample, uint8_t* input_data, int input_h, int input_w, const float* mean, const float* scale){
@@ -2722,7 +2722,7 @@ cv::Mat detect_ssd(const cv::Mat& bgr, float **output) {
 
 需要注意的是，该代码使用了OpenCV库中提供的绘制矩形框和添加文字的相关函数。其中`cv::rectangle()`函数用于绘制矩形框，`cv::putText()`函数用于在矩形框内添加目标类别和置信度。
 
-## 获取显示屏的参数信息
+### 获取显示屏的参数信息
 
 ```c
 // 帧缓冲器信息结构体，包括每个像素的位数和虚拟分辨率
@@ -2761,11 +2761,68 @@ struct framebuffer_info get_framebuffer_info(const char* framebuffer_device_path
 
 2. `get_framebuffer_info` 是一个函数，用于获取帧缓冲器的信息。它接受帧缓冲器设备路径作为参数，打开设备文件并使用 ioctl 函数获取屏幕信息，然后将信息存储在 `framebuffer_info` 结构体中并返回。
 
-## 信号处理函数
+### 信号处理函数
 
+注册信号处理函数，用于 `ctrl-c` 之后关闭摄像头，防止下一次使用摄像头出现摄像头仍被占用的情况。
 
+```c++
+/* Signal handler */
+static void terminate(int sig_no)
+{
+    printf("Got signal %d, exiting ...\n", sig_no);
+    cap.release();
+    exit(1);
+}
 
-## 主循环
+static void install_sig_handler(void)
+{
+    signal(SIGBUS, terminate); // 当程序访问一个不合法的内存地址时发送的信号
+    signal(SIGFPE, terminate); // 浮点异常信号
+    signal(SIGHUP, terminate); // 终端断开连接信号
+    signal(SIGILL, terminate); // 非法指令信号
+    signal(SIGINT, terminate); // 中断进程信号
+    signal(SIGIOT, terminate); // IOT 陷阱信号
+    signal(SIGPIPE, terminate); // 管道破裂信号
+    signal(SIGQUIT, terminate); // 停止进程信号
+    signal(SIGSEGV, terminate); // 无效的内存引用信号
+    signal(SIGSYS, terminate); // 非法系统调用信号
+    signal(SIGTERM, terminate); // 终止进程信号
+    signal(SIGTRAP, terminate); // 跟踪/断点陷阱信号
+    signal(SIGUSR1, terminate); // 用户定义信号1
+    signal(SIGUSR2, terminate); // 用户定义信号2
+}
+```
+
+这段代码定义了两个函数，并给出了相应的注释说明。具体注释如下：
+
+- `static void terminate(int sig_no)`：信号处理函数。
+  - `int sig_no`：接收到的信号编号。
+  - `printf("Got signal %d, exiting ...\n", sig_no);`：打印接收到的信号编号。
+  - `cap.release();`：释放视频流捕获对象。
+  - `exit(1);`：退出程序。
+- `static void install_sig_handler(void)`：安装信号处理函数。
+  - `signal(SIGBUS, terminate);`：为SIGBUS信号安装信号处理函数。
+  - `signal(SIGFPE, terminate);`：为SIGFPE信号安装信号处理函数。
+  - `signal(SIGHUP, terminate);`：为SIGHUP信号安装信号处理函数。
+  - `signal(SIGILL, terminate);`：为SIGILL信号安装信号处理函数。
+  - `signal(SIGINT, terminate);`：为SIGINT信号安装信号处理函数。
+  - `signal(SIGIOT, terminate);`：为SIGIOT信号安装信号处理函数。
+  - `signal(SIGPIPE, terminate);`：为SIGPIPE信号安装信号处理函数。
+  - `signal(SIGQUIT, terminate);`：为SIGQUIT信号安装信号处理函数。
+  - `signal(SIGSEGV, terminate);`：为SIGSEGV信号安装信号处理函数。
+  - `signal(SIGSYS, terminate);`：为SIGSYS信号安装信号处理函数。
+  - `signal(SIGTERM, terminate);`：为SIGTERM信号安装信号处理函数。
+  - `signal(SIGTRAP, terminate);`：为SIGTRAP信号安装信号处理函数。
+  - `signal(SIGUSR1, terminate);`：为SIGUSR1信号安装信号处理函数。
+  - `signal(SIGUSR2, terminate);`：为SIGUSR2信号安装信号处理函数。
+
+这段代码的功能是安装信号处理函数，用于捕获和处理不同类型的信号。当程序接收到指定的信号时，会调用`terminate`函数进行处理。
+
+具体而言，`terminate`函数会打印接收到的信号编号，并释放视频流捕获对象`cap`，然后调用`exit(1)`退出程序。
+
+`install_sig_handler`函数用于为多个信号注册同一个信号处理函数`terminate`，使得当这些信号触发时，都会执行相同的处理逻辑。
+
+### 主循环
 
 ```cpp
 int main(int argc, char *argv[])
