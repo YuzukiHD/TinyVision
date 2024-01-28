@@ -4339,32 +4339,608 @@ Device Drivers  --->
 
 使用上面编译出来的内核与ko驱动，并且将固件放置于 rootfs 对应的 `/lib/firmware/` 文件夹中
 
+# E907 小核开发
+
+## E907 平台
+
+玄铁E907 是一款完全可综合的高端 MCU 处理器。它兼容 RV32IMAC 指令集，提供可观的整型性能提升以及高能效的浮点性能。E907 的主要特性包括：单双精度浮点单元，以及快速中断响应。
+
+![img](assets/post/README/E907特性.jpg)
+
+在V85x平台中使用的E907为RV32IMAC，不包括 P 指令集。
+
+## 芯片架构图
+
+![image-20230215122305111](assets/post/README/image-20230215122305111.png)
+
+## 相关内存分布
+
+![image-20230215122626778](assets/post/README/image-20230215122626778.png)
+
+![image-20230215122648192](assets/post/README/image-20230215122648192.png)
+
+## E907 子系统框图
+
+![image-20230215122832524](assets/post/README/image-20230215122832524.png)
+
+具体的寄存器配置项这里就不过多介绍了，具体可以参考数据手册
+
+V853 的异构系统通讯在硬件上使用的是 MSGBOX，在软件层面上使用的是 AMP 与 RPMsg 通讯协议。其中 A7 上基于 Linux 标准的 RPMsg 驱动框架，E907基于 OpenAMP 异构通信框架。
+
+### AMP 与 RPMsg
+
+V851 所带有的 A7 主核心与 E907 辅助核心是完全不同的两个核心，为了最大限度的发挥他们的性能，协同完成某一任务，所以在不同的核心上面运行的系统也各不相同。这些不同架构的核心以及他们上面所运行的软件组合在一起，就成了 AMP 系统 （Asymmetric Multiprocessing System, 异构多处理系统）。
+
+由于两个核心存在的目的是协同的处理，因此在异构多处理系统中往往会形成 Master - Remote 结构。主核心启动后启动从核心。当两个核心上的系统都启动完成后，他们之间就通过 IPC（Inter Processor Communication）方式进行通信，而 RPMsg 就是 IPC 中的一种。
+
+在AMP系统中，两个核心通过共享内存的方式进行通信。两个核心通过 AMP 中断来传递讯息。内存的管理由主核负责。
+
+![image-20220704155816774](assets/post/README/image-20220704155816774.png)
+
+# 软件适配
+
+这部分使用BSP开发包即可，配置设备树如下：
+
+```
+reserved-memory {                               // 配置预留内存区间
+	e907_dram: riscv_memserve {                 // riscv 核心使用的内存
+		reg = <0x0 0x43c00000 0x0 0x00400000>;  // 起始地址 0x43c00000 长度 4MB
+		no-map;
+	};
+
+	vdev0buffer: vdev0buffer@0x43000000 {       // vdev设备buffer预留内存
+		compatible = "shared-dma-pool";
+		reg = <0x0 0x43000000 0x0 0x40000>;
+		no-map;
+	};
+
+	vdev0vring0: vdev0vring0@0x43040000 {       // 通讯使用的vring设备0
+		reg = <0x0 0x43040000 0x0 0x20000>;
+		no-map;
+	};
+
+	vdev0vring1: vdev0vring1@0x43060000 {       // 通讯使用的vring设备1
+		reg = <0x0 0x43060000 0x0 0x20000>;
+		no-map;
+	};
+};
+
+e907_rproc: e907_rproc@0 {                      // rproc相关配置
+	compatible = "allwinner,sun8iw21p1-e907-rproc";
+	clock-frequency = <600000000>;
+	memory-region = <&e907_dram>, <&vdev0buffer>,
+				<&vdev0vring0>, <&vdev0vring1>;
+
+	mboxes = <&msgbox 0>;
+	mbox-names = "mbox-chan";
+	iommus = <&mmu_aw 5 1>;
+
+	memory-mappings =
+			/* DA 	         len         PA */
+			/* DDR for e907  */
+			< 0x43c00000 0x00400000 0x43c00000 >;
+	core-name = "sun8iw21p1-e907";
+	firmware-name = "melis-elf";
+	status = "okay";
+};
+
+rpbuf_controller0: rpbuf_controller@0 {        // rpbuf配置
+	compatible = "allwinner,rpbuf-controller";
+	remoteproc = <&e907_rproc>;
+	ctrl_id = <0>;	/* index of /dev/rpbuf_ctrl */
+	iommus = <&mmu_aw 5 1>;
+	status = "okay";
+};
+
+rpbuf_sample: rpbuf_sample@0 {
+	compatible = "allwinner,rpbuf-sample";
+	rpbuf = <&rpbuf_controller0>;
+	status = "okay";
+};
+
+msgbox: msgbox@3003000 {                       // msgbox配置
+	compatible = "allwinner,sunxi-msgbox";
+	#mbox-cells = <1>;
+	reg = <0x0 0x03003000 0x0 0x1000>,
+		<0x0 0x06020000 0x0 0x1000>;
+	interrupts = <GIC_SPI 0 IRQ_TYPE_LEVEL_HIGH>,
+				<GIC_SPI 1 IRQ_TYPE_LEVEL_HIGH>;
+	clocks = <&clk_msgbox0>;
+	clock-names = "msgbox0";
+	local_id = <0>;
+	status = "okay";
+};
+
+e907_standby: e907_standby@0 {
+	compatible = "allwinner,sunxi-e907-standby";
+
+	firmware = "riscv.fex";
+	mboxes = <&msgbox 1>;
+	mbox-names = "mbox-chan";
+	power-domains = <&pd V853_PD_E907>;
+	status = "okay";
+};
+```
+
+## 内存划分
+
+在设备树配置小核心使用的内存，包括小核自己使用的内存，设备通信内存，回环内存等等，这里E907 运行在 DRAM 内。内存起始地址可以在数据手册查到。
+
+![image-20230215131405440](assets/post/README/image-20230215131405440.png)
+
+通常来说我们把内存地址设置到末尾，例如这里使用的 V851s，拥有 64MByte 内存，则内存范围为 `0x40000000 - 0x44000000`，这里配置到 `0x43c00000` 即可。对于 V853s 拥有 128M 内存则可以设置到 `0x47C00000`，以此类推。对于交换区内存则可以配置在附近。
+
+```
+reserved-memory {                               // 配置预留内存区间
+	e907_dram: riscv_memserve {                 // riscv 核心使用的内存
+		reg = <0x0 0x43c00000 0x0 0x00400000>;  // 起始地址 0x43c00000 长度 4MB
+		no-map;
+	};
+
+	vdev0buffer: vdev0buffer@0x43000000 {       // vdev设备buffer预留内存
+		compatible = "shared-dma-pool";
+		reg = <0x0 0x43000000 0x0 0x40000>;
+		no-map;
+	};
+
+	vdev0vring0: vdev0vring0@0x43040000 {       // 通讯使用的vring设备0
+		reg = <0x0 0x43040000 0x0 0x20000>;
+		no-map;
+	};
+
+	vdev0vring1: vdev0vring1@0x43060000 {       // 通讯使用的vring设备1
+		reg = <0x0 0x43060000 0x0 0x20000>;
+		no-map;
+	};
+};
+```
+
+然后需要配置下 `e907` 的链接脚本，找到 `e907_rtos/rtos/source/projects/v851-e907-lizard/kernel.lds`  将 `ORIGIN` 配置为上面预留的内存。
+
+```
+MEMORY
+{
+   /*DRAM_KERNEL: 4M */
+   DRAM_SEG_KRN (rwx) : ORIGIN = 0x43c00000, LENGTH = 0x00400000
+}
+```
+
+然后配置小核的 `defconfig` 位于 `e907_rtos/rtos/source/projects/v851-e907-lizard/configs/defconfig` 配置与其对应即可。
+
+```
+CONFIG_DRAM_PHYBASE=0x43c00000
+CONFIG_DRAM_VIRTBASE=0x43c00000
+CONFIG_DRAM_SIZE=0x0400000
+```
+
+# 配置启动小核
+
+配置启动小核的流程如下，这里只讨论使用 linux 启动小核的情况，不讨论快启相关。
+
+![img](assets/post/README/2022-07-19-15-33-28-image.png)
+
+1. 加载固件
+   1. 调用 `firmware` 接口获取文件系统中的固件
+   2. 解析固件的 `resource_table` 段，该段有如下内容
+      1. 声明需要的内存（`Linux` 为其分配，设备树配置）
+      2. 声明使用的 `vdev`（固定为一个）
+      3. 声明使用的 `vring`（固定为两个）
+   3. 将固件加载到指定地址
+2. 注册 `rpmsg virtio` 设备
+   1. 提供 `vdev->ops`（基于 `virtio` 接口实现的）
+   2. 与 `rpmsg_bus` 驱动匹配，完成 `rpmsg` 初始化
+3. 启动小核
+   1. 调用 `rproc->ops->start`
+
+## 1. 加载固件
+
+驱动位于 `kernel/linux-4.9/drivers/remoteproc/sunxi_rproc_firmware.c`
+
+首先调用 `sunxi_request_firmware` 函数
+
+```c
+int sunxi_request_firmware(const struct firmware **fw, const char *name, struct device *dev)
+{
+	int ret, index;
+	struct firmware *fw_p = NULL;
+	u32 img_addr, img_len;
+
+	ret = sunxi_find_firmware_storage();
+	if (ret < 0) {
+		dev_warn(dev, "Can't finded boot_package head\n");
+		return -ENODEV;
+	}
+
+	index = ret;
+
+	ret = sunxi_firmware_get_info(dev, index, name, &img_addr, &img_len);
+	if (ret < 0) {
+		dev_warn(dev, "failed to read boot_package item\n");
+		ret = -EFAULT;
+		goto out;
+	}
+
+	ret = sunxi_firmware_get_data(dev, index, img_addr, img_len, &fw_p);
+	if (ret < 0) {
+		dev_err(dev, "failed to read Firmware\n");
+		ret = -ENOMEM;
+		goto out;
+	}
+
+	*fw = fw_p;
+out:
+	return ret;
+}
+```
+
+驱动会从固件的特定位置读取，使用函数 `sunxi_find_firmware_storage`，这里会去固定的位置查找固件，位置包括 `lib/firmware`，`/dev/mtd0`. `/dev/mtd1`, `/dev/mmcblk0` 等位置。对于Linux启动我们只需要放置于 `lib/firmware ` 即可。
+
+```c
+static int sunxi_find_firmware_storage(void)
+{
+	struct firmware_head_info *head;
+	int i, len, ret;
+	loff_t pos;
+	const char *path;
+	u32 flag;
+
+	len = sizeof(*head);
+	head = kmalloc(len, GFP_KERNEL);
+	if (!head)
+		return -ENOMEM;
+
+	ret = sunxi_get_storage_type();
+
+	for (i = 0; i < ARRAY_SIZE(firmware_storages); i++) {
+		path = firmware_storages[i].path;
+		pos = firmware_storages[i].head_off;
+		flag = firmware_storages[i].flag;
+
+		if (flag != ret)
+			continue;
+
+		pr_debug("try to open %s\n", path);
+
+		ret = sunxi_firmware_read(path, head, len, &pos, flag);
+		if (ret < 0)
+			pr_err("open %s failed,ret=%d\n", path, ret);
+
+		if (ret != len)
+			continue;
+
+		if (head->magic == FIRMWARE_MAGIC) {
+			kfree(head);
+			return i;
+		}
+	}
+
+	kfree(head);
+
+	return -ENODEV;
+}
+```
+
+## 2. 配置时钟
+
+配置`clk`与小核的 `boot` 选项，驱动位于`kernel/linux-4.9/drivers/remoteproc/sunxi_rproc_boot.c ` 可以自行参考
+
+```c
+struct sunxi_core *sunxi_remote_core_find(const char *name);
+
+int sunxi_core_init(struct sunxi_core *core);
+
+void sunxi_core_deinit(struct sunxi_core *core);
+
+int sunxi_core_start(struct sunxi_core *core);
+
+int sunxi_core_is_start(struct sunxi_core *core);
+
+int sunxi_core_stop(struct sunxi_core *core);
+
+void sunxi_core_set_start_addr(struct sunxi_core *core, u32 addr);
+
+void sunxi_core_set_freq(struct sunxi_core *core, u32 freq);
+```
+
+### 使用 debugfs 加载固件
+
+由于已经对外注册了接口，这里只需要使用命令即可启动小核心。假设小核的`elf`名字叫`e907.elf` 并且已经放置进 `lib/firmware` 文件夹
+
+```
+echo e907.elf > /sys/kernel/debug/remoteproc/remoteproc0/firmware
+echo start > /sys/kernel/debug/remoteproc/remoteproc0/state
+```
+
+# E907 小核开发
+
+这里提供了一个 `RTOS` 以供开发使用，此 `RTOS` 基于 RTT 内核。地址 [https://github.com/YuzukiHD/TinyVision/tree/main/kernel/rtos](https://github.com/YuzukiHD/TinyVision/tree/main/kernel/rtos)
+
+## 搭建开发环境
+
+使用 git 命令下载（不可以直接到 Github 下载 zip，会破坏超链接与文件属性）
+
+```
+git clone --depth=1 https://github.com/YuzukiHD/TinyVision.git
+```
+
+然后复制到当前目录下
+
+```
+ cp -rf TinyVision/kernel/rtos . && cd rtos
+```
+
+下载编译工具链到指定目录
+
+```
+cd rtos/tools/xcompiler/on_linux/compiler/ && wget https://github.com/YuzukiHD/Yuzukilizard/releases/download/Compiler.0.0.1/riscv64-elf-x86_64-20201104.tar.gz && cd -
+```
+
+![image-20230215133709126](assets/post/README/image-20230215133709126.png)
+
+## 编译第一个 elf 系统
+
+进入 `rtos/source` 文件夹
+
+```
+cd rtos/source/
+```
+
+![image-20230215133820910](assets/post/README/image-20230215133820910.png)
+
+应用环境变量并加载方案
+
+```
+source melis-env.sh;lunch
+```
+
+![image-20230215133922058](assets/post/README/image-20230215133922058.png)
+
+然后直接编译即可，他会自动解压配置工具链。编译完成后可以在 `ekernel/melis30.elf` 找到固件。
+
+```
+make -j
+```
+
+![image-20230215134015333](assets/post/README/image-20230215134015333.png)
+
+## 配置小核系统
+
+小核的编译框架与 `kernel` 类似，使用 `kconfig` 作为配置项。使用 `make menuconfig` 进入配置页。
+
+![image-20230215134155560](assets/post/README/image-20230215134155560.png)
+
+其余使用与标准 `menuconfig` 相同这里不过多赘述。
+
+# 小核使用
+
+## 小核使用 UART 输出 console
+
+首先配置小核的 `PINMUX` 编辑文件 `rtos/rtos/source/projects/v851-e907-lizard/configs/sys_config.fex` 这里使用 `UART3` , 引脚为`PE12`, `PE13` , `mux` 为 7
+
+```
+[uart3]
+uart_tx         = port:PE12<7><1><default><default>
+uart_rx         = port:PE13<7><1><default><default>
+```
+
+然后配置使用 `uart3` 作为输出，运行 `make menuconfig` 居进入配置
+
+```
+ Kernel Setup  --->
+ 	Drivers Setup  --->
+ 		Melis Source Support  --->
+ 			[*] Support Serial Driver
+ 		SoC HAL Drivers  --->
+ 			Common Option  --->
+ 				[*] enable sysconfig                // 启用读取解析 sys_config.fex 功能
+ 			UART Devices  --->
+ 				[*] enable uart driver              // 启用驱动
+ 				[*]   support uart3 device          // 使用 uart3
+ 				(3)   cli uart port number          // cli 配置到 uart3
+ Subsystem support  --->
+ 	devicetree support  --->
+ 		[*] support traditional fex configuration method parser. // 启用 sys_config.fex 解析器
+```
+
+到 `linux` 中配置设备树，将设备树配置相应的引脚与 `mux`
+
+![2](assets/post/README/2.png)
+
+如果设备树不做配置引脚和 `mux`，kernel会很贴心的帮你把没使用的 Pin 设置 `io_disable` 。由于使用的是 `iommu` 操作   `UART`  设备，会导致 `io`  不可使用。如下所示。
+
+![4BBXHRX_1T@MH7K}{4TXNKY](assets/post/README/4BBXHRX_1T@MH7K}{4TXNKY.png)
+
+![222](assets/post/README/222.png)
+
+此外，还需要将 `uart3` 的节点配置 `disable`，否则 `kernel` 会优先占用此设备。
+
+```
+&uart3 {
+        pinctrl-names = "default", "sleep";
+        pinctrl-0 = <&uart3_pins_active>;
+        pinctrl-1 = <&uart3_pins_sleep>;
+        status = "disabled";
+};
+```
+
+如果配置 `okay` 会出现以下提示。
+
+```
+uart: create mailbox fail
+uart: irq for uart3 already enabled
+uart: create mailbox fail
+```
+
+启动小核固件后就可以看到输出了
+
+![image-20230215131216802](assets/post/README/image-20230215131216802.png)
+
+## 核心通讯
+
+### 建立通讯节点
+
+启动小核后，使用 `eptdev_bind test 2` 建立两个通讯节点的监听，可以用 `rpmsg_list_listen` 命令查看监听节点。
+
+![image-20230215135619996](assets/post/README/image-20230215135619996.png)
+
+然后在 `Linux` 内创建通讯节点，由于我们上面启用了两个监听所以这里也开两个节点
+
+```
+echo test > /sys/class/rpmsg/rpmsg_ctrl0/open
+echo test > /sys/class/rpmsg/rpmsg_ctrl0/open
+```
+
+![image-20230215135802471](assets/post/README/image-20230215135802471.png)
+
+然后就可以在 `/dev/` 下看到通讯节点 `/dev/rpmsg0`，`/dev/rpmsg1`
+
+![image-20230215135907700](assets/post/README/image-20230215135907700.png)
+
+也可以在小核控制台看到节点的建立
+
+![image-20230215140011440](assets/post/README/image-20230215140011440.png)
+
+### 核心通讯
+
+#### Linux -> e907
+
+可以直接操作 Linux 端的节点，使用 `echo` 写入数据
+
+```
+echo "Linux Message 0" > /dev/rpmsg0
+echo "Linux Message 0" > /dev/rpmsg1
+```
+
+![image-20230215140146824](assets/post/README/image-20230215140146824.png)
+
+小核即可收到数据
+
+![image-20230215140239518](assets/post/README/image-20230215140239518.png)
+
+#### e907 -> Linux
+
+使用命令 `eptdev_send` 用法 `eptdev_send <id> <data>`
+
+```
+eptdev_send 0 "E907 Message"
+eptdev_send 1 "E907 Message"
+```
+
+![image-20230215140457024](assets/post/README/image-20230215140457024.png)
+
+在 Linux 侧直接可以读取出来
+
+```
+cat /dev/rpmsg0
+cat /dev/rpmsg1
+```
+
+![image-20230215140548983](assets/post/README/image-20230215140548983.png)
+
+可以一直监听，例如多次发送数据
+
+![image-20230215140641612](assets/post/README/image-20230215140641612.png)
+
+Linux 侧获得的数据也会增加
+
+![image-20230215140704356](assets/post/README/image-20230215140704356.png)
+
+### 关闭通讯
+
+Linux 侧关闭，操作控制节点，`echo <id>`  给节点即可 
+
+```
+echo 0 > /sys/class/rpmsg/rpmsg_ctrl0/close
+echo 1 > /sys/class/rpmsg/rpmsg_ctrl0/close
+```
+
+![image-20230215140946705](assets/post/README/image-20230215140946705.png)
+
+同时 E907 也会打印链接关闭
+
+![image-20230215140935523](assets/post/README/image-20230215140935523.png)
+
+## rpmsg 需知
+
+1. 端点是 `rpmsg` 通信的基础；每个端点都有自己的 `src` 和 `dst` 地址，范围（1 - 1023，除了
+   `0x35`）
+2. `rpmsg` 每次发送数据最大为512 -16 字节；（数据块大小为 512，头部占用 16 字节）
+3. `rpmsg` 使用 `name server` 机制，当 `E907` 创建的端点名，和 `linux` 注册的 `rpmsg` 驱动名一
+   样的时候，`rpmsg bus` 总线会调用其 `probe` 接口。所以如果需要 `Linux `端主动发起创建端
+   点并通知 `e907`，则需要借助上面提到的 `rpmsg_ctrl` 驱动。
+4. `rpmsg`  是串行调用回调的，故建议  `rpmsg_driver`  的回调中不要调用耗时长的函数，避免影
+   响其他 `rpmsg` 驱动的运行
+
+## 自定义小核 APP
+
+小核的程序入口位于 `e907_rtos/rtos/source/projects/v851-e907-lizard/src/main.c`
+
+```
+#include <stdio.h>
+#include <openamp/sunxi_helper/openamp.h>
+
+int app_entry(void *param)
+{
+    return 0;
+}
+```
+
+可以自定义小核所运行的程序。
+
+## 自定义小核命令
+
+SDK 提供了 `FINSH_FUNCTION_EXPORT_ALIAS` 绑定方法，具体为
+
+```
+FINSH_FUNCTION_EXPORT_ALIAS(<函数名称>, <命令>, <命令的描述>)
+```
+
+例如编写一个 hello 命令，功能是输出 `Hello World`，描述为 `Show Hello World`
+
+```c
+int hello_cmd(int argc, const char **argv)
+{
+    printf("Hello World\n");
+}
+FINSH_FUNCTION_EXPORT_ALIAS(hello_cmd, hello, Show Hello World)
+```
+
+即可在小核找到命令与输出。
+
+![image-20230215142007978](assets/post/README/image-20230215142007978.png)
+
+
+
 # 内核驱动支持情况
 
-这里表述的内核驱动支持仅为部分重要模块驱动支持，对于次要模块这里略过。✅: 支持— ❌: 暂不支持 — 🚫: 无计划支持 —⚠：支持但未完整测试
+TinyVision 支持多版本内核开发，具体外设支持情况如下
 
-| 内核版本        | Linux 4.9.191 | Linux 5.15 | Linux 6.1 | 小核 E907 RT-Thread | SyterKit 纯裸机 |
-| --------------- | ------------- | ---------- | --------- | ------------------- | --------------- |
-| SPI             | ✅             | ✅          | ✅         | ✅                   | ✅               |
-| TWI             | ✅             | ✅          | ✅         | ✅                   | ✅               |
-| PWM             | ✅             | ✅          | ✅         | ✅                   | ✅               |
-| UART            | ✅             | ✅          | ✅         | ✅                   | ✅               |
-| MMC             | ✅             | ✅          | ✅         | 🚫                   | ✅               |
-| GPIO            | ✅             | ✅          | ✅         | ✅                   | ✅               |
-| MIPI DBI Type C | ✅             | ✅          | ✅         | ✅                   | ✅               |
-| 内置100M网络    | ✅             | ✅          | ✅         | 🚫                   | 🚫               |
-| CE              | ✅             | ✅          | ⚠         | 🚫                   | 🚫               |
-| NPU             | ✅             | ⚠          | ⚠         | 🚫                   | 🚫               |
-| USB2.0          | ✅             | ✅          | ✅         | 🚫                   | 🚫               |
-| E907 小核启动   | ✅             | ✅          | ✅         | ✅                   | ✅               |
-| E907 小核控制   | ✅             | ⚠          | ⚠         | ✅                   | 🚫               |
-| G2D             | ✅             | ✅          | ✅         | 🚫                   | 🚫               |
-| 视频编码        | ✅             | ✅          | ✅         | 🚫                   | 🚫               |
-| 视频解码        | ✅             | ✅          | ✅         | 🚫                   | 🚫               |
-| MIPI CSI        | ✅             | ❌          | ❌         | 🚫                   | 🚫               |
-| GPADC           | ✅             | ✅          | ✅         | 🚫                   | 🚫               |
-| Audio           | ✅             | ❌          | ❌         | 🚫                   | 🚫               |
-| WIFI            | ✅             | ✅          | ✅         | 🚫                   | 🚫               |
+> 这里表述的内核驱动支持仅为部分重要模块驱动支持，对于次要模块这里略过。
+
+✅: 支持— ❌: 暂不支持 — 🚫: 无计划支持 —⚠：支持但未完整测试
+
+| 内核版本        | Linux 4.9.191 | Linux 5.15 | Linux 6.1 | Linux 6.7 主线 | 小核 E907 RT-Thread | SyterKit 纯裸机 |
+| --------------- | ------------- | ---------- | --------- | -------------- | ------------------- | --------------- |
+| SPI             | ✅             | ✅          | ✅         | ✅              | ✅                   | ✅               |
+| TWI             | ✅             | ✅          | ✅         | ✅              | ✅                   | ✅               |
+| PWM             | ✅             | ✅          | ✅         | ✅              | ✅                   | ✅               |
+| UART            | ✅             | ✅          | ✅         | ✅              | ✅                   | ✅               |
+| MMC             | ✅             | ✅          | ✅         | ✅              | 🚫                   | ✅               |
+| GPIO            | ✅             | ✅          | ✅         | ✅              | ✅                   | ✅               |
+| MIPI DBI Type C | ✅             | ✅          | ✅         | ✅              | ✅                   | ✅               |
+| 内置100M网络    | ✅             | ✅          | ✅         | ❌              | 🚫                   | 🚫               |
+| CE              | ✅             | ✅          | ⚠         | ✅              | 🚫                   | 🚫               |
+| NPU             | ✅             | ⚠          | ⚠         | ✅              | 🚫                   | 🚫               |
+| USB2.0          | ✅             | ✅          | ✅         | ✅              | 🚫                   | 🚫               |
+| E907 小核启动   | ✅             | ✅          | ✅         | ✅              | ✅                   | ✅               |
+| E907 小核控制   | ✅             | ⚠          | ⚠         | ✅              | ✅                   | 🚫               |
+| G2D             | ✅             | ✅          | ✅         | ❌              | 🚫                   | 🚫               |
+| 视频编码        | ✅             | ✅          | ✅         | ❌              | 🚫                   | 🚫               |
+| 视频解码        | ✅             | ✅          | ✅         | ❌              | 🚫                   | 🚫               |
+| MIPI CSI        | ✅             | ❌          | ❌         | ❌              | 🚫                   | 🚫               |
+| GPADC           | ✅             | ✅          | ✅         | ✅              | 🚫                   | 🚫               |
+| Audio           | ✅             | ❌          | ❌         | ❌              | 🚫                   | 🚫               |
+| WIFI            | ✅             | ✅          | ✅         | ✅              | 🚫                   | 🚫               |
 
 # 相关文档
 
