@@ -4965,10 +4965,25 @@ TinyVision 支持多版本内核开发，具体外设支持情况如下
 - 电路原理图：https://github.com/YuzukiHD/TinyVision/blob/main/docs/hardware/TinyVision-WIFI/schematic/SCH_TinyVision-WIFI_2023-11-18.pdf
 - 3D 结构：https://github.com/YuzukiHD/TinyVision/blob/main/docs/hardware/TinyVision-WIFI/3d/3D_PCB4_2023-11-18.zip
 - Gerber：https://github.com/YuzukiHD/TinyVision/blob/main/docs/hardware/TinyVision-WIFI/gerber/Gerber_PCB4_2023-11-18.zip
-- XR829 芯片简述：https://github.com/YuzukiHD/TinyVision/blob/main/docs/hardware/TinyVision-WIFI/datasheet/XR829_Brief.pdf
-- XR829 芯片手册：https://github.com/YuzukiHD/TinyVision/blob/main/docs/hardware/TinyVision-WIFI/datasheet/XR829_Datasheet.pdf
+- WIFI 5 版本：
+  - 基于 XR829
+  - XR829 芯片简述：https://github.com/YuzukiHD/TinyVision/blob/main/docs/hardware/TinyVision-WIFI/datasheet/XR829_Brief.pdf
+  - XR829 芯片手册：https://github.com/YuzukiHD/TinyVision/blob/main/docs/hardware/TinyVision-WIFI/datasheet/XR829_Datasheet.pdf
+
+- WIFI 6 版本
+  - 基于 AIC8800D80 系列模组
+
+
+## TinyVision LCD 相关手册文档
+
+- 电路原理图：https://github.com/YuzukiHD/TinyVision/blob/main/docs/hardware/TinyVision-LCD/schematic/SCH_TinyVision-LCD_2023-11-18.pdf
+- 3D 结构：https://github.com/YuzukiHD/TinyVision/blob/main/docs/hardware/TinyVision-LCD/3d/3D_PCB5_2023-11-18.zip
+- Gerber：https://github.com/YuzukiHD/TinyVision/blob/main/docs/hardware/TinyVision-LCD/gerber/Gerber_PCB5_2023-11-18.zip
+- 屏幕 IC 手册：https://www.semiee.com/file2/72bc5f2fdf0d1b9f59fe2316bcc5f0f3/Sitronix/Sitronix-ST7789V2.pdf
 
 # 相关工具
+
+## 原厂工具
 
 - 线刷工具[Windows/Linux]：https://github.com/YuzukiHD/TinyVision/blob/main/docs/tools/AllwinnertechPhoeniSuitRelease20230905.zip
 
@@ -4978,8 +4993,17 @@ TinyVision 支持多版本内核开发，具体外设支持情况如下
 
 ![image-20231118144837348](assets/post/README/image-20231118144837348.png)
 
-- WIFI 性能测试工具[Linux/Android]：https://github.com/YuzukiHD/TinyVision/blob/main/docs/tools/xradio_wlan_rf_test_tools_v2.0.9-p1.zip
-- BT 性能测试工具[Linux]：https://github.com/YuzukiHD/TinyVision/blob/main/docs/tools/xradio_bt_rf_test_tools_v1.2.2.zip
-- WIFI 晶振频偏发射功率修改工具[Windows]：https://github.com/YuzukiHD/TinyVision/blob/main/docs/tools/xradio_sdd_editor_ex_v2.7.210115a-p1.zip
+- XR829 系列
+  - WIFI 性能测试工具[Linux/Android]：https://github.com/YuzukiHD/TinyVision/blob/main/docs/tools/xradio_wlan_rf_test_tools_v2.0.9-p1.zip
+  - BT 性能测试工具[Linux]：https://github.com/YuzukiHD/TinyVision/blob/main/docs/tools/xradio_bt_rf_test_tools_v1.2.2.zip
+  - WIFI 晶振频偏发射功率修改工具[Windows]：https://github.com/YuzukiHD/TinyVision/blob/main/docs/tools/xradio_sdd_editor_ex_v2.7.210115a-p1.zip
+
 
 ![image-20231118145056447](assets/post/README/image-20231118145056447.png)
+
+## 开源社区工具
+
+- Tina Linux 固件转换标准主线固件转换器 OpenixCard：https://github.com/YuzukiTsuru/OpenixCard
+
+- 裸机开发利器 XFEL：https://github.com/xboot/xfel
+- 主线固件烧录工具Win32 Disk Imager：https://sourceforge.net/projects/win32diskimager/
