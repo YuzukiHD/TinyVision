@@ -4377,7 +4377,7 @@ V851 所带有的 A7 主核心与 E907 辅助核心是完全不同的两个核�
 
 ![image-20220704155816774](assets/post/README/image-20220704155816774.png)
 
-# 软件适配
+## 软件适配
 
 这部分使用BSP开发包即可，配置设备树如下：
 
@@ -4513,7 +4513,7 @@ CONFIG_DRAM_VIRTBASE=0x43c00000
 CONFIG_DRAM_SIZE=0x0400000
 ```
 
-# 配置启动小核
+## 配置启动小核
 
 配置启动小核的流程如下，这里只讨论使用 linux 启动小核的情况，不讨论快启相关。
 
@@ -4651,7 +4651,7 @@ echo e907.elf > /sys/kernel/debug/remoteproc/remoteproc0/firmware
 echo start > /sys/kernel/debug/remoteproc/remoteproc0/state
 ```
 
-# E907 小核开发
+## E907 小核开发
 
 这里提供了一个 `RTOS` 以供开发使用，此 `RTOS` 基于 RTT 内核。地址 [https://github.com/YuzukiHD/TinyVision/tree/main/kernel/rtos](https://github.com/YuzukiHD/TinyVision/tree/main/kernel/rtos)
 
@@ -4711,9 +4711,9 @@ make -j
 
 其余使用与标准 `menuconfig` 相同这里不过多赘述。
 
-# 小核使用
+## 小核使用
 
-## 小核使用 UART 输出 console
+### 小核使用 UART 输出 console
 
 首先配置小核的 `PINMUX` 编辑文件 `rtos/rtos/source/projects/v851-e907-lizard/configs/sys_config.fex` 这里使用 `UART3` , 引脚为`PE12`, `PE13` , `mux` 为 7
 
