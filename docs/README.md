@@ -320,7 +320,7 @@ C:\System> adb pull /mnt/UDISK/badapple.mp4   # 将 /mnt/UDISK/badapple.mp4 下�
 
 # 系统刷写
 
-系统下载地址：[https://github.com/YuzukiHD/TinyVision/releases] 
+系统下载地址：https://github.com/YuzukiHD/TinyVision/releases
 
 ## 原厂SDK系统
 
