@@ -18,5 +18,4 @@ jobs:
         dst_token: ${{ secrets.GITEE_TOKEN }}
         force_update: true
         account_type: org
-        debug: true
         static_list: ${{ steps.repo.outputs.repoList }}
