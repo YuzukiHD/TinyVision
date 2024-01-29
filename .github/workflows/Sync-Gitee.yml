@@ -1,14 +1,9 @@
 name: Sync To Gitee
-
 on: [ push, delete, create ]
-
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - name: Get repository list exclude private and fork
-      id: repo
-      uses: yi-Xu-0100/repo-list-generator@v1.0.1
     - name: Mirror the Github organization repos to Gitee.
       uses: Yikun/hub-mirror-action@master
       with:
@@ -18,4 +13,4 @@ jobs:
         dst_token: ${{ secrets.GITEE_TOKEN }}
         force_update: true
         account_type: org
-        static_list: ${{ steps.repo.outputs.repoList }}
+        white_list: "TinyVision"
