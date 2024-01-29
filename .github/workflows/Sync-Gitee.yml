@@ -19,5 +19,4 @@ jobs:
         force_update: true
         account_type: org
         white_list: TinyVision
-        lfs: true
         static_list: ${{ steps.repo.outputs.repoList }}
