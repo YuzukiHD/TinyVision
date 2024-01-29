@@ -6,6 +6,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+    - name: Get repository list exclude private and fork
+      id: repo
+      uses: yi-Xu-0100/repo-list-generator@v1.0.1
     - name: Mirror the Github organization repos to Gitee.
       uses: Yikun/hub-mirror-action@master
       with:
@@ -15,5 +18,5 @@ jobs:
         dst_token: ${{ secrets.GITEE_TOKEN }}
         force_update: true
         account_type: org
-        # src_account_type: org
-        # dst_account_type: org
+        lfs: true
+        static_list: ${{ steps.repo.outputs.repoList }}
