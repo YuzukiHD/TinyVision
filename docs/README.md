@@ -613,7 +613,104 @@ sudo apt install open-vm-tools-desktop
 
 做完这一步以后，就可以继续往下，进行开发了。
 
-# Tina Linux 开发
+# Tina 4.0 Linux 开发
+
+Tina 4.0 Linux是基于Linux内核开发的针对智能硬件类产品的嵌入式软件系统。Tina Linux基于OpenWrt-14.07 版本的软件开发包，包含了 Linux 系统开发用到的内核源码、驱动、工具、系统中间件与应用程序包。（该系统较老，且学习难度较大，建议使用Tina 5.0 Linux 开发）
+
+**如果需要开发 Tina 4.0，请使用 Ubuntu 18.04 以下系统，高版本系统不支持！**
+
+## 获取源码
+
+Tina 4.0 请联系客服获取。
+
+## 编译打包
+
+编译打包命令如下：
+
+```bash
+source build/envsetup.sh
+lunch
+make -j32
+pack
+```
+
+其中：
+
+- source build/envsetup.sh ：获取环境变量
+- lunch 会提供方案选项以供选择
+- make -j32 ：编译，其中-j后面的数字参数为编译用的线程数，可根据开发者编译用的PC实际情况选择。
+- pack : 打包，将编译好的固件打包成一个.img格式的固件，固件路径 `/out/`
+
+## 常见问题
+
+### ERROR: reserving fdt memory region failed
+
+![493ddf63-0376-48e6-9c89-99df48cd3797-image.png](assets/post/README/1704867277973-493ddf63-0376-48e6-9c89-99df48cd3797-image.png)
+
+对于小内存设备需要配置 `CONFIG_SUNXI_MALLOC_LEN=0x1400000`
+
+修改文件
+`lichee/brandy-2.0/u-boot-2018/include/configs/sun8iw21p1.h`
+
+把
+
+```
+define SUNXI_SYS_MALLOC_LEN	(32 << 20)
+```
+
+改为
+
+```
+#ifdef CONFIG_SUNXI_MALLOC_LEN
+#define SUNXI_SYS_MALLOC_LEN	CONFIG_SUNXI_MALLOC_LEN
+#else
+#define SUNXI_SYS_MALLOC_LEN	(32 << 20)
+#endif
+```
+
+修改文件
+`brandy/brandy-2.0/u-boot-2018/drivers/mmc/sunxi_mmc.h`
+
+把
+
+```c
+/* need malloc low len when flush unaligned addr cache */
+#if  defined (CONFIG_MACH_SUN8IW18) || defined (CONFIG_MACH_SUN8IW19) || \
+	(defined (CONFIG_MACH_SUN8IW20) && (CONFIG_SUNXI_MALLOC_LEN < 0x3700000))
+#define SUNXI_MMC_MALLOC_LOW_LEN	(4 << 20)
+#else
+#define SUNXI_MMC_MALLOC_LOW_LEN        (16 << 20)
+#endif
+```
+
+改为
+
+```c
+/* need malloc low len when flush unaligned addr cache */
+#if  defined (CONFIG_MACH_SUN8IW18) || defined (CONFIG_MACH_SUN8IW19) || \
+	(defined (CONFIG_MACH_SUN8IW20) && (CONFIG_SUNXI_MALLOC_LEN < 0x3700000)) || \
+	(defined (CONFIG_MACH_SUN8IW21) && (CONFIG_SUNXI_MALLOC_LEN < 0x3700000))
+#define SUNXI_MMC_MALLOC_LOW_LEN	(4 << 20)
+#else
+#define SUNXI_MMC_MALLOC_LOW_LEN        (16 << 20)
+#endif
+```
+
+### Error: "distro bootcmd" not defined
+
+SDK 默认配置是MBR格式，针对 NAND 设备。使用 PhoenixSuit 烧写的时候会自动识别存储器来判断使用GPT分区表还是MBR分区表。但是 PhoenixCard 刷写的时候无法识别到存储器，所以需要固件配置 GPT 或者 MBR，配置文件为`image.cfg`，如果没有配置 GPT 固件使用 MBR 格式固件，会导致PhoenixCard 将 boot1被写入 8K 偏移位，8K偏移位置正好是 GPT 分区表的位置，导致覆盖了 GPT 分区表，正确的操作应该是写入 128K 偏移，但是由于 SDK 内配置为MBR固件，而且PhoenixCard 无法读取目标设备是何种存储设备，所以PhoenixCard 默认写入 8K 偏移导致启动失败。
+
+修改方法如下
+
+编辑文件：`device/config/chips/v851se/configs/default/image.cfg` 加入一行，使打包成为 GPT 格式
+
+```
+    {filename = "sunxi_gpt.fex",       maintype = "12345678",        subtype = "1234567890___GPT",},
+```
+
+![df57a372-5466-488c-9852-c9ffe2c96de9-image.png](assets/post/README/1706261625737-df57a372-5466-488c-9852-c9ffe2c96de9-image.png)
+
+# Tina 5.0 Linux 开发
 
 AWOL 版本的 Tina Linux 使用的是 Tina5.0，OpenWrt 升级到了 21.05 版本，相较于商业量产版本的 Tina Linux 新了许多，而且支持更多新软件包。不过可惜的是 MPP 没有移植到 Tina5.0，不过 MPP 使用门槛较高，学习难度大，不是做产品也没必要研究。这里就研究下使用 AWOL 开源版本的 Tina Linux 与 OpenCV 框架开启摄像头拍照捕获视频。
 
@@ -709,7 +806,12 @@ repo start devboard-v853-tina-for-awol --all
 
 刚才下载到的 SDK 只支持一个板子，售价 1999 的 `V853-Vision`  开发板，这里要添加自己的板子的适配。
 
-下载支持包：https://github.com/YuzukiTsuru/YuzukiTsuru.GitHub.io/releases/download/2024-01-21-20240121/tina-bsp-tinyvision.tar.gz
+下载支持包：
+
+| 版本 | 下载地址                                                     |
+| ---- | ------------------------------------------------------------ |
+| 1.0  | https://github.com/YuzukiTsuru/YuzukiTsuru.GitHub.io/releases/download/2024-01-21-20240121/tina-bsp-tinyvision.tar.gz |
+| 1.1  | https://github.com/YuzukiHD/TinyVision/releases/download/tina.0.0.1/tina-bsp-tinyvision.tar.gz |
 
 或者可以在：https://github.com/YuzukiHD/TinyVision/tree/main/tina 下载到文件，不过这部分没预先下载软件包到 dl 文件夹所以编译的时候需要手动下载。
 
