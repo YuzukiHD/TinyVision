@@ -1513,7 +1513,7 @@ U-Boot 默认配置的是使用 SDC2 也就是 TinyVision 的 SD-NAND 刷写固�
 # OpenWrt 编译开发
 
 
-* 源码存放在百度网盘： https://pan.baidu.com/s/1a0uS7kqXiEdKFFgIJ3HF5g?pwd=qm83  提取码：qm83 
+* 源码存放在百度网盘： https://pan.baidu.com/s/1a0uS7kqXiEdKFFgIJ3HF5g?pwd=qm83  提取码：qm83，打包的源码只是提供加速下载，Git上源码实时更新建议使用Github的源码，实在下载不下来再用这个。
 * git仓库位置  https://github.com/YuzukiHD/OpenWrt/
 
 ## 编译
