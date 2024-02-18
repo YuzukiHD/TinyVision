@@ -1,0 +1,33 @@
+cc_library_shared {
+    name: "libaftertreatment",
+    defaults: ["libcdc_config_defaults"],
+    vendor_available: true,
+
+    srcs: [
+        "aftertreatment.c",
+    ],
+
+    include_dirs: [
+        "frameworks/av/media/libcedarc/include",
+        "frameworks/av/media/libcedarc/base/include",
+        "frameworks/av/media/libcedarc/vdecoder/include",
+    ],
+
+    local_include_dirs: [
+        "include",
+    ],
+
+    cflags: [
+        "-Wno-implicit-function-declaration",
+    ],
+
+    shared_libs: [
+        "liblog",
+        "libVE",
+        "libMemAdapter",
+        "libcdc_base",
+        "libscaledown",
+        "libfbm",
+    ],
+
+}

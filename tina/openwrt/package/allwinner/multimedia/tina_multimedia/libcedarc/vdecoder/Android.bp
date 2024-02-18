@@ -1,0 +1,41 @@
+cc_library_shared {
+    name: "libvdecoder",
+    defaults: ["libcdc_config_defaults"],
+    vendor_available: true,
+
+    srcs: [
+        "pixel_format.c",
+        "vdecoder.c",
+    ],
+
+    include_dirs: [
+        "frameworks/av/media/libcedarc/include",
+        "frameworks/av/media/libcedarc/base/include",
+        "frameworks/av/media/libcedarc/base/include/gralloc_metadata",
+    ],
+
+    local_include_dirs: [
+        "include",
+        "aftertreatment",
+    ],
+
+    cflags: [
+        "-Wno-implicit-function-declaration",
+    ],
+
+    shared_libs: [
+        "libcutils",
+        "libutils",
+        "liblog",
+        "libui",
+        "libdl",
+        "libVE",
+        "libcdc_base",
+        "libvideoengine",
+        "libMemAdapter",
+        "libaftertreatment",
+        "libfbm",
+        "libsbm",
+    ],
+
+}

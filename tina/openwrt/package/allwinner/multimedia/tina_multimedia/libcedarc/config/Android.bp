@@ -1,0 +1,48 @@
+bootstrap_go_package {
+    name: "soong-cedarc-config",
+    pkgPath: "android/soong/cedarc-config",
+    deps: [
+        "blueprint",
+        "blueprint-pathtools",
+        "soong",
+        "soong-android",
+        "soong-cc",
+        "soong-genrule",
+    ],
+    srcs: [
+        "cedarc_config.go",
+    ],
+    pluginFor: ["soong_build"],
+}
+
+config_defaults {
+    name: "config_defaults",
+}
+
+cc_defaults {
+    name: "libcdc_config_defaults",
+    defaults: ["config_defaults"],
+
+    cflags: [
+        "-Wno-error=parentheses-equality",
+        "-Wno-error=shift-negative-value",
+        "-Wno-error=unused-variable",
+        "-Wno-error=unused-function",
+        "-Wno-error=unused-label",
+        "-Wno-error=unused-value",
+        "-Wno-error=sign-compare",
+        "-Wno-error=unused-parameter",
+        "-Wno-error=incompatible-pointer-types",
+        "-Wno-error=implicit-function-declaration",
+        "-Wno-error=format",
+        "-Wno-error=return-type",
+    ],
+
+    compile_multilib: "both",
+
+    //if add sanitize it will cause 0xFE shift 24 bit
+    //failed and receive signal 6.
+    //sanitize: {
+    //    misc_undefined: ["integer"],
+    //},
+}

@@ -1,0 +1,38 @@
+cc_library_shared {
+    name: "libsbm",
+    defaults: ["libcdc_config_defaults"],
+    vendor_available: true,
+
+    srcs: [
+        "sbmStream.c",
+        "sbmHwProcess.c",
+        "sbmFrameBase.c",
+        "sbmFrameH264.c",
+        "sbmFrameH265.c",
+	    "sbmFrameAvs2.c",
+    ],
+
+    include_dirs: [
+        "frameworks/av/media/libcedarc/include",
+        "frameworks/av/media/libcedarc/vdecoder/include",
+        "frameworks/av/media/libcedarc/base/include",
+    ],
+
+    local_include_dirs: [
+    ],
+
+    cflags: [
+        "-Wno-implicit-function-declaration",
+    ],
+
+    shared_libs: [
+        "libcutils",
+        "libutils",
+        "liblog",
+        "libVE",
+        "libcdc_base",
+        "libvideoengine",
+        "libMemAdapter",
+    ],
+
+}

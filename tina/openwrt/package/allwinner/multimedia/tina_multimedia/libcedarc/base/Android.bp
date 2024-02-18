@@ -1,0 +1,43 @@
+cc_library_shared {
+    name: "libcdc_base",
+
+    vendor_available: true,
+
+    defaults: ["libcdc_config_defaults"],
+
+    srcs: [
+        "CdcIonUtil.c",
+        "CdcMessageQueue.c",
+        "CdcSysinfo.c",
+        "CdcMalloc.c",
+        "CdcLog.c",
+        "cdcIniparser/cdcIniparser.c",
+        "cdcIniparser/cdcIniparserapi.c",
+        "cdcIniparser/cdcDictionary.c",
+        "CdcSinkInterface.c",
+        "filesink/CdcPicSink.c",
+        "filesink/CdcBSSink.c",
+        "filesink/SinkMd5.c",
+        "CdcTimeUtil.c",
+    ],
+
+    include_dirs: [
+        "frameworks/av/media/libcedarc/include/",
+    ],
+    local_include_dirs: [
+        "include",
+        "cdcIniparser",
+        "filesink/include",
+    ],
+
+    cflags: [
+        "-Wall",
+        "-Werror",
+    ],
+
+    shared_libs: [
+        "libcutils",
+        "liblog",
+    ],
+
+}

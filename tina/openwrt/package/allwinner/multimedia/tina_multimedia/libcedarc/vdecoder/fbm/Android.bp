@@ -1,0 +1,34 @@
+cc_library_shared {
+    name: "libfbm",
+    defaults: ["libcdc_config_defaults"],
+    vendor_available: true,
+
+    srcs: [
+        "fbm.c",
+    ],
+
+    include_dirs: [
+        "frameworks/av/media/libcedarc/include",
+        "frameworks/av/media/libcedarc/base/include",
+        "frameworks/av/media/libcedarc/vdecoder/include",
+    ],
+
+    local_include_dirs: [
+    ],
+
+    cflags: [
+        "-Wno-implicit-function-declaration",
+    ],
+
+    shared_libs: [
+        "libcutils",
+        "libutils",
+        "liblog",
+        "libui",
+        "libdl",
+        "libcdc_base",
+        "libMemAdapter",
+        "libvideoengine",
+    ],
+
+}

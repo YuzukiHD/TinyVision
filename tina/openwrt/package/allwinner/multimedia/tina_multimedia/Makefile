@@ -15,10 +15,8 @@ TINA_CHIP_TYPE = G102
 KERNEL_VERSION = CONF_KERNEL_VERSION_3_10
 CEDARC_COMPILE_TOOL_CHAIN = arm-openwrt-linux
 CEDARX_COMPILE_TOOL_CHAIN = arm-openwrt-linux
-
-CEDARC_LIBS_PATH = libcedarc/library/toolchain-sunxi-aarch64-glibc-gcc-830
-CEDARX_LIBS_PATH = libcedarx/external/lib32/openwrt-aarch64-glibc-gcc-830
-
+CEDARC_LIBS_PATH = libcedarc/library/toolchain-sunxi-arm-musl
+CEDARX_LIBS_PATH = libcedarx/external/lib32/openwrt-arm-musl
 KERNEL_VERSION_ION = CONF_KERNEL_CMA
 COMPILE_CEDARX_LEVEL =
 CONF_ONLY_DISABLE_AUDIO =
@@ -27,11 +25,20 @@ CEDARC_LD_FLAGS = -ldl
 CEDARC_LD_FLAGS += $(if $(CONFIG_USE_GLIBC),-lpthread)
 CEDARX_LD_FLAGS = -ldl -lcrypto -lz
 CEDARX_LD_FLAGS += $(if $(CONFIG_USE_GLIBC),-lpthread)
-CEDARX_EXTRA_CXXFLAGS = 
+CEDARX_EXTRA_CXXFLAGS =
 CEDARC_EXTRA_CXXFLAGS =
 CEDARX_CONFIGURE_ARGS =
 
 -include machinfo/$(LICHEE_IC)/config.mk
+
+ifeq ($(LICHEE_IC),$(filter $(LICHEE_IC),v853 v851s v851se))
+    LIBCEDARC_DIR = mpp_libcedarc
+    NEW_ENC_API = 1
+else
+    LIBCEDARC_DIR = libcedarc
+    NEW_ENC_API = 0
+endif
+
 AUDIO_DEC_LIBS := AAC \
 			 ALAC \
 			 AMR \
@@ -60,7 +67,9 @@ VIDEO_DEC_LIBS := MPEG2 \
 			 MPEG4VP6 \
 			 VP8 \
 			 WMV3 \
-			 VP9HW
+			 VP9HW \
+			 VP6SOFT \
+			 WMV12SOFT
 
 MULTIMEDIA_LIBS := SUPPORT_AUDIO_DEC_LIBS \
 				   SUPPORT_VIDEO_DEC_LIBS \
@@ -86,13 +95,19 @@ SUPPORT_AUDIO_DEC_LIBS = $(foreach c,$(AUDIO_DEC_LIBS), \
 SUPPORT_VIDEO_DEC_LIBS = $(foreach c,$(VIDEO_DEC_LIBS), \
 				$(if $(CONFIG_CEDAR_VDECODER_$(c)),libaw$(shell echo $(c) | tr '[A-Z]' '[a-z]').so))
 
+ifneq ($(LICHEE_IC),$(filter $(LICHEE_IC),v853 v851s v851se))
 SUPPORT_VIDEO_DEC_LIBS += $(if $(CONFIG_CEDAR_VDECODER_MJPEG),libawmjpegplus.so)
+endif
 
 SUPPORT_VIDEO_DEC_LIBS += $(if $(CONFIG_CEDAR_VDECODER_VP9),libawvp9Hw.so)
 
 SUPPORT_SUBTITLE_DEC_LIBS := $(if $(CONFIG_CEDAR_SUBTITLE_SUPPORT),libsubdecoder.so)
 
+ifeq ($(LICHEE_IC),$(filter $(LICHEE_IC),v853 v851s v851se))
+SUPPORT_VDEC_COMMON_LIBS := $(if $(CONFIG_TPLAYER),libcdc_base.so libMemAdapter.so libsbm.so libvdecoder.so libVE.so libvideoengine.so libvenc_codec.so)
+else
 SUPPORT_VDEC_COMMON_LIBS := $(if $(CONFIG_TPLAYER),libcdc_base.so libMemAdapter.so libaftertreatment.so libfbm.so libsbm.so libscaledown.so libvdecoder.so libVE.so libvideoengine.so)
+endif
 
 SUPPORT_OMX_LIBS := $(if $(CONFIG_OMX),libOmxCore.so libOmxVdec.so libOmxVenc.so)
 
@@ -105,8 +120,11 @@ SUPPORT_TPLAYER_STREAM := $(if $(CONFIG_CEDAR_STREAM_ALL),libcdx_stream.so)
 SUPPORT_TPLAYER_COMMON := $(if $(CONFIG_TPLAYER),libcdx_base.so libcdx_common.so libcdx_playback.so libxplayer.so libtplayer.so)
 
 ## TRECORDER related libraries
+ifeq ($(LICHEE_IC),$(filter $(LICHEE_IC),v853 v851s v851se))
+SUPPORT_VIDEO_ENC_LIBS := $(if $(CONFIG_CEDAR_VIDEO_ENCODER_ALL),libvencoder.so libvenc_base.so)
+else
 SUPPORT_VIDEO_ENC_LIBS := $(if $(CONFIG_CEDAR_VIDEO_ENCODER_ALL),libvencoder.so libvenc_base.so libvenc_common.so libvenc_h264.so libvenc_h265.so libvenc_jpeg.so)
-
+endif
 SUPPORT_AUDIO_ENC_LIBS := $(if $(CONFIG_CEDAR_AENCODER_ALL),libaencoder.so)
 
 SUPPORT_VENC_COMMON_LIBS := $(if $(CONFIG_TRECORDER), libcdc_base.so libMemAdapter.so libVE.so)
@@ -176,12 +194,12 @@ endif
 #config the arm libs path
 ifeq ($(TARGET_CPU_VARIANT),cortex-a7)
     ifeq ($(CONFIG_LIBC),"musl")
-        CEDARC_LIBS_PATH = libcedarc/library/toolchain-sunxi-arm-musl
+        CEDARC_LIBS_PATH = $(LIBCEDARC_DIR)/library/toolchain-sunxi-arm-musl
         CEDARX_LIBS_PATH = libcedarx/external/lib32/openwrt-arm-musl
         COMPILE_CEDARX_LEVEL = -O0
     endif
     ifeq ($(CONFIG_LIBC),"glibc")
-        CEDARC_LIBS_PATH = libcedarc/library/toolchain-sunxi-arm-glibc
+        CEDARC_LIBS_PATH = $(LIBCEDARC_DIR)/library/toolchain-sunxi-arm-glibc
         CEDARX_LIBS_PATH = libcedarx/external/lib32/openwrt-arm-glibc
     endif
 endif
@@ -190,33 +208,33 @@ endif
 ifeq ($(TARGET_CPU_VARIANT),cortex-a53)
     ifeq ($(CONFIG_COMPLILE_KERNEL64_USER32),y)
         CEDARC_COMPILE_TOOL_CHAIN = arm-openwrt-linux
-	CEDARX_COMPILE_TOOL_CHAIN = arm-openwrt-linux
+        CEDARX_COMPILE_TOOL_CHAIN = arm-openwrt-linux
         ifeq ($(CONFIG_LIBC),"musl")
-            CEDARC_LIBS_PATH = libcedarc/library/toolchain-sunxi-arm-musl
+            CEDARC_LIBS_PATH = $(LIBCEDARC_DIR)/library/toolchain-sunxi-arm-musl
             CEDARX_LIBS_PATH = libcedarx/external/lib32/openwrt-arm-musl
             COMPILE_CEDARX_LEVEL = -O0
         endif
         ifeq ($(CONFIG_LIBC),"glibc")
-            CEDARC_LIBS_PATH = libcedarc/library/toolchain-sunxi-arm-glibc
+            CEDARC_LIBS_PATH = $(LIBCEDARC_DIR)/library/toolchain-sunxi-arm-glibc
             CEDARX_LIBS_PATH = libcedarx/external/lib32/openwrt-arm-glibc
         endif
     else
         ifeq ($(CONFIG_LIBC),"musl")
-            CEDARC_LIBS_PATH = libcedarc/library/toolchain-sunxi-aarch64-musl
+            CEDARC_LIBS_PATH = $(LIBCEDARC_DIR)/library/toolchain-sunxi-aarch64-musl
             CEDARX_LIBS_PATH = libcedarx/external/lib32/openwrt-aarch64-musl
             ifeq ($(CONFIG_EXT_TOOLCHAIN_GCC_8_3_0),y)
-                CEDARC_LIBS_PATH = libcedarc/library/toolchain-sunxi-aarch64-musl-gcc-830
+                CEDARC_LIBS_PATH = $(LIBCEDARC_DIR)/library/toolchain-sunxi-aarch64-musl-gcc-830
                 CEDARX_LIBS_PATH = libcedarx/external/lib32/openwrt-aarch64-musl-gcc-830
             endif
             COMPILE_CEDARX_LEVEL = -O0
         endif
         ifeq ($(CONFIG_LIBC),"glibc")
-             CEDARC_LIBS_PATH = libcedarc/library/toolchain-sunxi-aarch64-glibc
-             CEDARX_LIBS_PATH = libcedarx/external/lib32/openwrt-aarch64-glibc
-             ifeq ($(CONFIG_EXT_TOOLCHAIN_GCC_8_3_0),y)
-             CEDARC_LIBS_PATH = libcedarc/library/toolchain-sunxi-aarch64-glibc-gcc-830
-             CEDARX_LIBS_PATH = libcedarx/external/lib32/openwrt-aarch64-glibc-gcc-830
-     endif
+            CEDARC_LIBS_PATH = $(LIBCEDARC_DIR)/library/toolchain-sunxi-aarch64-glibc
+            CEDARX_LIBS_PATH = libcedarx/external/lib32/openwrt-aarch64-glibc
+            ifeq ($(CONFIG_EXT_TOOLCHAIN_GCC_8_3_0),y)
+                CEDARC_LIBS_PATH = $(LIBCEDARC_DIR)/library/toolchain-sunxi-aarch64-glibc-gcc-830
+                CEDARX_LIBS_PATH = libcedarx/external/lib32/openwrt-aarch64-glibc-gcc-830
+            endif
         endif
     endif
 endif
@@ -224,12 +242,12 @@ endif
 #config the arm9 libs path
 ifeq ($(TARGET_CPU_VARIANT),arm926ej-s)
     ifeq ($(CONFIG_LIBC),"musl")
-	CEDARC_LIBS_PATH = libcedarc/library/toolchain-sunxi-arm9-musl
+	CEDARC_LIBS_PATH = $(LIBCEDARC_DIR)/library/toolchain-sunxi-arm9-musl
         CEDARX_LIBS_PATH = libcedarx/external/lib32/openwrt-arm926-musl
         COMPILE_CEDARX_LEVEL = -O0
     endif
     ifeq ($(CONFIG_LIBC),"glibc")
-        CEDARC_LIBS_PATH = libcedarc/library/toolchain-sunxi-arm9-glibc
+        CEDARC_LIBS_PATH = $(LIBCEDARC_DIR)/library/toolchain-sunxi-arm9-glibc
         CEDARX_LIBS_PATH = libcedarx/external/lib32/openwrt-arm926-glibc
     endif
 endif
@@ -237,9 +255,14 @@ endif
 #config the riscv libs path
 ifeq ($(TARGET_CPU_VARIANT),c910)
     ifeq ($(CONFIG_LIBC),"glibc")
-        CEDARC_LIBS_PATH = libcedarc/library/toolchain-sunxi-riscv-glibc
+        CEDARC_LIBS_PATH = $(LIBCEDARC_DIR)/library/toolchain-sunxi-riscv-glibc
         CEDARX_LIBS_PATH = libcedarx/external/lib64/openwrt-riscv-glibc
     endif
+endif
+
+ifeq ($(LICHEE_IC),$(filter $(LICHEE_IC),v853 v851s v851se))
+    CEDARX_EXTRA_CXXFLAGS = -DCONF_H264_4K
+    TINA_CHIP_TYPE = v853
 endif
 
 ifeq ($(CONFIG_CEDAR_FILE_STREAM),y)
@@ -264,6 +287,12 @@ ifeq ($(CONFIG_CEDAR_RTSP_STREAM),y)
 	CONFIG_STREAM += --enable-rtsp-stream=yes
 else
 	CONFIG_STREAM += --enable-rtsp-stream=no
+endif
+
+ifeq ($(CONFIG_CEDAR_MP3_MUXER),y)
+	CONFIG_MUXER += --enable-mp3-muxer=yes
+else
+	CONFIG_MUXER += --enable-mp3-muxer=no
 endif
 
 ifeq ($(CONFIG_CEDAR_AAC_MUXER),y)
@@ -309,6 +338,7 @@ define Package/$(PKG_NAME)
 	   +!ONLY_ENABLE_AUDIO:libuapi \
 	   +zlib \
 	   +alsa-lib \
+	   +libstdcpp \
 	   +CEDAR_HTTPS_STREAM:libopenssl \
 	   +CEDAR_PARSER_HLS:libopenssl \
 	   +CEDAR_RTSP_STREAM:live \
@@ -333,7 +363,7 @@ define Build/Prepare
 	mkdir -p $(PKG_BUILD_DIR)
 	$(CP) ./tina_multimedia_version.h $(PKG_BUILD_DIR)/
 ifneq ($(CONFIG_ONLY_ENABLE_AUDIO),y)
-	$(CP) -r ./libcedarc $(PKG_BUILD_DIR)/
+	$(CP) -r ./$(LIBCEDARC_DIR) $(PKG_BUILD_DIR)/$(LIBCEDARC_DIR)
 endif
 	$(CP) -r ./libcedarx $(PKG_BUILD_DIR)/
 	$(CP) -r ./tplayer $(PKG_BUILD_DIR)/tplayer
@@ -347,7 +377,7 @@ endif
 endef
 
 define Build/Configure
-	@echo "********target_board_platform = $MEDIA_TARGET_BOARD_PLATFORM***********"
+	@echo "********target_board_platform = $(MEDIA_TARGET_BOARD_PLATFORM)***********"
 	@echo "********chip type = $(TINA_CHIP_TYPE)*********"
 	@echo "********kernel version = $(KERNEL_PATCHVER)*********"
 	@echo "********toolchain = $(CONFIG_ARCH)_$(CONFIG_LIBC)*********"
@@ -357,14 +387,14 @@ define Build/Configure
 	@echo "********muxer: $(CONFIG_MUXER)*********"
 	@echo "********only_enable_audio: $(CONFIG_ONLY_ENABLE_AUDIO)*********"
 ifneq ($(CONFIG_ONLY_ENABLE_AUDIO),y)
-	cd $(PKG_BUILD_DIR)/libcedarc; \
+	cd $(PKG_BUILD_DIR)/$(LIBCEDARC_DIR); \
 	./bootstrap; \
-	./configure --prefix=$(PKG_BUILD_DIR)/libcedarc/install --host=$(CEDARC_COMPILE_TOOL_CHAIN) CFLAGS="-D__ENABLE_ZLIB__ -D$(KERNEL_VERSION) -D$(KERNEL_VERSION_ION)" CPPFLAGS="-D__ENABLE_ZLIB__ -D$(KERNEL_VERSION) -D$(KERNEL_VERSION_ION)" LDFLAGS="$(CEDARC_LD_FLAGS) -L$(PKG_BUILD_DIR)/$(CEDARC_LIBS_PATH)  -L$(PKG_BUILD_DIR)/libcedarc/install/lib"
+	./configure --prefix=$(PKG_BUILD_DIR)/$(LIBCEDARC_DIR)/install --host=$(CEDARC_COMPILE_TOOL_CHAIN) CFLAGS="-D__ENABLE_ZLIB__ -D$(KERNEL_VERSION) -D$(KERNEL_VERSION_ION)" CPPFLAGS="-D__ENABLE_ZLIB__ -D$(KERNEL_VERSION) -D$(KERNEL_VERSION_ION)" LDFLAGS="$(CEDARC_LD_FLAGS) -L$(PKG_BUILD_DIR)/$(CEDARC_LIBS_PATH)  -L$(PKG_BUILD_DIR)/$(LIBCEDARC_DIR)/install/lib"
 endif
 ifneq ($(CONFIG_ONLY_ENABLE_AUDIO),y)
 	cd $(PKG_BUILD_DIR)/libcedarx; \
 	./bootstrap; \
-	./configure --prefix=$(PKG_BUILD_DIR)/libcedarx/install --host=$(CEDARX_COMPILE_TOOL_CHAIN)  $(CONFIG_PLAYREADY) $(CONFIG_PARSER) $(CONFIG_STREAM) $(CONFIG_MUXER)  CFLAGS="-D__ENABLE_ZLIB__ -D$(TINA_CHIP_TYPE) -Wno-error=format" CPPFLAGS="-D__ENABLE_ZLIB__  -D$(TINA_CHIP_TYPE) -Wno-error=format" LDFLAGS="$(CEDARX_LD_FLAGS) -L$(PKG_BUILD_DIR)/$(CEDARX_LIBS_PATH)  -L$(PKG_BUILD_DIR)/libcedarx/install/lib -L$(PKG_BUILD_DIR)/libcedarc/install/lib -L$(PKG_BUILD_DIR)/$(CEDARC_LIBS_PATH)" $(CEDARX_CONFIGURE_ARGS)
+	./configure --prefix=$(PKG_BUILD_DIR)/libcedarx/install --host=$(CEDARX_COMPILE_TOOL_CHAIN)  $(CONFIG_PLAYREADY) $(CONFIG_PARSER) $(CONFIG_STREAM) $(CONFIG_MUXER)  CFLAGS="-D__ENABLE_ZLIB__ -D$(TINA_CHIP_TYPE) -Wno-error=format" CPPFLAGS="-D__ENABLE_ZLIB__  -D$(TINA_CHIP_TYPE) -Wno-error=format" LDFLAGS="$(CEDARX_LD_FLAGS) -L$(PKG_BUILD_DIR)/$(CEDARX_LIBS_PATH)  -L$(PKG_BUILD_DIR)/libcedarx/install/lib -L$(PKG_BUILD_DIR)/$(LIBCEDARC_DIR)/install/lib -L$(PKG_BUILD_DIR)/$(CEDARC_LIBS_PATH)" $(CEDARX_CONFIGURE_ARGS)
 else
 	cd $(PKG_BUILD_DIR)/libcedarx; \
 	./bootstrap; \
@@ -376,14 +406,14 @@ endef
 define Build/Compile
 
 ifneq ($(CONFIG_ONLY_ENABLE_AUDIO),y)
-	$(MAKE) -C $(PKG_BUILD_DIR)/libcedarc \
+	$(MAKE) -C $(PKG_BUILD_DIR)/$(LIBCEDARC_DIR) \
 		ARCH="$(TARGET_ARCH)" \
 		AR="$(TARGET_AR)" \
 		CC="$(TARGET_CC)" \
 		CPP="$(TARGET_CXX)" \
 		CFLAGS="$(TARGET_CFLAGS) -D__ENABLE_ZLIB__ -D$(KERNEL_VERSION) -D$(KERNEL_VERSION_ION) $(CEDARC_EXTRA_CXXFLAGS)" \
 		CPPFLAGS="$(TARGET_CPPFLAGS) -D__ENABLE_ZLIB__ -D$(KERNEL_VERSION) -D$(KERNEL_VERSION_ION) $(CEDARC_EXTRA_CXXFLAGS)" \
-		LDFLAGS="$(TARGET_LDFLAGS) $(CEDARC_LD_FLAGS) -L$(PKG_BUILD_DIR)/$(CEDARC_LIBS_PATH) -L$(PKG_BUILD_DIR)/libcedarc/install/lib" \
+		LDFLAGS="$(TARGET_LDFLAGS) $(CEDARC_LD_FLAGS) -L$(PKG_BUILD_DIR)/$(CEDARC_LIBS_PATH) -L$(PKG_BUILD_DIR)/$(LIBCEDARC_DIR)/install/lib" \
 		install
 endif
 
@@ -393,9 +423,9 @@ endif
 		AR="$(TARGET_AR)" \
 		CC="$(TARGET_CC)" \
 		CPP="$(TARGET_CXX)" \
-		CFLAGS="$(TARGET_CFLAGS) -D__ENABLE_ZLIB__ -D$(TINA_CHIP_TYPE) $(CONF_ONLY_DISABLE_AUDIO) -D$(KERNEL_VERSION_ION) -Wno-error=format  $(COMPILE_CEDARX_LEVEL) $(CEDARX_EXTRA_CXXFLAGS)" \
+		CFLAGS="$(TARGET_CFLAGS) -D__ENABLE_ZLIB__ -D$(TINA_CHIP_TYPE) $(CONF_ONLY_DISABLE_AUDIO) -D$(KERNEL_VERSION_ION) -Wno-error=format  $(COMPILE_CEDARX_LEVEL) $(CEDARX_EXTRA_CXXFLAGS) -DMPP_ENC_API=$(NEW_ENC_API)" \
 		CPPFLAGS="$(TARGET_CPPFLAGS) -D__ENABLE_ZLIB__  -D$(TINA_CHIP_TYPE) -D$(KERNEL_VERSION_ION) -Wno-error=format $(COMPILE_CEDARX_LEVEL) $(CEDARX_EXTRA_CXXFLAGS)" \
-		LDFLAGS="$(TARGET_LDFLAGS) $(CEDARX_LD_FLAGS) -L$(PKG_BUILD_DIR)/$(CEDARX_LIBS_PATH)  -L$(PKG_BUILD_DIR)/libcedarx/install/lib -L$(PKG_BUILD_DIR)/libcedarc/install/lib -L$(PKG_BUILD_DIR)/$(CEDARC_LIBS_PATH)" \
+		LDFLAGS="$(TARGET_LDFLAGS) $(CEDARX_LD_FLAGS) -L$(PKG_BUILD_DIR)/$(CEDARX_LIBS_PATH)  -L$(PKG_BUILD_DIR)/libcedarx/install/lib -L$(PKG_BUILD_DIR)/$(LIBCEDARC_DIR)/install/lib -L$(PKG_BUILD_DIR)/$(CEDARC_LIBS_PATH)" \
 		BOARD_PLATFORM="$(MEDIA_TARGET_BOARD_PLATFORM)" \
 		install
 else
@@ -422,6 +452,7 @@ endif
 		CPU_TYPE="$(TARGET_CPU_VARIANT)" \
 		C_LIB_TYPE="$(CONFIG_LIBC)" \
 		KERNEL64_USER32="$(CONFIG_COMPLILE_KERNEL64_USER32)" \
+		TPLAYER_LIBCEDARC_DIR=$(LIBCEDARC_DIR) \
 		ONLY_ENABLE_AUDIO="$(CONFIG_ONLY_ENABLE_AUDIO)"
 
 ifneq ($(CONFIG_ONLY_ENABLE_AUDIO),y)
@@ -430,11 +461,12 @@ ifneq ($(CONFIG_ONLY_ENABLE_AUDIO),y)
 		AR="$(TARGET_AR)" \
 		CC="$(TARGET_CC)" \
 		CPP="$(TARGET_CXX)" \
-		CFLAGS="$(TARGET_CFLAGS)" \
+		CFLAGS="$(TARGET_CFLAGS) -DMPP_ENC_API=$(NEW_ENC_API)" \
 		LDFLAGS="$(TARGET_LDFLAGS)"	\
 		BOARD_PLATFORM="$(MEDIA_TARGET_BOARD_PLATFORM)" \
 		USE_VIN_ISP="$(CONFIG_TR_YES_USE_VIN_ISP)" \
 		DEFAULT_SOUNDCARD=$(CONFIG_DEFAULT_SOUNDCARD) \
+		TRECORDER_LIBCEDARC_DIR=$(LIBCEDARC_DIR) \
 		DEFAULT_DEVICE=$(CONFIG_DEFAULT_DEVICE)
 
 	$(MAKE) -C $(PKG_BUILD_DIR)/jpegdecode \
@@ -446,6 +478,7 @@ ifneq ($(CONFIG_ONLY_ENABLE_AUDIO),y)
 		LDFLAGS="$(TARGET_LDFLAGS)" \
 		KERNEL64_USER32="$(CONFIG_COMPLILE_KERNEL64_USER32)" \
 		CPU_TYPE="$(TARGET_CPU_VARIANT)" \
+		JPEG_LIBCEDARC_DIR=$(LIBCEDARC_DIR) \
 		C_LIB_TYPE="$(CONFIG_LIBC)"
 
 	$(MAKE) -C $(PKG_BUILD_DIR)/tmetadataretriever \
@@ -457,6 +490,7 @@ ifneq ($(CONFIG_ONLY_ENABLE_AUDIO),y)
 		LDFLAGS="$(TARGET_LDFLAGS)" \
 		KERNEL64_USER32="$(CONFIG_COMPLILE_KERNEL64_USER32)" \
 		CPU_TYPE="$(TARGET_CPU_VARIANT)" \
+		TMETADATA_LIBCEDARC_DIR=$(LIBCEDARC_DIR) \
 		C_LIB_TYPE="$(CONFIG_LIBC)"
 endif
 endef
@@ -469,7 +503,7 @@ define Build/InstallDev
 	## copy libraries
 ifneq ($(CONFIG_ONLY_ENABLE_AUDIO),y)
 	$(CP) $(PKG_BUILD_DIR)/$(CEDARC_LIBS_PATH)/*.so							$(PKG_INSTALL_DIR)/usr/lib/
-	$(CP) $(PKG_BUILD_DIR)/libcedarc/install/lib/*.so								$(PKG_INSTALL_DIR)/usr/lib/
+	$(CP) $(PKG_BUILD_DIR)/$(LIBCEDARC_DIR)/install/lib/*.so								$(PKG_INSTALL_DIR)/usr/lib/
 endif
 	$(CP) $(PKG_BUILD_DIR)/$(CEDARX_LIBS_PATH)/libaw*.so $(PKG_INSTALL_DIR)/usr/lib/
 	$(CP) $(PKG_BUILD_DIR)/$(CEDARX_LIBS_PATH)/libadecoder.so $(PKG_INSTALL_DIR)/usr/lib/
@@ -490,10 +524,11 @@ endif
 	## copy header files.
 ifneq ($(CONFIG_ONLY_ENABLE_AUDIO),y)
 	## cdc_log.h
-	$(CP) $(PKG_BUILD_DIR)/libcedarc/base/include/cdc_log.h								$(PKG_INSTALL_DIR)/usr/include/allwinner/
+	$(CP) $(PKG_BUILD_DIR)/$(LIBCEDARC_DIR)/base/include/cdc_log.h								$(PKG_INSTALL_DIR)/usr/include/allwinner/
 
-	## libcedarc vdecoder/vencoder
-	-cp -r $(PKG_BUILD_DIR)/libcedarc/include											$(PKG_INSTALL_DIR)/usr/include/allwinner/
+	## $(LIBCEDARC_DIR) vdecoder/vencoder
+	-cp -r $(PKG_BUILD_DIR)/$(LIBCEDARC_DIR)/include											$(PKG_INSTALL_DIR)/usr/include/allwinner/
+	-cp -r $(PKG_BUILD_DIR)/$(LIBCEDARC_DIR)/vencoder/base/include										$(PKG_INSTALL_DIR)/usr/include/allwinner/
 endif
 	##cdx_config.h
 	-cp -r $(PKG_BUILD_DIR)/libcedarx/cdx_config.h										$(PKG_INSTALL_DIR)/usr/include/allwinner/
@@ -543,7 +578,7 @@ define Package/$(PKG_NAME)/install
 	mkdir -p $(PKG_BUILD_DIR)/all_libs
 ifneq ($(CONFIG_ONLY_ENABLE_AUDIO),y)
 	$(CP) $(PKG_BUILD_DIR)/$(CEDARC_LIBS_PATH)/*.so $(PKG_BUILD_DIR)/all_libs
-	$(CP) $(PKG_BUILD_DIR)/libcedarc/install/lib/*.so $(PKG_BUILD_DIR)/all_libs
+	$(CP) $(PKG_BUILD_DIR)/$(LIBCEDARC_DIR)/install/lib/*.so $(PKG_BUILD_DIR)/all_libs
 endif
 	$(CP) $(PKG_BUILD_DIR)/$(CEDARX_LIBS_PATH)/libaw*.so $(PKG_BUILD_DIR)/all_libs
 	$(CP) $(PKG_BUILD_DIR)/$(CEDARX_LIBS_PATH)/libadecoder.so $(PKG_BUILD_DIR)/all_libs
@@ -576,7 +611,7 @@ endif
 ## deal with cedarx memory config
 	$(CP) $(PKG_BUILD_DIR)/$(LICHEE_IC)_linux_cedarx.conf $(PKG_BUILD_DIR)/all_libs/cedarx.conf
 ifneq ($(CONFIG_ONLY_ENABLE_AUDIO),y)
-	$(CP) $(PKG_BUILD_DIR)/libcedarc/config/cedarc.conf $(PKG_BUILD_DIR)/all_libs/cedarc.conf
+	$(CP) $(PKG_BUILD_DIR)/$(LIBCEDARC_DIR)/config/cedarc.conf $(PKG_BUILD_DIR)/all_libs/cedarc.conf
 endif
 ifeq ($(CONFIG_CUSTOM_FBM_NUM_ENABLE),y)
 	./set_cedar_conf.sh pic_4list_num $(CONFIG_FBM_DISPLAY_HOLDING) $(PKG_BUILD_DIR)/all_libs/cedarx.conf $(CONFIG_CUSTOM_FBM_NUM_ENABLE)

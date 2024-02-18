@@ -1,0 +1,25 @@
+cc_library_shared {
+    name: "libMemAdapter",
+    defaults: ["libcdc_config_defaults"],
+    vendor_available: true,
+    srcs: [
+        "memoryAdapter.c",
+        "ionMemory/ionAlloc.c",
+        "secureMemory/secureAlloc.c",
+    ],
+
+    include_dirs: [
+        "frameworks/av/media/libcedarc/include",
+        "frameworks/av/media/libcedarc/base/include",
+        "hardware/aw/optee_client/public"
+    ],
+
+    shared_libs: [
+        "libcutils",
+        "libutils",
+        "liblog",
+        "libVE",
+        "libcdc_base",
+        "libteec",
+    ],
+}

@@ -1,0 +1,126 @@
+ionMemory/libMemAdapter_la-ionAlloc.lo: ionMemory/ionAlloc.c \
+ /home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/stdc-predef.h \
+ /home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/string.h \
+ /home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/features.h \
+ /home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/sys/glibc-types.h \
+ /home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/sys/cdefs.h \
+ /home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/bits/alltypes.h \
+ /home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/strings.h \
+ /home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/pthread.h \
+ /home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/sched.h \
+ /home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/time.h \
+ /home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/stdio.h \
+ /home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/unistd.h \
+ /home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/bits/posix.h \
+ ../base/include/cdc_log.h ../include/cdc_config.h \
+ ../base/include/CdcIonUtil.h \
+ /home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/stddef.h \
+ /home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/stdint.h \
+ /home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/bits/stdint.h \
+ ../base/include/aw_ion.h \
+ /home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/sys/types.h \
+ /home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/endian.h \
+ /home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/sys/select.h \
+ /home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/sys/sysmacros.h \
+ ../base/include/cdc_ion_5.4.h \
+ /home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/linux/types.h \
+ /home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/asm/types.h \
+ /home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/asm-generic/types.h \
+ /home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/asm-generic/int-ll64.h \
+ /home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/asm/bitsperlong.h \
+ /home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/asm-generic/bitsperlong.h \
+ /home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/linux/posix_types.h \
+ /home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/linux/stddef.h \
+ /home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/asm/posix_types.h \
+ /home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/asm-generic/posix_types.h \
+ ionMemory/ionAllocList.h ionMemory/ionAllocEntry.h \
+ ../include/sc_interface.h \
+ /home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/assert.h \
+ ../include/veAdapter.h ../include/veInterface.h ../include/veInterface.h \
+ ../base/include/CdcMalloc.h
+
+/home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/stdc-predef.h:
+
+/home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/string.h:
+
+/home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/features.h:
+
+/home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/sys/glibc-types.h:
+
+/home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/sys/cdefs.h:
+
+/home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/bits/alltypes.h:
+
+/home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/strings.h:
+
+/home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/pthread.h:
+
+/home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/sched.h:
+
+/home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/time.h:
+
+/home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/stdio.h:
+
+/home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/unistd.h:
+
+/home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/bits/posix.h:
+
+../base/include/cdc_log.h:
+
+../include/cdc_config.h:
+
+../base/include/CdcIonUtil.h:
+
+/home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/stddef.h:
+
+/home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/stdint.h:
+
+/home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/bits/stdint.h:
+
+../base/include/aw_ion.h:
+
+/home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/sys/types.h:
+
+/home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/endian.h:
+
+/home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/sys/select.h:
+
+/home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/sys/sysmacros.h:
+
+../base/include/cdc_ion_5.4.h:
+
+/home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/linux/types.h:
+
+/home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/asm/types.h:
+
+/home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/asm-generic/types.h:
+
+/home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/asm-generic/int-ll64.h:
+
+/home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/asm/bitsperlong.h:
+
+/home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/asm-generic/bitsperlong.h:
+
+/home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/linux/posix_types.h:
+
+/home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/linux/stddef.h:
+
+/home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/asm/posix_types.h:
+
+/home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/asm-generic/posix_types.h:
+
+ionMemory/ionAllocList.h:
+
+ionMemory/ionAllocEntry.h:
+
+../include/sc_interface.h:
+
+/home/jenkins8080/gvipc-al3/tools/linux_toolchains/tina_toolchain/arm/toolchain-sunxi-arm9-musl/toolchain/include/assert.h:
+
+../include/veAdapter.h:
+
+../include/veInterface.h:
+
+../include/veInterface.h:
+
+../base/include/CdcMalloc.h:

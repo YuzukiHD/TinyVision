@@ -1,0 +1,46 @@
+cc_binary {
+    name: "vdecoderDemo",
+    defaults: ["config_defaults"],
+    vendor_available: true,
+
+    srcs: [
+        "rawStreamParser.c",
+        "vdecoderDemo.c"
+    ],
+
+    include_dirs: [
+        "frameworks/av/media/libcedarc",
+        "frameworks/av/media/libcedarc/include",
+        "frameworks/av/media/libcedarc/base/include",
+    ],
+
+    cflags: [
+        "-Wno-error=parentheses-equality",
+        "-Wno-error=shift-negative-value",
+        "-Wno-error=unused-variable",
+        "-Wno-error=unused-function",
+        "-Wno-error=unused-label",
+        "-Wno-error=unused-value",
+        "-Wno-error=sign-compare",
+        "-Wno-error=unused-parameter",
+        "-Wno-error=incompatible-pointer-types",
+        "-Wno-error=implicit-function-declaration",
+        "-Wno-error=format",
+        "-Wno-error=return-type",
+        "-Wno-error=uninitialized",
+
+    ],
+
+    shared_libs: [
+        "libcutils",
+        "libutils",
+        "liblog",
+        "libVE",
+        "libMemAdapter",
+        "libvdecoder",
+        "libcdc_base",
+        "libvideoengine",
+    ],
+
+
+}
