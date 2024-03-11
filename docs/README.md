@@ -1403,7 +1403,7 @@ OpenCV  --->
 
 ![image-20240122202827423](assets/post/README/image-20240122202827423.png)
 
-然后编译固件即可，请注意 Python3 编译非常慢，需要耐心等待下。
+然后编译固件即可，请注意 Python3 编译非常慢，而且需要编译机有16G以上内存，需要耐心等待下。
 
 编写一个 Python 脚本，执行上面的相同操作
 
@@ -5012,6 +5012,50 @@ FINSH_FUNCTION_EXPORT_ALIAS(hello_cmd, hello, Show Hello World)
 
 ![image-20230215142007978](assets/post/README/image-20230215142007978.png)
 
+# USB OTG 切换模式
+## Linux 4.9 内核
+切换到 Device 模式
+```
+cat /sys/devices/platform/soc/usbc0/usb_device
+```
+切换到 Host 模式
+```
+cat /sys/devices/platform/soc/usbc0/usb_host
+```
+
+## Linux 5.15 以上内核
+
+切换到 Device 模式
+```
+cat /sys/devices/platform/soc@3000000/soc@3000000:usbc0@0/usb_device
+```
+切换到 Host 模式
+```
+cat /sys/devices/platform/soc@3000000/soc@3000000:usbc0@0/usb_host
+```
+
+## 设备树配置
+
+```
+&usbc0 {
+	device_type = "usbc0";
+	usb_port_type = <0x0>;
+	usb_detect_type = <0x0>;
+	usb_detect_mode = <0x0>;
+	usb_id_gpio;
+	usb_det_vbus_gpio;
+	/* det_vbus_supply = <&usb_power_supply>; */
+	usb_regulator_io = "nocare";
+	usb_wakeup_suspend = <0>;
+	usb_serial_unique = <0>;
+	usb_serial_number = "20080411";
+	status = "okay";
+};
+```
+
+- `usb_port_type` 配置为0是Device模式，1是Host模式 2是OTG模式。
+- `usb_id_gpio` 配置对应的USB ID引脚（TinyVision 无ID引脚）。
+- `usb_det_vbus_gpio`,（TinyVision 无检测引脚） 需要根据实际情况进行配置:
 
 
 # 内核驱动支持情况
