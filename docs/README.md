@@ -66,7 +66,7 @@ https://item.taobao.com/item.htm?id=761016078439&
 
 https://item.taobao.com/item.htm?id=761016078439&
 
-
+![img](assets/post/README/O1CN01xsx2Wu1lZZ6MjuB4f_!!41044833.jpg_Q75.jpg_.webp)
 
 ### WIFI模块
 
@@ -76,10 +76,14 @@ https://item.taobao.com/item.htm?id=761016078439&
 
 * GC2053摄像头: https://item.taobao.com/item.htm?&id=736796459015
 
+![image-20240320183430101](assets/post/README/image-20240320183430101.png)
+
 
 ### 百兆RJ45头
 
 * RJ45 百兆线（选择4P转水晶头 50CM）: https://item.taobao.com/item.htm?&id=626832235333
+
+![image-20240320183442520](assets/post/README/image-20240320183442520.png)
 
 # 快速上手
 
