@@ -102,7 +102,7 @@ TinyVision V851se支持多种不同的系统，有主线，有原厂BSP，有RTO
 
 ![image-20240127152200069](assets/post/README/image-20240127152200069.png)
 
-### 烧写系统
+### Tina Linux 原厂 BSP 烧写系统
 
 - 硬件：TinyVision主板 x1
 - 硬件：TypeC-SUB x1
@@ -119,6 +119,41 @@ TinyVision V851se支持多种不同的系统，有主线，有原厂BSP，有RTO
 4. 烧录完成后，如下蓝框 序号6 log提示，会提示 烧写完成，此时 拔下 TF卡即可进行后续启动步骤。
 
 ![image-20231221122848948](assets/post/README/TinaSDKFlash.jpg)
+
+### 主线 Linux 系统固件刷写
+
+主线 Linux 系统不适用于 PhoenixCard，请使用 win32diskimager 或者 Etcher 进行烧写，与树莓派是一样的
+
+- TF卡读卡器 x1
+- 8GB以上的 micro TF卡 x1
+- win32diskimage工具 : https://gitlab.com/dongshanpi/tools/-/raw/main/win32diskimager-1.0.0-install.exe
+- SDcard专用格式化工具：https://gitlab.com/dongshanpi/tools/-/raw/main/SDCardFormatter5.0.1Setup.exe
+- Etcher 烧写工具下载：https://etcher.balena.io/#download-etcher
+
+
+* 使用Win32Diskimage烧录：需要下载 **win32diskimage SDcard专用格式化** 这两个烧写TF卡的工具。
+
+- 使用SD CatFormat格式化TF卡，注意备份卡内数据。参考下图所示，点击刷新找到TF卡，然后点击 Format 在弹出的 对话框 点击 **是(Yes)**等待格式完成即可。
+
+![](assets/post/README/SDCardFormat_001.png)
+
+- 格式化完成后，使用**Win32diskimage**工具来烧录镜像，参考下属步骤，找到自己的TF卡盘符，然后点击2 箭头 文件夹的符号 找到 刚才解压的 TF卡镜像文件 **dongshannezhastu-sdcard.img** 最后 点击 写入，等待写入完成即可。
+
+![](assets/post/README/wind32diskimage_001.png)
+
+完成以后，就可以弹出TF卡，并将其插到 东山哪吒STU 最小板背面的TF卡槽位置处，此时连接 串口线 并使用 串口工具打开串口设备，按下开发板的 **RESET**复位按键就可以重启进入TF卡系统内了。
+
+* 使用 etcher https://etcher.balena.io/ 工具直接烧写系统镜像。
+
+1.以管理员身份运行 etcher 烧写工具
+
+2.选择需要烧写的系统镜像文件
+
+3.选择 目标磁盘，找到TF卡设备
+
+4. 点击烧录，等待烧录成功
+
+![](assets/post/README/Etcher_Flash.jpg)
 
 ### 插卡启动
 
@@ -318,81 +353,69 @@ C:\System> adb pull /mnt/UDISK/badapple.mp4   # 将 /mnt/UDISK/badapple.mp4 下�
 
 **注意： 此方法目前只适用于 使用全志Tina-SDK 构建出来的系统。**
 
-# 系统刷写
+# 系统镜像介绍下载
 
 系统下载地址：https://github.com/YuzukiHD/TinyVision/releases
 
-## 原厂SDK系统
-
-- 硬件兼容性 ⭐⭐⭐⭐⭐
-- 软件功能完善度 ⭐⭐⭐⭐⭐
-- 开发使用难度 ⭐⭐⭐⭐⭐
-- 烧写工具 全志自家烧录器。
-
 ### TinaSDK-5.0
 
-#### TF卡系统镜像
-
-- `v851se_linux_tinyvision_uart0.zip`
+- [v851se_linux_tinyvision_uart0.zip](https://github.com/YuzukiHD/TinyVision/releases/download/0.0.2/v851se_linux_tinyvision_uart0.zip)
   - 默认TinaSDK编译出来
 
   - 支持ADB
 
   - 和默认SDK兼容性最好
+  
+  - OpenCV
+  
+  - NPU
+  - Hardware encoder and decoder
+  - 使用 PhoenixCard 刷写到SD卡
+- [v851se_linux_tinyvision_uart0_raw.zip.zip](https://github.com/YuzukiHD/TinyVision/releases/download/0.0.2/v851se_linux_tinyvision_uart0_raw.zip.zip)
+  - 默认TinaSDK编译出来，使用 OpenixCard 转换为标准格式固件
+  - 支持ADB
 
+  - 和默认SDK兼容性最好
 
-## 主线Linux系统
+  - OpenCV
 
-- TF卡读卡器 x1
-- 8GB以上的 micro TF卡 x1
-- win32diskimage工具 : https://gitlab.com/dongshanpi/tools/-/raw/main/win32diskimager-1.0.0-install.exe
-- SDcard专用格式化工具：https://gitlab.com/dongshanpi/tools/-/raw/main/SDCardFormatter5.0.1Setup.exe
-- Etcher 烧写工具下载：https://etcher.balena.io/#download-etcher
+  - NPU
+  - Hardware encoder and decoder
+  - 使用 win32diskimager 刷写到SD卡
 
-
-* 使用Win32Diskimage烧录：需要下载 **win32diskimage SDcard专用格式化** 这两个烧写TF卡的工具。
-
-- 使用SD CatFormat格式化TF卡，注意备份卡内数据。参考下图所示，点击刷新找到TF卡，然后点击 Format 在弹出的 对话框 点击 **是(Yes)**等待格式完成即可。
-
-![](assets/post/README/SDCardFormat_001.png)
-
-- 格式化完成后，使用**Win32diskimage**工具来烧录镜像，参考下属步骤，找到自己的TF卡盘符，然后点击2 箭头 文件夹的符号 找到 刚才解压的 TF卡镜像文件 **dongshannezhastu-sdcard.img** 最后 点击 写入，等待写入完成即可。
-
-![](assets/post/README/wind32diskimage_001.png)
-
-完成以后，就可以弹出TF卡，并将其插到 东山哪吒STU 最小板背面的TF卡槽位置处，此时连接 串口线 并使用 串口工具打开串口设备，按下开发板的 **RESET**复位按键就可以重启进入TF卡系统内了。
-
-* 使用 etcher https://etcher.balena.io/ 工具直接烧写系统镜像。
-
-1.以管理员身份运行 etcher 烧写工具
-
-2.选择需要烧写的系统镜像文件
-
-3.选择 目标磁盘，找到TF卡设备
-
-4. 点击烧录，等待烧录成功
-
-![](assets/post/README/Etcher_Flash.jpg)
 
 ### Debian12
 
-- tinyvision_debian12_sdcard.img
+- [tinyvision_debian12_sdcard.img](https://github.com/YuzukiHD/TinyVision/releases/download/0.0.1/tinyvision_debian12_sdcard.img.tar.gz)
   - 支持 debian 12发行版系统
-
-### Buildroot-2023
-
-- tinyvision_sdcard.img
-  - 使用Linux kernel 5.15构建
-  - 配套 buildroot 2023版本
-  - 使用 syster启动
+  - 用户名 `root`
+  - 密码 `tinyvision`
+  - 使用 win32diskimager 刷写到SD卡
 
 ### OpenWrt-23.05
 
-- openwrt-yuzukihd-v851se-yuzuki_tinyvision-ext4-sysupgrade.img
+- [openwrt-yuzukihd-v851se-yuzuki_tinyvision-ext4-sysupgrade.img](https://github.com/YuzukiHD/TinyVision/releases/download/0.0.1/openwrt-yuzukihd-v851se-yuzuki_tinyvision-ext4-sysupgrade.img.gz)
   - 使用Linux kernel 6.x构建
   - 支持WOL
   - 支持LUCI配置
   - 支持百兆网卡等
+  - 使用 win32diskimager 刷写到SD卡
+- [openwrt-yuzukihd-v851se-yuzuki_tinyvision-squashfs-sysupgrade.img.gz](https://github.com/YuzukiHD/TinyVision/releases/download/0.0.1/openwrt-yuzukihd-v851se-yuzuki_tinyvision-squashfs-sysupgrade.img.gz)
+  - 使用Linux kernel 6.x构建
+  - 支持WOL
+  - 支持LUCI配置
+  - 支持百兆网卡等
+  - 支持OTA
+  - 使用 win32diskimager 刷写到SD卡
+
+
+## USB摄像头固件
+
+- [tinyvision_webcam.7z](https://github.com/YuzukiHD/TinyVision/releases/download/0.0.1/tinyvision_webcam.7z)
+  - 将 TinyVision 作为 USB 摄像头
+  - 1080p@30
+  - Support mjpeg and h264
+  - 使用 win32diskimager 刷写到SD卡
 
 # 支持的系统与开发 SDK
 
@@ -499,7 +522,7 @@ ubuntu@ubuntu1804:~/$ tree -L 1
 
 buildroot系统是一套基于Makefile管理的构建系统框架
 
-* buildroot-2023.2:  https://github.com/DongshanPI/buildroot-external-tinyvision
+- 网盘链接：https://pan.baidu.com/s/19QFDR_ssy6SJeRMzm5lVDw?pwd=b4nh 提取码：b4nh
 
 ``` ba
 ubuntu@ubuntu1804:~/buildroot-2023.02.8$ tree -L 1
@@ -2461,6 +2484,48 @@ chmod 777 genimage.sh
 可以看到 Linux 版本是 6.7.0
 
 ![image-20231216193814799](assets/post/README/image-20231216193814799.png)
+
+# Buildroot 开发
+
+## 获取源码
+
+- 网盘链接：https://pan.baidu.com/s/19QFDR_ssy6SJeRMzm5lVDw?pwd=b4nh 提取码：b4nh
+
+## 解压配置
+
+```shell
+ubuntu@ubuntu1804:~$ cd buildroot-2023.02.8/
+ubuntu@ubuntu1804:~/buildroot-2023.02.8$ ls
+arch   boot     Config.in         configs  DEVELOPERS  docs  linux     Makefile.legacy  package  support  toolchain
+board  CHANGES  Config.in.legacy  COPYING  dl          fs    Makefile  output           README   system   utils
+ubuntu@ubuntu1804:~/buildroot-2023.02.8$ ls configs/tinyvision_defconfig 
+configs/tinyvision_defconfig
+ubuntu@ubuntu1804:~/buildroot-2023.02.8$  
+```
+
+## 编译
+
+```shell
+ubuntu@ubuntu1804:~/buildroot-2023.02.8$  make tinyvision_defconfig
+#
+# configuration written to /home/ubuntu/buildroot-2023.02.8/.config
+#
+ubuntu@ubuntu1804:~/buildroot-2023.02.8$ make
+/usr/bin/make -j1  O=/home/ubuntu/buildroot-2023.02.8/output HOSTCC="/usr/bin/gcc" HOSTCXX="/usr/bin/g++" syncconfig
+```
+
+注意： 不要使用 `make clean` 命令 清理仓库。
+
+## 烧写
+
+```shell
+ubuntu@ubuntu1804:~/buildroot-2023.02.8$ ls output/images/
+boot.vfat    rootfs.ext4  sun8i-v851se-tinyvision.dtb  sunxi.dtb           tinyvision_sdcard.img
+rootfs.ext2  rootfs.tar   sun8i-v851s-tinyvision.dtb   syter_boot_bin.bin  zImage
+ubuntu@ubuntu1804:~/buildroot-2023.02.8$ 
+```
+
+系统编译完成后，镜像输出在 `output/images/` 目录下，名称为 `tinyvision_sdcard.img` 使用 `dd if` 命令 完整写入sd卡设备，或者 使用 Win32diskimage 工具。 或者使用 balenaEtcher 等 进行烧录。
 
 # Tina Linux NPU 开发
 
