@@ -362,7 +362,7 @@ C:\System> adb pull /mnt/UDISK/badapple.mp4   # 将 /mnt/UDISK/badapple.mp4 下�
 
 **注意： 此方法目前只适用于 使用全志Tina-SDK 构建出来的系统。**
 
-# 系统镜像介绍下载
+# 系统镜像下载
 
 系统下载地址：https://github.com/YuzukiHD/TinyVision/releases
 
@@ -370,28 +370,22 @@ C:\System> adb pull /mnt/UDISK/badapple.mp4   # 将 /mnt/UDISK/badapple.mp4 下�
 
 - [v851se_linux_tinyvision_uart0.zip](https://github.com/YuzukiHD/TinyVision/releases/download/0.0.2/v851se_linux_tinyvision_uart0.zip)
   - 默认TinaSDK编译出来
-
   - 支持ADB
-
   - 和默认SDK兼容性最好
-  
   - OpenCV
-  
   - NPU
   - Hardware encoder and decoder
   - 使用 PhoenixCard 刷写到SD卡
+
+
 - [v851se_linux_tinyvision_uart0_raw.zip.zip](https://github.com/YuzukiHD/TinyVision/releases/download/0.0.2/v851se_linux_tinyvision_uart0_raw.zip.zip)
   - 默认TinaSDK编译出来，使用 OpenixCard 转换为标准格式固件
   - 支持ADB
-
   - 和默认SDK兼容性最好
-
   - OpenCV
-
   - NPU
   - Hardware encoder and decoder
   - 使用 win32diskimager 刷写到SD卡
-
 
 ### Debian12
 
@@ -417,8 +411,7 @@ C:\System> adb pull /mnt/UDISK/badapple.mp4   # 将 /mnt/UDISK/badapple.mp4 下�
   - 支持OTA
   - 使用 win32diskimager 刷写到SD卡
 
-
-## USB摄像头固件
+### USB摄像头固件
 
 - [tinyvision_webcam.7z](https://github.com/YuzukiHD/TinyVision/releases/download/0.0.1/tinyvision_webcam.7z)
   - 将 TinyVision 作为 USB 摄像头
