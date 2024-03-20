@@ -52,12 +52,21 @@
 
 ### TypeC-SBUUart
 
+- 链接开发板
+- 提供串口调试功能
+- 提供OTG功能，通过他插U盘等设备
+
 https://item.taobao.com/item.htm?id=761016078439&
 
+![img](assets/post/README/O1CN01VSf9j91lZZ6KxHqtO_!!41044833.jpg_Q75.jpg_.webp)
 
 ### SPI显示屏
 
+- 1.44 寸 IPS 240*240 显示屏
+
 https://item.taobao.com/item.htm?id=761016078439&
+
+
 
 ### WIFI模块
 
@@ -2643,6 +2652,12 @@ NPU 开发完整的流程如下图所示:
 
 完整的代码已经上传Github开源，前往以下地址：https://github.com/YuzukiHD/TinyVision/tree/main/tina/openwrt/package/thirdparty/vision/opencv_camera_mobilenet_v2_ssd/src
 
+**【[注意，运行这里的DEMO请先移植LCD驱动！！ ](#lcd-模组驱动)】**
+
+否则报错 `Unsupported depth of framebuffer`
+
+![image-20240320180529300](assets/post/README/image-20240320180529300.png)
+
 ### Mobilenet v2 前处理
 
 ```c
@@ -3649,9 +3664,9 @@ MODULE_LICENSE("GPL");
 
 ### 勾选 SPI 驱动
 
-这里我们使用 SPI-NG 驱动，勾选 `<*> SPI NG Driver Support for Allwinner SoCs`
+这里我们使用 SPI-NG 驱动，勾选 `Device Drivers  ---> [*] SPI support  ---><*>   SUNXI SPI Controller`
 
-![image-20240117100904335](assets/post/README/image-20240117100904335.png)
+![image-20240320180743441](assets/post/README/image-20240320180743441.png)
 
 ### 勾选 Linux FrameBuffer 驱动
 
