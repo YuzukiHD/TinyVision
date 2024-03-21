@@ -370,7 +370,7 @@ C:\System> adb pull /mnt/UDISK/badapple.mp4   # 将 /mnt/UDISK/badapple.mp4 下�
 
 系统下载地址：https://github.com/YuzukiHD/TinyVision/releases
 
-### TinaSDK-5.0
+## TinaSDK-5.0
 
 - [v851se_linux_tinyvision_uart0.zip](https://github.com/YuzukiHD/TinyVision/releases/download/0.0.2/v851se_linux_tinyvision_uart0.zip)
   - 默认TinaSDK编译出来
@@ -391,7 +391,7 @@ C:\System> adb pull /mnt/UDISK/badapple.mp4   # 将 /mnt/UDISK/badapple.mp4 下�
   - Hardware encoder and decoder
   - 使用 win32diskimager 刷写到SD卡
 
-### Debian12
+## Debian12
 
 - [tinyvision_debian12_sdcard.img](https://github.com/YuzukiHD/TinyVision/releases/download/0.0.1/tinyvision_debian12_sdcard.img.tar.gz)
   - 支持 debian 12发行版系统
@@ -399,7 +399,7 @@ C:\System> adb pull /mnt/UDISK/badapple.mp4   # 将 /mnt/UDISK/badapple.mp4 下�
   - 密码 `tinyvision`
   - 使用 win32diskimager 刷写到SD卡
 
-### OpenWrt-23.05
+## OpenWrt-23.05
 
 - [openwrt-yuzukihd-v851se-yuzuki_tinyvision-ext4-sysupgrade.img](https://github.com/YuzukiHD/TinyVision/releases/download/0.0.1/openwrt-yuzukihd-v851se-yuzuki_tinyvision-ext4-sysupgrade.img.gz)
   - 使用Linux kernel 6.x构建
@@ -415,7 +415,7 @@ C:\System> adb pull /mnt/UDISK/badapple.mp4   # 将 /mnt/UDISK/badapple.mp4 下�
   - 支持OTA
   - 使用 win32diskimager 刷写到SD卡
 
-### USB摄像头固件
+## USB摄像头固件
 
 - [tinyvision_webcam.7z](https://github.com/YuzukiHD/TinyVision/releases/download/0.0.1/tinyvision_webcam.7z)
   - 将 TinyVision 作为 USB 摄像头
@@ -425,7 +425,7 @@ C:\System> adb pull /mnt/UDISK/badapple.mp4   # 将 /mnt/UDISK/badapple.mp4 下�
 
 # 支持的系统与开发 SDK
 
-### Tina-SDK系统
+## Tina-SDK系统
 
 - 此套构建系统基于全志单核 Arm Cortex-A7 SoC，搭载了 RISC-V 内核的V851s 芯片，适配了Tina 5.0主线版本，是专为智能 IP 摄像机设计的，支持人体检测和穿越报警等功能。
 
@@ -440,7 +440,7 @@ C:\System> adb pull /mnt/UDISK/badapple.mp4   # 将 /mnt/UDISK/badapple.mp4 下�
   * 第五部分介绍了Linux系统的相关操作，主要包含存储支持 打包 调试 优化等
   * 第六部分支持了一些应用demo示例，如LVGL GST等常用且较为丰富的综合项目
 
-### SyterKit系统
+## SyterKit系统
 
 * SyterKit源码位置:   https://github.com/YuzukiHD/SyterKit
 
@@ -462,7 +462,7 @@ SyterKit 是一个纯裸机框架，用于 TinyVision 或者其他 v851se/v851s/
 | syter bootargs  | 替代 U-Boot 引导，为 Linux 启用快速系统启动，支持在 CLI 中更改启动参数 | `app/syter_bootargs`  |
 | cli test        | 测试基本 CLI 功能                                            | `app/cli_test`        |
 
-### Linux Kernel
+## Linux Kernel
 
 基于Linus主线LinuxKernel 支持 tinyvision单板及驱动模块，支持多个内核版本，不同的内核版本支持的功能特性也不同，可以通过下述列表查看。
 
@@ -476,14 +476,14 @@ SyterKit 是一个纯裸机框架，用于 TinyVision 或者其他 v851se/v851s/
 | Mainline Linux 6.7 | Mainline                                | Cortex-A7 Core | `kernel\linux-6.7`  |
 
 
-### RTOS Kernel 
+## RTOS Kernel 
 
 | Kernel Version | Target ON               | Core           | Path              |
 | -------------- | ----------------------- | -------------- | ----------------- |
 | RT-Thread      | Real-Time Control, Fast | RISC-V E907    | `kernel\rtos`     |
 | SyterKit       | Baremetal ASM Code      | Cortex-A7 Core | `kernel\SyterKit` |
 
-### Openwrt系统
+## Openwrt系统
 
 TinyVision自带百兆网口接口+摄像头接口支持，支持 Current stable series: OpenWrt 23.05 系统，可以做一个 轻量级的IPC摄像头，里面运行主线系统，选择合适的内核版本  一键 编译生成系统镜像。
 
@@ -524,7 +524,7 @@ ubuntu@ubuntu1804:~/$ tree -L 1
 
 ```
 
-### Buildroot系统
+## Buildroot系统
 
 buildroot系统是一套基于Makefile管理的构建系统框架
 
@@ -562,7 +562,6 @@ ubuntu@ubuntu1804:~/buildroot-2023.02.8$
 ```
 
 # 安装并配置开发环境
-
 
 ## 获取虚拟机系统
 
