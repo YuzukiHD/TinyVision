@@ -5114,26 +5114,29 @@ TinyVision 支持多版本内核开发，具体外设支持情况如下
 
 # 芯片规格对比
 
-| 处理器规格          | V85x                                                      | XV1103/6                  |
-| ------------------- | --------------------------------------------------------- | ------------------------- |
-| CPU                 | Cortex-A7 1.2GHz                                          | Cortex-A7 1.2GHz          |
-| RISC-V              | RISC-V **600MHz**                                         | RISC-V 400MHz             |
-| NPU                 | **1TOPS** INT8,INT16                                      | 0.5TOPS INT4,INT8,INT16   |
-| Memory              | 16bit DDR2/DDR3                                           | 16bit DDR2/DDR3/**DDR4**  |
-|                     | 512Mb/1Gb/2Gb/**4Gb/8Gb**                                 | 512Mb/1Gb/2Gb             |
-| eMMC                | eMMC **5.1**                                              | eMMC 4.51                 |
-| SPI FLASH           | Octa SPI **8线**                                          | Quad SPI 4线              |
-| ISP                 | 5M ISP                                                    | 5M ISP                    |
-| AI ISP              | **Low illumination AI ISP**                               | None                      |
-| MIPI CSI            | 2xMIPI CSI                                                | 2xMIPI CSI                |
-| DVP                 | **BT601**/BT656/BT1120                                    | BT656/BT1120              |
-| Encoder H.265/H.265 | **3840×2160@15**/2560×1920@30                             | 3072×1728@25/2560×1440@30 |
-| Net                 | **RGMII**/RMII/RMII Ethernet PHY                          | RMII Ethernet PHY         |
-| USB                 | USB2.0 OTG                                                | USB2.0 OTG                |
-| SDIO                | **3**×SDIO/Support TF + eMMC + WIFI                       | 2×SDIO/Support TF + WIFI  |
-| I2S                 | **2**×8CH I2S                                             | 1×8CH I2S                 |
-| Codec               | Audio Codec                                               | Audio Codec               |
-| OS                  | TinaLinux/**OpenWRT/Buildroot/Debian/Mainline Linux 6.8** | Linux + Busybox           |
+| 处理器规格             | V85x                                                      | XV1103/6                  |
+| ---------------------- | --------------------------------------------------------- | ------------------------- |
+| CPU                    | Cortex-A7 1.2GHz                                          | Cortex-A7 1.2GHz          |
+| RISC-V                 | RISC-V **600MHz**                                         | RISC-V 400MHz             |
+| NPU                    | **1TOPS** INT8,INT16                                      | 0.5TOPS INT4,INT8,INT16   |
+| Memory                 | 16bit DDR2/DDR3                                           | 16bit DDR2/DDR3/**DDR4**  |
+|                        | 512Mb/1Gb/2Gb/**4Gb/8Gb**                                 | 512Mb/1Gb/2Gb             |
+| eMMC                   | eMMC **5.1**                                              | eMMC 4.51                 |
+| SPI FLASH              | Octa SPI **8线**                                          | Quad SPI 4线              |
+| ISP                    | 5M ISP 第6代ISP                                           | 5M ISP 第3代ISP           |
+| AI ISP                 | **Low illumination AI ISP**                               | None                      |
+| MIPI CSI               | 2xMIPI CSI                                                | 2xMIPI CSI                |
+| MIPI DSI               | **1920×1200@60**                                          | None                      |
+| RGB                    | 1920×1080@60 **RGB888**                                   | 1920×1080@60 RGB666       |
+| DVP                    | **BT601**/BT656/BT1120                                    | BT656/BT1120              |
+| Encoder H.265/H.265    | **3840×2160@15**/2560×1920@30                             | 3072×1728@25/2560×1440@30 |
+| Net                    | **RGMII**/RMII/RMII Ethernet PHY                          | RMII Ethernet PHY         |
+| USB                    | USB2.0 OTG                                                | USB2.0 OTG                |
+| SDIO                   | **3**×SDIO/Support TF + eMMC + WIFI                       | 2×SDIO/Support TF + WIFI  |
+| I2S                    | **2**×8CH I2S                                             | 1×8CH I2S                 |
+| Codec                  | Audio Codec                                               | Audio Codec               |
+| OS                     | TinaLinux/**OpenWRT/Buildroot/Debian/Mainline Linux 6.8** | Linux + Busybox           |
+| 芯片价格（淘宝零售价） | 满配 V853 35元                                            | 满配 RV1106G3 38元        |
 
 # 相关文档
 
