@@ -4206,7 +4206,7 @@ Tina SDK 基于OpenWrt 提供了一些自动化方案，可以参考 OpenWrt 的
 
 ![image-20240115151604351](assets/post/README/image-20240115151604351.png)
 
-解压后拷贝到 `package/firmware/linux-firmware/aic8800` 即可
+解压后拷贝到 `openwrt/openwrt/package/firmware/linux-firmware/aic8800` 即可（Tina 5.0已经内置，客服给的4.0才需要这样）
 
 ![image-20240115151709361](assets/post/README/image-20240115151709361.png)
 
