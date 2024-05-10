@@ -120,7 +120,7 @@ static vip_status_e gckvip_map_user(
     gckvip_dyn_allocate_node_t *node,
     struct page **pages,
     vip_uint32_t num_pages,
-    vip_uint32_t alloc_flag,
+    gckvip_video_mem_alloc_flag_e alloc_flag,
     void **logical
     );
 
