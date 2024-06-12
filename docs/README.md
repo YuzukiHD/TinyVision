@@ -546,6 +546,35 @@ pack
 - make -j32 ：编译，其中-j后面的数字参数为编译用的线程数，可根据开发者编译用的PC实际情况选择。
 - pack : 打包，将编译好的固件打包成一个.img格式的固件，固件路径 `/out/`
 
+## 适配板载 SD NAND
+
+设备树中的 SDC2 节点修改如下，之后线刷即可
+
+```
+&sdc2 {
+	non-removable;
+	bus-width = <4>;
+	mmc-ddr-3_3v;
+	/*mmc-hs200-1_8v;*/
+	/*mmc-hs400-1_8v;*/
+	no-sdio;
+	/delete-property/ no-sd;
+	no-mmc;
+	ctl-spec-caps = <0x8>;
+	cap-mmc-highspeed;
+	sunxi-signal-vol-sw-without-pmu;
+	sunxi-power-save-mode;
+	/*sunxi-dis-signal-vol-sw;*/
+	max-frequency = <50000000>;
+	/*vmmc-supply = <&reg_dcdc1>;*/
+	/*emmc io vol 3.3v*/
+	/*vqmmc-supply = <&reg_aldo1>;*/
+	/*emmc io vol 1.8v*/
+	/*vqmmc-supply = <&reg_eldo1>;*/
+	status = "okay";
+};
+```
+
 ## 常见问题
 
 ### ERROR: reserving fdt memory region failed
@@ -777,6 +806,35 @@ Allwinner  --->
 编译系统然后烧录系统，运行命令 `camerademo` ，可以看到是正常拍摄照片的
 
 ![image-20240122162014027](assets/post/README/image-20240122162014027.png)
+
+## 适配板载 SD NAND
+
+设备树中的 SDC2 节点修改如下，之后线刷即可
+
+```
+&sdc2 {
+	non-removable;
+	bus-width = <4>;
+	mmc-ddr-3_3v;
+	/*mmc-hs200-1_8v;*/
+	/*mmc-hs400-1_8v;*/
+	no-sdio;
+	/delete-property/ no-sd;
+	no-mmc;
+	ctl-spec-caps = <0x8>;
+	cap-mmc-highspeed;
+	sunxi-signal-vol-sw-without-pmu;
+	sunxi-power-save-mode;
+	/*sunxi-dis-signal-vol-sw;*/
+	max-frequency = <50000000>;
+	/*vmmc-supply = <&reg_dcdc1>;*/
+	/*emmc io vol 3.3v*/
+	/*vqmmc-supply = <&reg_aldo1>;*/
+	/*emmc io vol 1.8v*/
+	/*vqmmc-supply = <&reg_eldo1>;*/
+	status = "okay";
+};
+```
 
 ## 适配 OpenCV 
 
