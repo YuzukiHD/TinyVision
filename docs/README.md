@@ -1472,6 +1472,29 @@ U-Boot 默认配置的是使用 SDC2 也就是 TinyVision 的 SD-NAND 刷写固�
 
 出现 `try card 0` 开始下载到 TF 卡内
 
+## USB 摄像头输入
+
+有些场景需要使用 USB 摄像头输入，配置如下
+
+开启 USB UVC 支持 `m kernel_menuconfig`
+
+```
+-> Device Drivers
+	-> Multimedia support (MEDIA_SUPPORT [=y])
+		-> Media USB Adapters (MEDIA_USB_SUPPORT [=y])
+			-> USB Video Class (UVC) (USB_VIDEO_CLASS [=y]) 
+```
+
+之后编译系统，启动，将 USB 切换为 HOST 模式（默认是 Device）
+
+```
+cat /sys/devices/platform/soc/usbc0/usb_host
+```
+
+这里测试使用的是采集卡，输出如下，可以看到 Video0 已经出来了
+
+![image-20240613193430159](assets/post/README/image-20240613193430159.png)
+
 # Tina Linux NPU 开发
 
 TinyVision V851s 使用 OpenCV + NPU 实现 Mobilenet v2 物体识别。上一篇已经介绍了如何使用 TinyVision 与 OpenCV 开摄像头，本篇将使用已经训练完成并且转换后的模型来介绍对接 NPU 实现物体识别的功能。
@@ -4262,7 +4285,7 @@ Tina SDK 基于OpenWrt 提供了一些自动化方案，可以参考 OpenWrt 的
 
 下载得到 `aic8800-firmware.tar.gz` 这里面包含着 WIFI 使用的固件
 
-!> 注意，如果您的WIFI模块是 AIC8800D80 请下载 AIC8800D80 的固件
+!> 注意，如果您的WIFI模块是 AIC8800D80 请下载 AIC8800D80 的固件（2024年4月后 WIFI 模块均升级为 AIC8800D80 模块）
 
 ![image-20240115151604351](assets/post/README/image-20240115151604351.png)
 
