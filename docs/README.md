@@ -4262,6 +4262,8 @@ Tina SDK 基于OpenWrt 提供了一些自动化方案，可以参考 OpenWrt 的
 
 下载得到 `aic8800-firmware.tar.gz` 这里面包含着 WIFI 使用的固件
 
+!> 注意，如果您的WIFI模块是 AIC8800D80 请下载 AIC8800D80 的固件
+
 ![image-20240115151604351](assets/post/README/image-20240115151604351.png)
 
 解压后拷贝到 `openwrt/openwrt/package/firmware/linux-firmware/aic8800` 即可（Tina 5.0已经内置，客服给的4.0才需要这样）
