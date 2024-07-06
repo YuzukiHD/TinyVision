@@ -10,6 +10,62 @@
 
 /{
 	compatible = "allwinner,sun8iw21p1", "arm,sun8iw21p1", "allwinner,v851se";
+
+	reserved-memory {
+		e907_dram: riscv_memserve {
+			reg = <0x0 0x43c00000 0x0 0x00400000>;
+			no-map;
+		};
+
+		vdev0buffer: vdev0buffer@0x43000000 {
+			/* 256k reserved for shared mem pool */
+			compatible = "shared-dma-pool";
+			reg = <0x0 0x43000000 0x0 0x40000>;
+			no-map;
+		};
+
+		vdev0vring0: vdev0vring0@0x43040000 {
+			reg = <0x0 0x43040000 0x0 0x20000>;
+			no-map;
+		};
+
+		vdev0vring1: vdev0vring1@0x43060000 {
+			reg = <0x0 0x43060000 0x0 0x20000>;
+			no-map;
+		};
+	};
+
+	e907_rproc: e907_rproc@0 {
+		compatible = "allwinner,sun8iw21p1-e907-rproc";
+		clock-frequency = <600000000>;
+		memory-region = <&e907_dram>, <&vdev0buffer>,
+				<&vdev0vring0>, <&vdev0vring1>;
+
+		mboxes = <&msgbox 0>;
+		mbox-names = "mbox-chan";
+
+		memory-mappings =
+			/* DA 	         len         PA */
+			/* DDR for e907  */
+			< 0x43c00000 0x00400000 0x43c00000 >;
+		core-name = "sun8iw21p1-e907";
+		firmware-name = "melis-elf";
+		status = "okay";
+	};
+ 
+	rpbuf_controller0: rpbuf_controller@0 {
+		compatible = "allwinner,rpbuf-controller";
+		remoteproc = <&e907_rproc>;
+		ctrl_id = <0>;	/* index of /dev/rpbuf_ctrl */
+		status = "okay";
+	};
+
+	rpbuf_sample: rpbuf_sample@0 {
+		compatible = "allwinner,rpbuf-sample";
+		rpbuf = <&rpbuf_controller0>;
+		status = "okay";
+	};
+
 	soc@03000000 {
 		wlan: wlan@0 {
 			compatible    = "allwinner,sunxi-wlan";
@@ -364,7 +420,7 @@
 	pinctrl-names = "default", "sleep";
 	pinctrl-0 = <&uart3_pins_active>;
 	pinctrl-1 = <&uart3_pins_sleep>;
-	status = "disabled";
+	status = "okay";
 };
 
 &pio {
@@ -411,15 +467,15 @@
 	};
 
 	uart3_pins_active: uart3@0 {
-		allwinner,pins = "PH0", "PH1";
+		allwinner,pins = "PE0", "PE1";
 		allwinner,function = "uart3";
-		allwinner,muxsel = <5>;
+		allwinner,muxsel = <7>;
 		allwinner,drive = <1>;
 		allwinner,pull = <1>;
 	};
 
 	uart3_pins_sleep: uart3@1 {
-		allwinner,pins = "PH0", "PH1";
+		allwinner,pins = "PE0", "PE1";
 		allwinner,function = "gpio_in";
 		allwinner,muxsel = <0>;
 	};
@@ -1170,4 +1226,12 @@
 
 &cpu0 {
 	vf_tbl_sel = <0>;
+};
+
+&msgbox {
+	status = "okay";
+};
+
+&e907_standby {
+	status = "okay";
 };
