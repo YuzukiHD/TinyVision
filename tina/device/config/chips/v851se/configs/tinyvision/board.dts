@@ -420,7 +420,7 @@
 	pinctrl-names = "default", "sleep";
 	pinctrl-0 = <&uart3_pins_active>;
 	pinctrl-1 = <&uart3_pins_sleep>;
-	status = "okay";
+	status = "disabled";
 };
 
 &pio {
