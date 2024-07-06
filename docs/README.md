@@ -747,6 +747,7 @@ repo start devboard-v853-tina-for-awol --all
 | 1.0  | https://github.com/YuzukiTsuru/YuzukiTsuru.GitHub.io/releases/download/2024-01-21-20240121/tina-bsp-tinyvision.tar.gz |
 | 1.1  | https://github.com/YuzukiHD/TinyVision/releases/download/tina.0.0.1/tina-bsp-tinyvision.tar.gz |
 | 1.2  | https://github.com/YuzukiHD/TinyVision/releases/download/tina.0.0.2/tina-bsp-tinyvision.tar.gz |
+| 1.3  | https://github.com/YuzukiHD/TinyVision/releases/download/tina.0.0.2/tina-bsp-tinyvision_1.3.tar.gz |
 
 或者可以在：https://github.com/YuzukiHD/TinyVision/tree/main/tina 下载到文件，不过这部分没预先下载软件包到 dl 文件夹所以编译的时候需要手动下载。
 
