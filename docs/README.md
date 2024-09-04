@@ -662,7 +662,7 @@ AWOL 版本的 Tina Linux 使用的是 Tina5.0，OpenWrt 升级到了 21.05 版�
 | 内存 (RAM)   | 16GB DDR4           | 64GB  DDR5                                           |
 | 硬盘 (存储)  | 512GB HDD           | 2TB NVMe SSD                                     |
 
-如果很不幸您没满足最低16G内存，需要关闭OpenCV，Python3，Numpy编译，配置文件在末尾附录
+如果很不幸您没满足最低16G内存，需要关闭OpenCV，Python3，Numpy编译，配置文件在末尾附录，覆盖文件 `openwrt/target/v851se/v851se-tinyvision/defconfig`
 
 更新系统，安装基础软件包
 
