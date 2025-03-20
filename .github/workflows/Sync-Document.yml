@@ -34,5 +34,5 @@ jobs:
           SOURCE: /docs/
           REMOTE_HOST: ${{ secrets.FTP_SERVER_IP }}
           REMOTE_USER: ${{ secrets.FTP_SERVER_USERNAME }}
-          TARGET: /www/wwwroot/syterkit.yuzukihd.top/
+          TARGET: /www/wwwroot/tinyvision.yuzukihd.top/
           EXCLUDE: ".git*, .well-known/, .user.ini, .htaccess, .git/, .gitignore"
