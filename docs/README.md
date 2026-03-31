@@ -728,6 +728,14 @@ mkdir tina-v853-open
 cd tina-v853-open
 ```
 
+注意如果使用Windows下WSL系统可以利用PowerShell预先设置路径大小写敏感防止OpenWrt编译问题，后续sync子目录也会保持大小写敏感，命令如下：
+
+以管理员身份运行PowerShell
+```
+cd repo对应Windows路径
+fsutil.exe file setCaseSensitiveInfo .\tina-v853-open enable
+```
+
 ### 初始化 repo 仓库
 
 使用 `repo init` 命令初始化仓库，`tina-v853-open` 的仓库地址是 `https://sdk.aw-ol.com/git_repo/V853Tina_Open/manifest.git` 需要执行命令：
